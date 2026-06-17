@@ -1,0 +1,196 @@
+version: 1
+plan:
+  name: '修 /teacher 页面 500（新教师零 assessment 场景）+ 部署 + 真机回归'
+  max_concurrency: 2
+  max_consecutive_failures: 2
+  max_cycles: 6
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+tasks:
+  - id: fix-teacher-empty-state
+    title: '后端修 render_teacher_app 零 assessment 场景 + 加单测 + 本地 unittest 全过'
+    assigned_to: coder
+    verified_by: verifier
+    timeout_ms: 1800000
+    prompt: |
+      # 任务：修 /teacher 页面 500（零 assessment 场景）
+
+      ## ⚠️ 开工必做（worker 红线 — 违反必 abort）
+      本地项目工作区是临时副本,plan complete 会被清空。**先 cd 到项目,git status;不是 git 仓库就先 `git init` + 初始 commit;已经是 git 仓库就 `git pull`(无 remote 就 `git status` 确认)。任何 .py/.css/.js 改动**先 `git add` + `git commit`**再跑测试**。改完不 commit = 数据丢失,plan engine 不会替你兜底。
+
+      ## 背景
+      上一轮发现：管理员创建新教师 + 分配班级 + 改密登录后,`/teacher` 页面 HTTP 500 + `{"error":"internal_error"}`。
+      根因(已定位):`highschoolphysics/server.py:1034` 写死 `assessment = dashboard["assessments"][0]`,零 assessment 时 IndexError。
+      远端仓库:`/home/yub/Documents/trae_projects/HighSchoolPhysics`(已有 .git 仓库)
+      远端服务:`nohup python3 -m highschoolphysics.server --host 0.0.0.0 --port 8765 --db data/school.sqlite3`,PID 3823311 监听 8765
+      admin 密码:`yubin12345`
+
+      ## 必做
+      1. **先 cd 到项目根**:`cd /Users/binyu/Projects/HighSchoolPhysics` + `git status` 确认是 git 仓库(刚 init 过,HEAD=1216ebb)
+      2. 读 `highschoolphysics/server.py:1030-1100` 看 `render_teacher_app` 整段,以及 `repository.py:3902-3964` 的 `teacher_dashboard`
+      3. 修 `server.py:1034` 附近:`assessment = dashboard["assessments"][0] if dashboard["assessments"] else None`
+      4. **整个 render_teacher_app 内部所有访问 `assessment[...]` 或 `assessment[.id]` 的地方都要判空**:
+         - 如果 `assessment is None`,**不要 IndexError**,给空状态:
+           - `assessments` 列表渲染空提示("还没有测评,先去组卷")
+           - 不渲染 mastery_analytics / diagnostics / class_mastery_analytics
+           - **不渲染 phase2d-form-grid**(避免后续引用 assessment_id 字段)
+           - 保留头部/侧边/科目切换/退出
+         - 推荐加分支:`if assessment is None: render 早返回带"暂无测评"提示的 HTML` 或在 `assessments[0]` 那行用 `or {}` 兜底,**整体风格跟现有 teacher 端一致**
+      5. 加单测:
+         - `tests/test_teacher_empty_dashboard.py` 新文件,测零 assessment 教师登录 `/teacher` 返回 200 不报 500
+         - 覆盖:admin 调 import-teacher + assign-classes → 模拟新教师登录 → `/teacher` 返 200 + 页面包含"暂无测评"或等价的空状态文案
+         - 跑 `python3 -m unittest discover -s tests -v` 必须全过,**且测试列表里能看到新加的 test_teacher_empty_dashboard**
+      6. **本地改完先 git commit**:`git add -A && git -c user.email=mavis@local -c user.name=mavis commit -m "fix: render_teacher_app graceful empty state when teacher has 0 assessments"`
+      7. 改完后**必须 scp 推送到远端**:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+           highschoolphysics/server.py \
+           yub@10.50.159.62:/home/yub/Documents/trae_projects/HighSchoolPhysics/highschoolphysics/server.py
+         SSHPASS='yubinai1234' sshpass -e scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+           tests/test_teacher_empty_dashboard.py \
+           yub@10.50.159.62:/home/yub/Documents/trae_projects/HighSchoolPhysics/tests/test_teacher_empty_dashboard.py
+         ```
+      8. **远端 commit**:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 \
+           'cd /home/yub/Documents/trae_projects/HighSchoolPhysics && git add -A && git -c user.email=mavis@local -c user.name=mavis commit -m "fix: render_teacher_app graceful empty state"'
+         ```
+      9. 远端重启服务(nohup 方式,因为 sudo systemctl 无 tty):
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 'kill 3823311 2>/dev/null; sleep 2; nohup .venv/bin/python -m highschoolphysics.server --host 0.0.0.0 --port 8765 --db data/school.sqlite3 > data/server-new.log 2>&1 & echo "new PID: $!"; sleep 3; ps aux | grep highschoolphysics | grep -v grep'
+         ```
+         记下新 PID,写到 deliverable.md
+      10. 远端重跑 unittest 确认 server.py 改动不破坏:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 'cd /home/yub/Documents/trae_projects/HighSchoolPhysics && .venv/bin/python -m unittest discover -s tests 2>&1 | tail -5'
+         ```
+         必须全过(数字可能比 187 多,因为加了 test_teacher_empty_dashboard)
+
+      ## 约束
+      - 只能改 server.py(主要是 render_teacher_app 那段);不动 repository.py 业务逻辑
+      - 远端 **不能动 t_e2e 用户**(它已经在远端 DB 里,后续回归截图会复用)
+      - 远端不能动 admin 密码
+      - 远端不能 reset DB
+      - 远端 `data/school.sqlite3` 只读
+
+      ## 提交契约
+      - 双路径:
+        1. `/Users/binyu/.mavis/plans/plan_<plan_id>/outputs/fix-teacher-empty-state/deliverable.md`
+        2. `/Users/binyu/Projects/HighSchoolPhysics/.mavis/plans/admin-teacher-empty-state-fix.md`
+      - 必含:server.py 改动 diff 摘要(行号 + 改了什么)+ 本地 unittest 输出末 5 行 + 远端 unittest 输出末 5 行 + 远端新服务 PID + 远端 git log -1 输出
+
+    verify_prompt: |
+      # 验证：/teacher 500 修复
+
+      不要只读 diff,跑复现。
+
+      ## 必跑
+      1. **本地**:
+         ```bash
+         cd /Users/binyu/Projects/HighSchoolPhysics
+         git log --oneline -2
+         git diff HEAD~1 HEAD --stat  # 确认改动只有 server.py
+         python3 -m unittest discover -s tests -v 2>&1 | tail -10
+         ```
+         - 看到 commit hash + 改动列表
+         - 全套 unittest pass
+         - 找到 `test_teacher_empty_dashboard` 跑了
+
+      2. **远端代码已更新**:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 \
+           'cd /home/yub/Documents/trae_projects/HighSchoolPhysics && git log --oneline -2 && grep -nE "assessments\[0\]|if dashboard\[.assessments.\]" highschoolphysics/server.py'
+         ```
+         - 远端 git log 看到新 commit
+         - 代码里有 `if dashboard["assessments"]` 之类的空判断
+
+      3. **远端测试**:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 \
+           'cd /home/yub/Documents/trae_projects/HighSchoolPhysics && .venv/bin/python -m unittest tests.test_teacher_empty_dashboard -v 2>&1 | tail -15'
+         ```
+         - 远端 test_teacher_empty_dashboard 跑通
+
+      4. **服务在线**:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 \
+           'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8765/login'
+         ```
+         - 返 200 或 302
+
+      ## FAIL 标准
+      - 远端代码未更新(server.py md5 不变)
+      - 本地或远端 unittest fail
+      - 远端服务没起来
+      - git diff 看到改动了非 server.py 文件(repository.py / app.js / app.css 都不该动)
+
+  - id: e2e-regress
+    title: '真机回归：t_e2e 重登 /teacher 不再 500，能看到空状态 + 组卷 CTA'
+    assigned_to: coder
+    verified_by: verifier
+    depends_on: [fix-teacher-empty-state]
+    timeout_ms: 1800000
+    prompt: |
+      # 任务：真机回归 t_e2e /teacher 修复
+
+      ## ⚠️ 开工必做
+      任何改动**先 commit 再做后续验证**。本地 `cd /Users/binyu/Projects/HighSchoolPhysics` + `git status` 确认。
+
+      ## 背景
+      上一轮端到端验证时 t_e2e 登录后 /teacher 500。修复后必须重跑:
+      - t_e2e 已经存在(用户名 `t_e2e`,密码 `NewE2E2026`)
+      - admin:yubin12345
+      - 服务在 10.50.159.62:8765(修复后已重启,新 PID 见上一个 task deliverable)
+
+      ## 必做(硬性 5 分钟截止)
+      1. playwright MCP 打开 `http://10.50.159.62/login`,**用 t_e2e / NewE2E2026 直接登录**(不要再新建)
+      2. 等跳到 /teacher
+      3. 截图 → `/tmp/e2e-regress-teacher-dashboard.png`(要能看到"暂无测评"空状态 + 不报 500)
+      4. 退出,用 admin/yubin12345 登录 → /admin#admin=accounts
+      5. 截图 → `/tmp/e2e-regress-admin-still-works.png`(确认 admin 端没破)
+      6. 远端校验:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 \
+           'cd /home/yub/Documents/trae_projects/HighSchoolPhysics && \
+            python3 -c "import sqlite3; c=sqlite3.connect(\"data/school.sqlite3\"); print(c.execute(\"select username,role,status from users where username in (\"\"admin\"\",\"\"t_e2e\"\")\").fetchall())"'
+         ```
+         期望:2 行,admin + t_e2e 都存在
+
+      ## 关键判定
+      - **/teacher 必须返 200 + HTML**(不是 500 + JSON)
+      - 页面里要有"暂无测评"或"还没有测评"等空状态文案
+      - t_e2e 不需要被新建或重置
+
+      ## 提交契约
+      - 双路径:
+        1. `/Users/binyu/.mavis/plans/plan_<plan_id>/outputs/e2e-regress/deliverable.md`
+        2. `/Users/binyu/Projects/HighSchoolPhysics/.mavis/plans/admin-teacher-empty-state-e2e.md`
+      - 必含:2 张截图、HTTP status、sqlite 校验输出
+
+    verify_prompt: |
+      # 验证：/teacher 修复回归
+
+      独立用 playwright 复现,不要只读 deliverable。
+
+      ## 必跑
+      1. 远端服务在线:
+         ```bash
+         SSHPASS='yubinai1234' sshpass -e ssh yub@10.50.159.62 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8765/login'
+         ```
+         200 或 302
+
+      2. t_e2e 登录:用 playwright 打开 `http://10.50.159.62/login`,输 `t_e2e` / `NewE2E2026`,**不能新注册**
+
+      3. 跳 /teacher:
+         - HTTP 状态 = 200
+         - response Content-Type 是 `text/html`(不是 `application/json`)
+         - response body 不是 `{"error":"internal_error"...}`
+         - HTML 里包含"测评"或"组卷"等关键文案(空状态或 dashboard 都有)
+
+      4. 截图存在且非空:`/tmp/e2e-regress-teacher-dashboard.png`、`/tmp/e2e-regress-admin-still-works.png`
+
+      ## FAIL 标准
+      - /teacher 仍 500
+      - 截图缺失
+      - Content-Type 是 JSON

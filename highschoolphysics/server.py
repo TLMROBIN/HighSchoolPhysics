@@ -1031,7 +1031,56 @@ def _render_admin_mastery_analytics(analytics):
 
 
 def render_teacher_app(user, dashboard):
-    assessment = dashboard["assessments"][0]
+    assessments = dashboard.get("assessments", []) or []
+    if not assessments:
+        # 零 assessment 教师:admin 刚导入 / 刚分配班级的老师,直接给出空状态页,
+        # 避免对 assessment[id/title/...] 取值导致 IndexError 或 KeyError。
+        # 保留头部 / 退出按钮(由 render_layout 渲染),引导先去组卷。
+        # 不渲染 mastery_analytics / diagnostics / class_mastery_analytics / phase2d-form-grid
+        # 这些区域都依赖 assessment_id,等管理员建好测评后再展示。
+        class_options = "".join(
+            "<option value='%s'>%s</option>"
+            % (escape(item["id"]), escape(item["name"]))
+            for item in dashboard.get("classes", [])
+        )
+        body = """
+<section class="teacher-app">
+  <div id="action-status" class="action-status" aria-live="polite">等待操作</div>
+  <div class="workspace-grid">
+    <section class="panel span-2">
+      <div class="panel-head">
+        <h1>测评批次</h1>
+        <span>批改并发布会先检查低置信答题卡,未复核时不会发布。</span>
+      </div>
+      <article class="empty-state" data-empty-state="no-assessment">
+        <p><strong>暂无测评</strong></p>
+        <p>系统还没有为本教师或所任课班级创建任何测评批次。</p>
+        <p>请先在下方「组卷与答题卡」中创建试卷,或联系管理员导入测评数据。</p>
+      </article>
+    </section>
+    <section class="panel">
+      <h2>LLM 候选审核</h2>
+      <p class="explain">LLM 候选审核用于把题目先交给模型生成知识点/能力标签建议和核心素养标签建议,教师确认后才写入正式题库。</p>
+      <table><thead><tr><th>题目</th><th>知识标签</th><th>能力标签</th><th>核心素养标签</th><th>操作</th></tr></thead>
+        <tbody><tr><td colspan='5'><button data-action='generate-candidate' data-question-id='q-newton-1'>生成 q-newton-1 候选</button></td></tr></tbody>
+      </table>
+    </section>
+    <section class="panel">
+      <h2>答题卡复核</h2>
+      <table><thead><tr><th>学生</th><th>题目</th><th>识别</th><th>置信度</th><th>操作</th></tr></thead>
+        <tbody><tr><td colspan='5'>无待复核答题卡</td></tr></tbody>
+      </table>
+    </section>
+    <section class="panel span-2">
+      <div class="panel-head">
+        <h2>组卷与答题卡</h2>
+        <p class="explain">尚未创建测评,可在此处先组卷。创建测评后,系统会自动启用错题本、PDF 批改、年级掌握趋势等模块。</p>
+      </div>
+    </section>
+  </div>
+</section>""".format(class_options=class_options)
+        return render_layout("教师端 - 高中物理闭环系统", user, body, "teacher")
+    assessment = assessments[0]
     candidate_rows = []
     for candidate in dashboard["pending_candidates"]:
         candidate_rows.append(
