@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 from urllib.parse import urlencode
 
-from tests.http_support import LivePhysicsServer, seed_other_class
+from tests.http_support import LivePhysicsServer
 
 
 def _conn(server):
@@ -25,21 +25,66 @@ def _conn(server):
     return connect(server.db_path)
 
 
+def _bootstrap_empty_server(db_path):
+    """在 seed=False 的 LivePhysicsServer 上手搓一个最小数据:
+    - bootstrap_admin
+    - 手搓一个 class-physics-empty(无 assessment / 无 student)
+    返回 admin 用户名/密码元组。
+    """
+    from highschoolphysics.db import bootstrap_admin, connect
+    from highschoolphysics.security import hash_password
+
+    conn = connect(db_path)
+    try:
+        bootstrap_admin(
+            conn,
+            username="admin",
+            display_name="系统管理员",
+            password_hash=hash_password("admin123"),
+            school_name="测试学校",
+        )
+        # 创建一个空班级(零 student + 零 assessment)
+        conn.execute(
+            "insert into class_groups(id, school_id, name, grade, school_year, status) "
+            "values(?,?,?,?,?,?)",
+            (
+                "class-physics-empty",
+                _school_id_of(conn, "admin"),
+                "空班级",
+                "高二",
+                "2025-2026",
+                "active",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return "admin", "admin123"
+
+
+def _school_id_of(conn, username):
+    row = conn.execute(
+        "select school_id from users where username = ?", (username,)
+    ).fetchone()
+    return row["school_id"]
+
+
 class TeacherEmptyDashboardTests(unittest.TestCase):
-    """覆盖 admin 刚 import-teacher + 分配班级后,新教师 GET /teacher 不 500。"""
+    """覆盖 admin 刚 import-teacher + 分配班级后,新教师 GET /teacher 不 500。
+
+    关键:用 seed=False 启动 LivePhysicsServer,自己 bootstrap admin + 一个
+    零 assessment 班级,这样新教师分配到这个班级后,dashboard["assessments"]
+    一定是 [],触发 render_teacher_app 的空状态分支。
+    """
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.server_context = LivePhysicsServer(
-            Path(self.tmpdir.name) / "teacher-empty.sqlite3"
-        )
+        self.db_path = Path(self.tmpdir.name) / "teacher-empty.sqlite3"
+        # seed=False:不跑 seed_demo_data,这样没有 assess-week-1 / 2 等干扰
+        self.server_context = LivePhysicsServer(self.db_path, seed=False)
         self.server = self.server_context.__enter__()
-        # seed_other_class 拿一个 class-physics-2 用于分配
-        conn = _conn(self.server)
-        try:
-            seed_other_class(conn)
-        finally:
-            conn.close()
+        # 手搓 admin + 空班级
+        self.admin_user, self.admin_pass = _bootstrap_empty_server(self.db_path)
 
     def tearDown(self):
         self.server_context.__exit__(None, None, None)
@@ -50,7 +95,9 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
     def test_teacher_with_zero_assessments_does_not_500(self):
         """新教师 0 测评,GET /teacher 应返回 200 而不是 500。"""
         # 1) admin 登录
-        _, admin_cookie, _ = self.server.login("admin", "admin123")
+        _, admin_cookie, _ = self.server.login(
+            self.admin_user, self.admin_pass
+        )
 
         # 2) admin 创建一个新教师
         status, _, payload = self.server.post_json(
@@ -68,19 +115,18 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         teacher_id = body["user_id"]
         self.assertTrue(teacher_id.startswith("tea-"))
 
-        # 3) admin 把 class-physics-1 分配给该教师
+        # 3) admin 把空班级分配给该教师
         status, _, payload = self.server.post_json(
             "/api/admin/teacher/%s/assign-classes" % teacher_id,
-            {"class_ids": ["class-physics-1"]},
+            {"class_ids": ["class-physics-empty"]},
             admin_cookie,
         )
         self.assertEqual(status, 200, "assign-classes should succeed")
 
-        # 4) 模拟教师首次登录 + 改密(must_change_password=1 → /change-password)
+        # 4) 模拟教师首次登录(must_change_password=1 → 303 → /change-password)
         status, change_cookie, _ = self.server.login(
             "teacher_empty", "TempTeacher123"
         )
-        # 登录应 303 重定向到 /change-password(SEE_OTHER 状态)
         self.assertIn(status, (200, 303))
 
         # 5) 教师改密
@@ -136,7 +182,7 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
             text,
             "Empty state must carry data-empty-state=\"no-assessment\" marker",
         )
-        # 同时不该出现 500 错误 JSON
+        # 不应出现 500 错误 JSON
         self.assertNotIn("internal_error", text)
         # 标题仍然是「教师端 - 高中物理闭环系统」
         self.assertIn("教师端", text)
@@ -182,7 +228,7 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
                 },
             },
             "classes": [
-                {"id": "class-physics-1", "name": "高二(1)班"},
+                {"id": "class-physics-empty", "name": "空班级"},
             ],
             "students": [],
         }
@@ -208,7 +254,9 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         from highschoolphysics.repository import PhysicsRepository
 
         # 建一个新教师 + 分配班级,但不创建任何 assessment
-        _, admin_cookie, _ = self.server.login("admin", "admin123")
+        _, admin_cookie, _ = self.server.login(
+            self.admin_user, self.admin_pass
+        )
         status, _, payload = self.server.post_json(
             "/api/admin/import-teacher",
             {
@@ -222,13 +270,13 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         teacher_id = json.loads(payload)["user_id"]
         status, _, _ = self.server.post_json(
             "/api/admin/teacher/%s/assign-classes" % teacher_id,
-            {"class_ids": ["class-physics-1"]},
+            {"class_ids": ["class-physics-empty"]},
             admin_cookie,
         )
         self.assertEqual(status, 200)
 
         # repository.teacher_dashboard 必须返回 assessments=[], 不抛
-        conn = connect(self.server.db_path)
+        conn = connect(self.db_path)
         try:
             repo = PhysicsRepository(conn)
             dashboard = repo.teacher_dashboard(teacher_id)
