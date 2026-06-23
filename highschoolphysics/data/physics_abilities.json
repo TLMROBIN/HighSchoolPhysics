@@ -1,0 +1,310 @@
+{
+  "manifest_version": 1,
+  "ontology_label": "pep-2019-physics-v1",
+  "source_keys": [
+    "curriculum-standard-2017-2020",
+    "gaokao-evaluation-system-2019",
+    "highschoolphysics-ability-framework-v1"
+  ],
+  "records": [
+    {
+      "default_key": "ability.info",
+      "id": "ab-info-extraction",
+      "stable_code": "A.INFO",
+      "parent_id": null,
+      "name": "信息提取",
+      "node_type": "ability",
+      "level": 1,
+      "description": "从文字、图表、装置和数据中提取有效条件。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.INFO",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.context_model",
+      "id": "ab-context-modeling",
+      "stable_code": "A.CONTEXT_MODEL",
+      "parent_id": null,
+      "name": "情境建模",
+      "node_type": "ability",
+      "level": 1,
+      "description": "从真实情境中抽象研究对象、过程和物理量。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 14,
+          "locator": "学科核心素养 科学思维",
+          "evidence_summary": "模型建构与科学推理要求"
+        },
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.CONTEXT_MODEL",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.force",
+      "id": "ab-force-analysis",
+      "stable_code": "A.FORCE",
+      "parent_id": null,
+      "name": "受力分析",
+      "node_type": "ability",
+      "level": 1,
+      "description": "识别研究对象和相互作用并形成受力图。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.FORCE",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.process",
+      "id": "ab-process-segmentation",
+      "stable_code": "A.PROCESS",
+      "parent_id": null,
+      "name": "过程划分",
+      "node_type": "ability",
+      "level": 1,
+      "description": "按状态或规律变化把复杂物理过程划分为阶段。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.PROCESS",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.model",
+      "id": "ab-model-construction",
+      "stable_code": "A.MODEL",
+      "parent_id": null,
+      "name": "模型建构",
+      "node_type": "ability",
+      "level": 1,
+      "description": "选取或建立能够解释和求解问题的物理模型。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维 模型建构",
+          "evidence_summary": "课程标准核心素养要素"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.critical",
+      "id": "ab-critical-conditions",
+      "stable_code": "A.CRITICAL",
+      "parent_id": null,
+      "name": "临界条件",
+      "node_type": "ability",
+      "level": 1,
+      "description": "识别状态改变、约束失效或极值出现的边界条件。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.CRITICAL",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.conservation",
+      "id": "ab-conservation-thinking",
+      "stable_code": "A.CONSERVATION",
+      "parent_id": null,
+      "name": "守恒思想",
+      "node_type": "ability",
+      "level": 1,
+      "description": "从能量、动量、电荷等守恒关系组织求解。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 14,
+          "locator": "物理观念 能量观念",
+          "evidence_summary": "课程标准核心素养要求"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.graph",
+      "id": "ab-graph-transformation",
+      "stable_code": "A.GRAPH",
+      "parent_id": null,
+      "name": "图像转化",
+      "node_type": "ability",
+      "level": 1,
+      "description": "在物理过程、函数关系和图像表示之间转换。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.GRAPH",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.equation",
+      "id": "ab-equation-building",
+      "stable_code": "A.EQUATION",
+      "parent_id": null,
+      "name": "方程建立",
+      "node_type": "ability",
+      "level": 1,
+      "description": "把物理规律和约束关系表达为可求解方程。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.EQUATION",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.calc",
+      "id": "ab-calculation",
+      "stable_code": "A.CALC",
+      "parent_id": null,
+      "name": "数学运算",
+      "node_type": "ability",
+      "level": 1,
+      "description": "完成代数、比例、几何或数值计算并检查量纲。",
+      "source_refs": [
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.CALC",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.experiment_design",
+      "id": "ab-experiment-design",
+      "stable_code": "A.EXPERIMENT_DESIGN",
+      "parent_id": null,
+      "name": "实验设计",
+      "node_type": "ability",
+      "level": 1,
+      "description": "围绕问题制定变量控制、器材选择和测量方案。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究",
+          "evidence_summary": "问题、证据、解释和交流要求"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.data",
+      "id": "ab-data-processing",
+      "stable_code": "A.DATA",
+      "parent_id": null,
+      "name": "数据处理",
+      "node_type": "ability",
+      "level": 1,
+      "description": "整理、表示和分析实验或题目数据。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究 证据",
+          "evidence_summary": "获取与处理证据要求"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.error",
+      "id": "ab-error-analysis",
+      "stable_code": "A.ERROR",
+      "parent_id": null,
+      "name": "误差分析",
+      "node_type": "ability",
+      "level": 1,
+      "description": "识别误差来源并评价测量结果和改进方案。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究 证据与解释",
+          "evidence_summary": "证据评价和反思要求"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.argument",
+      "id": "ab-reasoning-argumentation",
+      "stable_code": "A.ARGUMENT",
+      "parent_id": null,
+      "name": "推理论证",
+      "node_type": "ability",
+      "level": 1,
+      "description": "基于事实、规律和逻辑形成可检验的结论。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维 科学推理与科学论证",
+          "evidence_summary": "课程标准核心素养要素"
+        }
+      ]
+    },
+    {
+      "default_key": "ability.transfer",
+      "id": "ab-contextual-transfer",
+      "stable_code": "A.TRANSFER",
+      "parent_id": null,
+      "name": "情境迁移",
+      "node_type": "ability",
+      "level": 1,
+      "description": "把已掌握的模型和规律迁移到新情境。",
+      "source_refs": [
+        {
+          "source_key": "gaokao-evaluation-system-2019",
+          "page_start": null,
+          "page_end": null,
+          "locator": "情境与关键能力",
+          "evidence_summary": "能力标签补充书目依据"
+        },
+        {
+          "source_key": "highschoolphysics-ability-framework-v1",
+          "page_start": null,
+          "page_end": null,
+          "locator": "能力动作清单 A.TRANSFER",
+          "evidence_summary": "项目蓝图定义"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=HighSchoolPhysics pull latest GitHub main and restart app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/yub/Documents/trae_projects/HighSchoolPhysics
+ExecStart=/usr/bin/env bash /home/yub/Documents/trae_projects/HighSchoolPhysics/scripts/hsp_remote_auto_update.sh
+

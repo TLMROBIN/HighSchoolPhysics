@@ -238,6 +238,61 @@ class AdminTeacherApiTests(unittest.TestCase):
         self.assertEqual(body["removed"], ["class-physics-2"])
         self.assertEqual(self._assigned_classes(teacher_id), [])
 
+    def test_assign_classes_accepts_single_string_payload_from_compact_form(self):
+        _, admin_cookie, _ = self.server.login("admin", "admin123")
+        conn = _conn(self.server)
+        try:
+            teacher_id = conn.execute(
+                "select id from users where username = 'teacher_li'"
+            ).fetchone()["id"]
+        finally:
+            conn.close()
+
+        status, _, payload = self.server.post_json(
+            "/api/admin/teacher/%s/assign-classes" % teacher_id,
+            {"class_ids": "class-physics-2"},
+            admin_cookie,
+        )
+
+        self.assertEqual(status, 200)
+        body = json.loads(payload)
+        self.assertTrue(body["ok"])
+        self.assertEqual(self._assigned_classes(teacher_id), ["class-physics-2"])
+
+    def test_admin_accounts_page_keeps_teacher_create_and_assignment_controls(self):
+        _, admin_cookie, _ = self.server.login("admin", "admin123")
+
+        status, _, payload = self.server.post_json(
+            "/api/admin/import-teacher",
+            {
+                "username": "teacher_compact",
+                "display_name": "紧凑页老师",
+                "temp_password": "TempTeacher123",
+            },
+            admin_cookie,
+        )
+        self.assertEqual(status, 200)
+        teacher_id = json.loads(payload)["user_id"]
+
+        status, _, body = self.server.request(
+            "GET",
+            "/admin",
+            None,
+            {"Cookie": admin_cookie},
+        )
+        self.assertEqual(status, 200)
+        html = body.decode("utf-8", errors="replace")
+        self.assertIn('data-admin-tab-panel="accounts"', html)
+        self.assertIn('data-admin-form="import-teacher"', html)
+        self.assertIn("teacher_compact", html)
+        self.assertIn('data-action="open-assign-classes"', html)
+        self.assertIn('data-admin-form="assign-classes"', html)
+        self.assertIn(
+            'data-endpoint="/api/admin/teacher/%s/assign-classes"' % teacher_id,
+            html,
+        )
+        self.assertIn('name="class_ids"', html)
+
     def test_assign_classes_subject_is_always_physics_in_db(self):
         _, admin_cookie, _ = self.server.login("admin", "admin123")
         conn = _conn(self.server)

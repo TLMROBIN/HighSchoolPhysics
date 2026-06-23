@@ -182,6 +182,16 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
             text,
             "Empty state must carry data-empty-state=\"no-assessment\" marker",
         )
+        self.assertIn(
+            "data-teacher-form=\"paper-assembly\"",
+            text,
+            "Empty state must include a minimal paper assembly entry",
+        )
+        self.assertIn(
+            "data-teacher-form=\"question\"",
+            text,
+            "Empty state must include a minimal question entry",
+        )
         # 不应出现 500 错误 JSON
         self.assertNotIn("internal_error", text)
         # 标题仍然是「教师端 - 高中物理闭环系统」
@@ -243,6 +253,8 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         self.assertIsInstance(html, str)
         self.assertIn("暂无测评", html)
         self.assertIn("data-empty-state=\"no-assessment\"", html)
+        self.assertIn("data-teacher-form=\"paper-assembly\"", html)
+        self.assertIn("data-teacher-form=\"question\"", html)
         # 不应出现 5xx
         self.assertNotIn("internal_error", html)
 

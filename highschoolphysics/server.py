@@ -1036,12 +1036,27 @@ def render_teacher_app(user, dashboard):
         # 零 assessment 教师:admin 刚导入 / 刚分配班级的老师,直接给出空状态页,
         # 避免对 assessment[id/title/...] 取值导致 IndexError 或 KeyError。
         # 保留头部 / 退出按钮(由 render_layout 渲染),引导先去组卷。
-        # 不渲染 mastery_analytics / diagnostics / class_mastery_analytics / phase2d-form-grid
-        # 这些区域都依赖 assessment_id,等管理员建好测评后再展示。
-        class_options = "".join(
-            "<option value='%s'>%s</option>"
-            % (escape(item["id"]), escape(item["name"]))
-            for item in dashboard.get("classes", [])
+        # 不渲染 mastery_analytics / diagnostics / class_mastery_analytics 等依赖
+        # assessment_id 的区域；保留最小组卷和题库录入入口，避免教师无下一步。
+        class_hint = (
+            "可用班级：%s" % "、".join(
+                escape(item.get("name") or item.get("id") or "")
+                for item in dashboard.get("classes", [])
+            )
+            if dashboard.get("classes")
+            else "当前尚未分配班级，可先录入题目或联系管理员分配班级。"
+        )
+        empty_object_json = escape(dumps({}))
+        default_answer_json = escape(dumps({"answer": "A"}))
+        paper_items_json = escape(
+            dumps(
+                [
+                    {
+                        "question_id": "请先录入题目后填写题目ID",
+                        "score": 4,
+                    }
+                ],
+            )
         )
         body = """
 <section class="teacher-app">
@@ -1076,9 +1091,37 @@ def render_teacher_app(user, dashboard):
         <h2>组卷与答题卡</h2>
         <p class="explain">尚未创建测评,可在此处先组卷。创建测评后,系统会自动启用错题本、PDF 批改、年级掌握趋势等模块。</p>
       </div>
+      <p class="explain">{class_hint}</p>
+      <div class="phase2d-form-grid">
+        <form data-teacher-form="paper-assembly">
+          <h3>最小组卷</h3>
+          <label>试卷标题<input name="title" value="新建物理小测" required></label>
+          <label>来源<input name="source" value="校本组卷" required></label>
+          <label>题目 JSON<textarea name="question_items" data-json="true" required>{paper_items_json}</textarea></label>
+          <button type="submit">生成试卷</button>
+        </form>
+        <form data-teacher-form="question" class="question-edit-form">
+          <h3>题库录入</h3>
+          <label>题干<textarea name="stem" required></textarea></label>
+          <label>选项 JSON<textarea name="options" data-json="true" data-default-json="{{}}">{empty_object}</textarea></label>
+          <label>答案 JSON<textarea name="answer" data-json="true" data-default-json="{{}}">{default_answer}</textarea></label>
+          <label>解析<textarea name="analysis"></textarea></label>
+          <label>题型<input name="question_type" value="short_answer" required></label>
+          <label>来源<input name="source" value="教师录入" required></label>
+          <label>年级<input name="grade" value="高二" required></label>
+          <label>章节<input name="chapter" required></label>
+          <label>难度<input name="difficulty" value="medium" required></label>
+          <button type="submit">保存题目</button>
+        </form>
+      </div>
     </section>
   </div>
-</section>""".format(class_options=class_options)
+</section>""".format(
+            class_hint=class_hint,
+            paper_items_json=paper_items_json,
+            empty_object=empty_object_json,
+            default_answer=default_answer_json,
+        )
         return render_layout("教师端 - 高中物理闭环系统", user, body, "teacher")
     assessment = assessments[0]
     candidate_rows = []
@@ -3071,6 +3114,12 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 if not teacher_id:
                     raise InvalidRequest("Missing teacher_id in path")
                 class_ids = payload.get("class_ids", [])
+                if isinstance(class_ids, str):
+                    class_ids = [
+                        item.strip()
+                        for item in class_ids.replace(",", " ").split()
+                        if item.strip()
+                    ]
                 if not isinstance(class_ids, list):
                     raise InvalidRequest("class_ids must be an array")
                 result = repo.set_teacher_classes(

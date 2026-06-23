@@ -1,0 +1,170 @@
+{
+  "manifest_version": 1,
+  "ontology_label": "pep-2019-physics-v1",
+  "source_keys": [
+    "pep2019-r1",
+    "pep2019-r2",
+    "pep2019-r3",
+    "pep2019-e1",
+    "pep2019-e2",
+    "pep2019-e3",
+    "curriculum-standard-2017-2020",
+    "gaokao-evaluation-system-2019",
+    "highschoolphysics-ability-framework-v1"
+  ],
+  "records": [
+    {
+      "source_key": "pep2019-r1",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理必修第一册",
+      "edition": "2019版",
+      "volume_code": "R1",
+      "file_name": "（2019版）普通高中教科书物理必修1.pdf",
+      "local_path": "",
+      "sha256": "d962c57a99128ea0ae04da7f006ad86964452528bb863d7183df02f0e41cf981",
+      "page_count": 128,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "pep2019-r2",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理必修第二册",
+      "edition": "2019版",
+      "volume_code": "R2",
+      "file_name": "（2019版）普通高中教科书物理必修2.pdf",
+      "local_path": "",
+      "sha256": "c9fe2fc58d17e81c18951b5c237206d2a48614de5fec6a38fff1197f1610f983",
+      "page_count": 111,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "pep2019-r3",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理必修第三册",
+      "edition": "2019版",
+      "volume_code": "R3",
+      "file_name": "（2019版）普通高中教科书物理必修3.pdf",
+      "local_path": "",
+      "sha256": "50dec9a256e19203ca80bc643faa3ac3b8b4f2c40c69d31bb9746fd6f2b9d603",
+      "page_count": 140,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "pep2019-e1",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理选择性必修第一册",
+      "edition": "2019版",
+      "volume_code": "E1",
+      "file_name": "（2019版）普通高中教科书物理选择性必修1.pdf",
+      "local_path": "",
+      "sha256": "67cb198ae5912f164c06c2d914f08b794d1812303a8e50789bcf3a3a9cc44b50",
+      "page_count": 118,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "pep2019-e2",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理选择性必修第二册",
+      "edition": "2019版",
+      "volume_code": "E2",
+      "file_name": "（2019版）普通高中教科书物理选择性必修2.pdf",
+      "local_path": "",
+      "sha256": "d18466f0b4272864e7db9c6135aea16672ed5ca66fdc99ebc54d7abc4e3497db",
+      "page_count": 118,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "pep2019-e3",
+      "source_type": "textbook",
+      "title": "普通高中教科书物理选择性必修第三册",
+      "edition": "2019版",
+      "volume_code": "E3",
+      "file_name": "（2019版）普通高中教科书物理选择性必修3.pdf",
+      "local_path": "",
+      "sha256": "90b6876f18097eed075d1f49b25959b6206fab2e4e5194f9b58e8e5c9cd058cb",
+      "page_count": 140,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "curriculum-standard-2017-2020",
+      "source_type": "curriculum_standard",
+      "title": "普通高中物理课程标准（2017年版2020年修订）",
+      "edition": "2017年版2020年修订",
+      "volume_code": "",
+      "file_name": "8.普通高中物理课程标准（2017年版2020年修订）.pdf",
+      "local_path": "",
+      "sha256": "a64204bc3b5532b44fbc82b560945d3df3c0bb081aa1d69df028a7591bb983f5",
+      "page_count": 98,
+      "parser_name": "pdftotext",
+      "parser_version": "26.04.0",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "publisher": "人民教育出版社"
+      }
+    },
+    {
+      "source_key": "gaokao-evaluation-system-2019",
+      "source_type": "evaluation_framework",
+      "title": "中国高考评价体系",
+      "edition": "2019",
+      "volume_code": "",
+      "file_name": "",
+      "local_path": "",
+      "sha256": "",
+      "page_count": null,
+      "parser_name": "",
+      "parser_version": "",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "use": "能力标签补充书目证据"
+      }
+    },
+    {
+      "source_key": "highschoolphysics-ability-framework-v1",
+      "source_type": "project_spec",
+      "title": "HighSchoolPhysics 物理解题能力动作清单",
+      "edition": "v1",
+      "volume_code": "",
+      "file_name": "2026-06-05-high-school-physics-knowledge-graph-blueprint.md",
+      "local_path": "",
+      "sha256": "",
+      "page_count": null,
+      "parser_name": "",
+      "parser_version": "",
+      "verified_at": "2026-06-11",
+      "metadata": {
+        "use": "默认能力标签定义"
+      }
+    }
+  ]
+}

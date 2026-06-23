@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+data/*.sqlite3
+data/*.sqlite3-*
+
+.DS_Store
+
+.worktrees/

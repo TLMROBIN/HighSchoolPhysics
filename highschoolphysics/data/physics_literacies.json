@@ -1,0 +1,351 @@
+{
+  "manifest_version": 1,
+  "ontology_label": "pep-2019-physics-v1",
+  "source_keys": [
+    "curriculum-standard-2017-2020"
+  ],
+  "records": [
+    {
+      "default_key": "literacy.concept",
+      "id": "lit-concept",
+      "stable_code": "L.CONCEPT",
+      "parent_id": null,
+      "name": "物理观念",
+      "node_type": "literacy_dimension",
+      "level": 1,
+      "description": "从物理学视角形成关于物质、运动与相互作用、能量等的基本认识。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 13,
+          "locator": "物理学科核心素养 物理观念",
+          "evidence_summary": "课程标准定义"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.concept.matter",
+      "id": "lit-concept-matter",
+      "stable_code": "L.CONCEPT.MATTER",
+      "parent_id": "lit-concept",
+      "name": "物质观念",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "认识物质的结构、属性和存在形式。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 13,
+          "locator": "物理观念主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.concept.motion_interaction",
+      "id": "lit-concept-motion-interaction",
+      "stable_code": "L.CONCEPT.MOTION_INTERACTION",
+      "parent_id": "lit-concept",
+      "name": "运动与相互作用观念",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "认识运动变化及物体间相互作用的规律。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 13,
+          "locator": "物理观念主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.concept.energy",
+      "id": "lit-concept-energy",
+      "stable_code": "L.CONCEPT.ENERGY",
+      "parent_id": "lit-concept",
+      "name": "能量观念",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "从能量转化与守恒理解物理过程。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 13,
+          "page_end": 13,
+          "locator": "物理观念主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.thinking",
+      "id": "lit-thinking",
+      "stable_code": "L.THINKING",
+      "parent_id": null,
+      "name": "科学思维",
+      "node_type": "literacy_dimension",
+      "level": 1,
+      "description": "从物理学视角认识客观事物属性、规律及相互关系的思维方式。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "物理学科核心素养 科学思维",
+          "evidence_summary": "课程标准定义"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.thinking.model",
+      "id": "lit-thinking-model",
+      "stable_code": "L.THINKING.MODEL",
+      "parent_id": "lit-thinking",
+      "name": "模型建构",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "抽象、建立、检验和修正物理模型。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.thinking.reasoning",
+      "id": "lit-thinking-reasoning",
+      "stable_code": "L.THINKING.REASONING",
+      "parent_id": "lit-thinking",
+      "name": "科学推理",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "基于事实和规律进行归纳、演绎等推理。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.thinking.argument",
+      "id": "lit-thinking-argument",
+      "stable_code": "L.THINKING.ARGUMENT",
+      "parent_id": "lit-thinking",
+      "name": "科学论证",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "使用证据和逻辑评价、支持或反驳观点。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.thinking.question_innovate",
+      "id": "lit-thinking-question-innovate",
+      "stable_code": "L.THINKING.QUESTION_INNOVATE",
+      "parent_id": "lit-thinking",
+      "name": "质疑创新",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "对已有认识提出问题并形成新的解释或方案。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学思维主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.inquiry",
+      "id": "lit-inquiry",
+      "stable_code": "L.INQUIRY",
+      "parent_id": null,
+      "name": "科学探究",
+      "node_type": "literacy_dimension",
+      "level": 1,
+      "description": "基于观察和实验提出问题、获取证据、作出解释并交流反思。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "物理学科核心素养 科学探究",
+          "evidence_summary": "课程标准定义"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.inquiry.question",
+      "id": "lit-inquiry-question",
+      "stable_code": "L.INQUIRY.QUESTION",
+      "parent_id": "lit-inquiry",
+      "name": "问题",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "从现象和情境中发现并提出可探究问题。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.inquiry.evidence",
+      "id": "lit-inquiry-evidence",
+      "stable_code": "L.INQUIRY.EVIDENCE",
+      "parent_id": "lit-inquiry",
+      "name": "证据",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "通过观察、实验和资料获取可靠证据。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.inquiry.explanation",
+      "id": "lit-inquiry-explanation",
+      "stable_code": "L.INQUIRY.EXPLANATION",
+      "parent_id": "lit-inquiry",
+      "name": "解释",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "基于证据和物理规律形成解释。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.inquiry.communication",
+      "id": "lit-inquiry-communication",
+      "stable_code": "L.INQUIRY.COMMUNICATION",
+      "parent_id": "lit-inquiry",
+      "name": "交流",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "表达、评价和反思探究过程与结果。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学探究主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.attitude",
+      "id": "lit-attitude",
+      "stable_code": "L.ATTITUDE",
+      "parent_id": null,
+      "name": "科学态度与责任",
+      "node_type": "literacy_dimension",
+      "level": 1,
+      "description": "认识科学本质及科学、技术、社会、环境关系所形成的态度与责任。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "物理学科核心素养 科学态度与责任",
+          "evidence_summary": "课程标准定义"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.attitude.nature",
+      "id": "lit-attitude-nature",
+      "stable_code": "L.ATTITUDE.NATURE",
+      "parent_id": "lit-attitude",
+      "name": "科学本质",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "理解科学知识和方法的发展性、证据性与社会性。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学态度与责任主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.attitude.attitude",
+      "id": "lit-attitude-attitude",
+      "stable_code": "L.ATTITUDE.ATTITUDE",
+      "parent_id": "lit-attitude",
+      "name": "科学态度",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "形成严谨、求实、合作和敢于质疑的态度。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学态度与责任主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    },
+    {
+      "default_key": "literacy.attitude.responsibility",
+      "id": "lit-attitude-responsibility",
+      "stable_code": "L.ATTITUDE.RESPONSIBILITY",
+      "parent_id": "lit-attitude",
+      "name": "社会责任",
+      "node_type": "literacy_element",
+      "level": 2,
+      "description": "关注物理学应用对社会和环境的影响并承担责任。",
+      "source_refs": [
+        {
+          "source_key": "curriculum-standard-2017-2020",
+          "page_start": 14,
+          "page_end": 14,
+          "locator": "科学态度与责任主要要素",
+          "evidence_summary": "课程标准列举"
+        }
+      ]
+    }
+  ]
+}
