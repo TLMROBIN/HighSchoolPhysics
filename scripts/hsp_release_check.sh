@@ -11,6 +11,7 @@ VERIFY_TARGET="${VERIFY_TARGET:-remote}"
 REMOTE_HOST="${REMOTE_HOST:-yub@10.50.159.62}"
 REMOTE_DIR="${REMOTE_DIR:-/home/yub/Documents/trae_projects/HighSchoolPhysics}"
 REMOTE_BASE_URL="${REMOTE_BASE_URL:-http://127.0.0.1:8765}"
+REMOTE_GITHUB_URL="${REMOTE_GITHUB_URL:-https://github.com/TLMROBIN/HighSchoolPhysics.git}"
 RUN_COMPILEALL="${RUN_COMPILEALL:-1}"
 RUN_NODE_CHECK="${RUN_NODE_CHECK:-1}"
 RUN_UNITTEST="${RUN_UNITTEST:-1}"
@@ -140,18 +141,21 @@ check_remote() {
   printf 'REMOTE_HOST=%s\n' "$REMOTE_HOST"
   printf 'REMOTE_DIR=%s\n' "$REMOTE_DIR"
   printf 'REMOTE_BASE_URL=%s\n' "$REMOTE_BASE_URL"
+  printf 'REMOTE_GITHUB_URL=%s\n' "$REMOTE_GITHUB_URL"
 
   ssh -o BatchMode=yes "$REMOTE_HOST" bash -s -- \
     "$REMOTE_DIR" \
     "$local_head" \
     "$REMOTE_BASE_URL" \
+    "$REMOTE_GITHUB_URL" \
     "$REQUIRE_REMOTE_HEAD_MATCH" <<'REMOTE_HSP_VERIFY'
 set -euo pipefail
 
 remote_dir="$1"
 local_head="$2"
 base_url="$3"
-require_remote_head_match="$4"
+github_url="$4"
+require_remote_head_match="$5"
 
 pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1" >&2; }
@@ -161,7 +165,7 @@ cd "$remote_dir"
 
 remote_head="$(git rev-parse HEAD)"
 origin_head="$(git rev-parse origin/main 2>/dev/null || true)"
-github_head="$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
+github_head="$(git ls-remote "$github_url" refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
 
 printf 'remote_head=%s\n' "$remote_head"
 printf 'local_head=%s\n' "$local_head"

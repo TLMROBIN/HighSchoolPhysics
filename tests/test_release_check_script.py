@@ -18,6 +18,8 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("VERIFY_TARGET", script)
         self.assertIn("REMOTE_HOST", script)
         self.assertIn("REMOTE_DIR", script)
+        self.assertIn("REMOTE_GITHUB_URL", script)
+        self.assertIn("https://github.com/TLMROBIN/HighSchoolPhysics.git", script)
         self.assertIn("REQUIRE_REMOTE_HEAD_MATCH", script)
         self.assertIn("ssh -o BatchMode=yes", script)
         self.assertIn("REQUIRE_CLEAN_WORKTREE", script)
