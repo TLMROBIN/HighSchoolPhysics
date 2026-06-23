@@ -87,8 +87,8 @@ main() {
   before="$(git rev-parse HEAD)"
   log "current HEAD=${before}"
   log "fetching ${GITHUB_URL} ${BRANCH}"
-  git fetch --prune "$GITHUB_URL" "$BRANCH"
-  after="$(git rev-parse FETCH_HEAD)"
+  git fetch --prune "$GITHUB_URL" "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+  after="$(git rev-parse "refs/remotes/origin/${BRANCH}")"
   log "fetched HEAD=${after}"
 
   if [[ "$before" != "$after" ]]; then
