@@ -19,6 +19,8 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("REMOTE_HOST", script)
         self.assertIn("REMOTE_DIR", script)
         self.assertIn("REMOTE_GITHUB_URL", script)
+        self.assertIn("REMOTE_PUBLIC_BASE_URL", script)
+        self.assertIn("REMOTE_ENTRY_PATH", script)
         self.assertIn("https://github.com/TLMROBIN/HighSchoolPhysics.git", script)
         self.assertIn("REQUIRE_REMOTE_HEAD_MATCH", script)
         self.assertIn("ssh -o BatchMode=yes", script)
@@ -26,6 +28,16 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("REQUIRE_UPSTREAM_PARITY", script)
         self.assertIn("RUN_HTTP_SMOKE", script)
         self.assertIn("HSP_BASE_URL", script)
+
+    def test_remote_release_check_verifies_public_physics_login_entry(self):
+        script = Path("scripts/hsp_release_check.sh").read_text(encoding="utf-8")
+
+        self.assertIn("REMOTE_PUBLIC_BASE_URL=\"${REMOTE_PUBLIC_BASE_URL:-http://10.50.159.62}\"", script)
+        self.assertIn("REMOTE_ENTRY_PATH=\"${REMOTE_ENTRY_PATH:-/physics/login}\"", script)
+        self.assertIn("remote public entry", script)
+        self.assertIn("entry_url", script)
+        self.assertIn("HTTPError", script)
+        self.assertIn("status not in (200, 302, 303, 307, 308)", script)
 
     def test_remote_auto_update_uses_https_github_and_python_health(self):
         script = Path("scripts/hsp_remote_auto_update.sh").read_text(encoding="utf-8")

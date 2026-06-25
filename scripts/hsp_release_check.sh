@@ -11,6 +11,8 @@ VERIFY_TARGET="${VERIFY_TARGET:-remote}"
 REMOTE_HOST="${REMOTE_HOST:-yub@10.50.159.62}"
 REMOTE_DIR="${REMOTE_DIR:-/home/yub/Documents/trae_projects/HighSchoolPhysics}"
 REMOTE_BASE_URL="${REMOTE_BASE_URL:-http://127.0.0.1:8765}"
+REMOTE_PUBLIC_BASE_URL="${REMOTE_PUBLIC_BASE_URL:-http://10.50.159.62}"
+REMOTE_ENTRY_PATH="${REMOTE_ENTRY_PATH:-/physics/login}"
 REMOTE_GITHUB_URL="${REMOTE_GITHUB_URL:-https://github.com/TLMROBIN/HighSchoolPhysics.git}"
 RUN_COMPILEALL="${RUN_COMPILEALL:-1}"
 RUN_NODE_CHECK="${RUN_NODE_CHECK:-1}"
@@ -141,12 +143,16 @@ check_remote() {
   printf 'REMOTE_HOST=%s\n' "$REMOTE_HOST"
   printf 'REMOTE_DIR=%s\n' "$REMOTE_DIR"
   printf 'REMOTE_BASE_URL=%s\n' "$REMOTE_BASE_URL"
+  printf 'REMOTE_PUBLIC_BASE_URL=%s\n' "$REMOTE_PUBLIC_BASE_URL"
+  printf 'REMOTE_ENTRY_PATH=%s\n' "$REMOTE_ENTRY_PATH"
   printf 'REMOTE_GITHUB_URL=%s\n' "$REMOTE_GITHUB_URL"
 
   ssh -o BatchMode=yes "$REMOTE_HOST" bash -s -- \
     "$REMOTE_DIR" \
     "$local_head" \
     "$REMOTE_BASE_URL" \
+    "$REMOTE_PUBLIC_BASE_URL" \
+    "$REMOTE_ENTRY_PATH" \
     "$REMOTE_GITHUB_URL" \
     "$REQUIRE_REMOTE_HEAD_MATCH" <<'REMOTE_HSP_VERIFY'
 set -euo pipefail
@@ -154,8 +160,10 @@ set -euo pipefail
 remote_dir="$1"
 local_head="$2"
 base_url="$3"
-github_url="$4"
-require_remote_head_match="$5"
+public_base_url="$4"
+entry_path="$5"
+github_url="$6"
+require_remote_head_match="$7"
 
 pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1" >&2; }
@@ -192,12 +200,17 @@ else
   fail "highschoolphysics server process not found"
 fi
 
-python3 - "$base_url" <<'PY'
-import json
+python3 - "$base_url" "$public_base_url" "$entry_path" <<'PY'
 import sys
+from urllib.error import HTTPError
 from urllib.request import urlopen
 
 base_url = sys.argv[1].rstrip("/")
+public_base_url = sys.argv[2].rstrip("/")
+entry_path = sys.argv[3]
+if not entry_path.startswith("/"):
+    entry_path = "/" + entry_path
+entry_url = public_base_url + entry_path
 
 def fail(message):
     print(f"[FAIL] {message}", file=sys.stderr)
@@ -208,13 +221,23 @@ def passed(message):
 
 try:
     with urlopen(base_url + "/", timeout=8) as response:
-        body = response.read(200)
         status = response.status
 except Exception as exc:
     fail(f"HTTP smoke failed: {type(exc).__name__}: {exc}")
 if status != 200:
     fail(f"HTTP smoke returned status={status}")
 passed("remote HTTP /")
+
+try:
+    with urlopen(entry_url, timeout=8) as response:
+        status = response.status
+except HTTPError as exc:
+    status = exc.code
+except Exception as exc:
+    fail(f"remote public entry failed for {entry_url}: {type(exc).__name__}: {exc}")
+if status not in (200, 302, 303, 307, 308):
+    fail(f"remote public entry returned status={status} for {entry_url}")
+passed(f"remote public entry {entry_url}")
 PY
 
 python3 -m highschoolphysics.runtime_check --json
