@@ -1016,6 +1016,7 @@ def initialize_database(conn):
         "reviewed_by text references users(id)",
     )
     _ensure_column(conn, "student_responses", "reviewed_at text")
+    _ensure_column(conn, "auth_sessions", "source text")
     _ensure_column(
         conn,
         "wrong_questions",

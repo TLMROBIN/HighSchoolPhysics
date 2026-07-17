@@ -230,41 +230,41 @@ function updateMasterySelection(wrapper, level) {
 }
 
 const ADMIN_FORM_ENDPOINTS = {
-  "knowledge-node": "/api/admin/knowledge-node",
-  "knowledge-node-update": "/api/admin/knowledge-node/update",
-  "knowledge-edge": "/api/admin/knowledge-edge",
-  "ability-tag": "/api/admin/ability-tag",
-  "ability-tag-update": "/api/admin/ability-tag/update",
-  "literacy-tag": "/api/admin/literacy-tag",
-  "literacy-tag-update": "/api/admin/literacy-tag/update",
-  "ontology-draft": "/api/admin/ontology-draft",
-  "ontology-publish": "/api/admin/ontology-publish",
-  "error-reason-tag": "/api/teacher/error-reason-tag",
-  "export-profile": "/api/admin/export-profile",
-  "runtime-check": "/api/admin/runtime-check",
-  "provider-config": "/api/admin/provider-config",
-  "provider-test": "/api/admin/provider-test",
-  "oidc-provider": "/api/admin/oidc-provider",
-  "import-teacher": "/api/admin/import-teacher"
+  "knowledge-node": "api/admin/knowledge-node",
+  "knowledge-node-update": "api/admin/knowledge-node/update",
+  "knowledge-edge": "api/admin/knowledge-edge",
+  "ability-tag": "api/admin/ability-tag",
+  "ability-tag-update": "api/admin/ability-tag/update",
+  "literacy-tag": "api/admin/literacy-tag",
+  "literacy-tag-update": "api/admin/literacy-tag/update",
+  "ontology-draft": "api/admin/ontology-draft",
+  "ontology-publish": "api/admin/ontology-publish",
+  "error-reason-tag": "api/teacher/error-reason-tag",
+  "export-profile": "api/admin/export-profile",
+  "runtime-check": "api/admin/runtime-check",
+  "provider-config": "api/admin/provider-config",
+  "provider-test": "api/admin/provider-test",
+  "oidc-provider": "api/admin/oidc-provider",
+  "import-teacher": "api/admin/import-teacher"
 };
 
 const TEACHER_FORM_ENDPOINTS = {
-  "question": "/api/teacher/question",
-  "question-update": "/api/teacher/question/update",
-  "parse-task": "/api/teacher/parse-task",
-  "parsed-question-save": "/api/teacher/parsed-question/save",
-  "question-tags-confirm": "/api/teacher/question-tags/confirm",
-  "paper-assembly": "/api/teacher/paper-assembly",
-  "assessment-from-paper": "/api/teacher/assessment-from-paper",
-  "wrong-book-pdf": "/api/teacher/wrong-book-pdf",
-  "ocr-import": "/api/teacher/ocr-import",
-  "grading-revision": "/api/teacher/grading-revision",
-  "error-tagging": "/api/teacher/wrong-question/error-tags",
-  "redo-review": "/api/teacher/redo-attempt/review"
+  "question": "api/teacher/question",
+  "question-update": "api/teacher/question/update",
+  "parse-task": "api/teacher/parse-task",
+  "parsed-question-save": "api/teacher/parsed-question/save",
+  "question-tags-confirm": "api/teacher/question-tags/confirm",
+  "paper-assembly": "api/teacher/paper-assembly",
+  "assessment-from-paper": "api/teacher/assessment-from-paper",
+  "wrong-book-pdf": "api/teacher/wrong-book-pdf",
+  "ocr-import": "api/teacher/ocr-import",
+  "grading-revision": "api/teacher/grading-revision",
+  "error-tagging": "api/teacher/wrong-question/error-tags",
+  "redo-review": "api/teacher/redo-attempt/review"
 };
 
 const STUDENT_FORM_ENDPOINTS = {
-  "redo-attempt": "/api/student/redo-attempt"
+  "redo-attempt": "api/student/redo-attempt"
 };
 
 function formElementFor(form, key) {
@@ -955,7 +955,7 @@ document.addEventListener("submit", async (event) => {
     try {
       setStatus("正在重置临时密码...", "busy");
       const response = await postJSON(
-        "/api/password/reset",
+        "api/password/reset",
         formPayload(passwordResetForm, event.submitter)
       );
       passwordResetForm.reset();
@@ -1067,7 +1067,7 @@ document.addEventListener("submit", async (event) => {
       const endpoint = form.dataset.endpoint
         ? form.dataset.endpoint
         : (teacherId
-            ? `/api/admin/teacher/${teacherId}/assign-classes`
+            ? `api/admin/teacher/${teacherId}/assign-classes`
             : "");
       if (!endpoint) {
         setStatus("缺少教师 ID，无法提交。", "error");
@@ -1158,7 +1158,7 @@ document.addEventListener("click", async (event) => {
     setInlineStudentStatus(wrapper, `正在保存“${nextLevel}”…`, "busy");
     setStatus(`正在保存“${nextLevel}”…`, "busy");
     try {
-      await postJSON("/api/student/mastery", {
+      await postJSON("api/student/mastery", {
         wrong_question_id: wrapper.dataset.wrongId,
         level: nextLevel,
         note: "学生错题自评"
@@ -1169,7 +1169,7 @@ document.addEventListener("click", async (event) => {
       setInlineStudentStatus(wrapper, `已标记为“${nextLevel}”。`, "success");
       setStatus(`已标记为“${nextLevel}”。`, "success");
       setStudentUndo({
-        endpoint: "/api/student/mastery",
+        endpoint: "api/student/mastery",
         payload: previousLevel
           ? {
               wrong_question_id: wrapper.dataset.wrongId,
@@ -1245,7 +1245,7 @@ document.addEventListener("click", async (event) => {
       setStudentBusy(wrapper, true);
       setInlineStudentStatus(wrapper, `正在保存“${nextLevel}”…`, "busy");
       setStatus(`正在保存“${nextLevel}”…`, "busy");
-      await postJSON("/api/student/knowledge-mastery", {
+      await postJSON("api/student/knowledge-mastery", {
         knowledge_node_id: wrapper.dataset.knowledgeId,
         level: nextLevel,
         note: "学生图谱自评"
@@ -1256,7 +1256,7 @@ document.addEventListener("click", async (event) => {
       setInlineStudentStatus(wrapper, `已标记为“${nextLevel}”。`, "success");
       setStatus(`已标记为“${nextLevel}”。`, "success");
       setStudentUndo({
-        endpoint: "/api/student/knowledge-mastery",
+        endpoint: "api/student/knowledge-mastery",
         payload: previousLevel
           ? {
               knowledge_node_id: wrapper.dataset.knowledgeId,
@@ -1332,7 +1332,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "generate-candidate") {
       setStatus("正在生成 q-newton-1 的 LLM 候选标签...", "busy");
-      await postJSON("/api/teacher/generate-candidate", {
+      await postJSON("api/teacher/generate-candidate", {
         question_id: action.dataset.questionId
       });
       setStatus("已生成候选标签，页面即将刷新。", "success");
@@ -1342,7 +1342,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "approve-candidate") {
       setStatus("正在确认候选标签...", "busy");
-      await postJSON("/api/teacher/approve-candidate", {
+      await postJSON("api/teacher/approve-candidate", {
         candidate_id: action.dataset.candidateId
       });
       setStatus("候选标签已写入正式题库，页面即将刷新。", "success");
@@ -1352,7 +1352,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "run-parse-task") {
       setStatus("正在执行解析任务...", "busy");
-      const response = await postJSON("/api/teacher/parse-task/run", {
+      const response = await postJSON("api/teacher/parse-task/run", {
         task_id: action.dataset.taskId
       });
       setStatus(response.message || "解析任务完成，页面即将刷新。", "success");
@@ -1362,7 +1362,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "resolve-review") {
       setStatus("正在保存答题卡复核结果...", "busy");
-      await postJSON("/api/teacher/resolve-review", {
+      await postJSON("api/teacher/resolve-review", {
         response_id: action.dataset.responseId,
         corrected_answer: action.dataset.answer,
         reason: "教师复核低置信涂卡"
@@ -1374,7 +1374,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "grade-assessment") {
       setStatus("正在检查复核状态并批改发布...", "busy");
-      const response = await postJSON("/api/teacher/grade", {
+      const response = await postJSON("api/teacher/grade", {
         assessment_id: action.dataset.assessmentId,
         publish: true
       });
@@ -1389,7 +1389,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "import-demo-student") {
       const suffix = Math.floor(Math.random() * 9000 + 1000);
-      await postJSON("/api/admin/import-student", {
+      await postJSON("api/admin/import-student", {
         username: `stu_demo_${suffix}`,
         display_name: `导入学生${suffix}`,
         student_no: `${suffix}`,
@@ -1458,7 +1458,7 @@ document.addEventListener("click", async (event) => {
 
     if (action.dataset.action === "install-default-taxonomy") {
       setStatus("正在校验并补齐默认物理体系...", "busy");
-      const response = await postJSON("/api/admin/taxonomy/install", {
+      const response = await postJSON("api/admin/taxonomy/install", {
         publish: false
       });
       setStatus(response.message || "默认物理体系已补齐，页面即将刷新。", "success");

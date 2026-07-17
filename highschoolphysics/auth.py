@@ -68,8 +68,8 @@ class AuthService:
         expires_at = (datetime.utcnow() + timedelta(days=30)).isoformat(timespec="seconds")
         self.conn.execute(
             """
-            insert into auth_sessions(token_hash, user_id, user_agent, expires_at)
-            values(?,?,?,?)
+            insert into auth_sessions(token_hash, user_id, user_agent, expires_at, source)
+            values(?,?,?,?,'sso')
             """,
             (hash_token(token), row["id"], user_agent, expires_at),
         )
@@ -78,6 +78,15 @@ class AuthService:
         user = _row_to_dict(row)
         user.pop("password_hash", None)
         return LoginResult(token=token, user=user)
+
+    def session_source(self, token):
+        if not token:
+            return None
+        row = self.conn.execute(
+            "select source from auth_sessions where token_hash = ?",
+            (hash_token(token),),
+        ).fetchone()
+        return row["source"] if row else None
 
     def logout(self, token, actor_id=None):
         self.conn.execute(

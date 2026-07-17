@@ -4,7 +4,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 import html
 
 from .auth import AuthService, validate_password
@@ -59,7 +59,7 @@ def render_layout(title, user, body, active=""):
         }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
-            "<span>%s</span><strong>%s</strong><a href='/logout'>退出</a>"
+            "<span>%s</span><strong>%s</strong><a href='logout'>退出</a>"
             "</div>"
             % (escape(role_label), escape(user["display_name"]))
         )
@@ -90,28 +90,15 @@ def render_layout(title, user, body, active=""):
 
 def render_login_page(error="", demo_mode=False):
     error_html = "<p class='form-error'>%s</p>" % escape(error) if error else ""
-    demo_accounts = ""
-    if demo_mode:
-        demo_accounts = """
-    <div class="demo-accounts">
-      <span>teacher_li / teacher123</span>
-      <span>stu_1001 / student123</span>
-      <span>admin / admin123</span>
-    </div>"""
     body = """
 <section class="login-shell">
-  <form class="login-panel" method="post" action="/login">
+  <form class="login-panel" onsubmit="return false">
     <h1>高中物理闭环系统</h1>
     {error_html}
-    <label>账号<input name="username" autocomplete="username" required></label>
-    <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
-    <button type="submit">进入</button>
     <a class="sso-login-link" href="/sso/login">使用统一平台登录</a>
-    {demo_accounts}
   </form>
 </section>""".format(
         error_html=error_html,
-        demo_accounts=demo_accounts,
     )
     return render_layout("登录 - 高中物理闭环系统", None, body, "login")
 
@@ -3768,49 +3755,33 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             conn.close()
 
     def _handle_login(self):
-        payload = self._read_payload()
-        conn = connect(self.db_path)
-        try:
-            auth = AuthService(conn)
-            try:
-                result = auth.login(
-                    payload.get("username", ""),
-                    payload.get("password", ""),
-                    self.headers.get("User-Agent", ""),
-                )
-            except ValueError:
-                self._send_html(
-                    render_login_page(
-                        "账号或密码错误",
-                        self.demo_mode,
-                    ),
-                    status=HTTPStatus.UNAUTHORIZED,
-                )
-                return
-            self.send_response(HTTPStatus.SEE_OTHER)
-            target = (
-                "/change-password"
-                if result.user["must_change_password"]
-                else self._home_for(result.user)
-            )
-            self.send_header("Location", target)
-            self.send_header(
-                "Set-Cookie",
-                "hsp_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" % result.token,
-            )
-            self.end_headers()
-        finally:
-            conn.close()
+        self._read_payload()
+        self._send_html(
+            render_login_page("本系统已切换为统一认证登录", self.demo_mode),
+            status=HTTPStatus.FORBIDDEN,
+        )
 
     def _handle_logout(self):
         token = self._session_token()
         conn = connect(self.db_path)
         try:
+            target = "/login"
             if token:
+                auth = AuthService(conn)
                 user = self._current_user(conn)
-                AuthService(conn).logout(token, user["id"] if user else None)
+                if auth.session_source(token) == "sso":
+                    provider = PhysicsRepository(conn).enabled_oidc_provider()
+                    if provider is not None:
+                        issuer = provider["issuer"].rstrip("/")
+                        target = (
+                            "%s/protocol/openid-connect/logout"
+                            "?client_id=highschoolphysics"
+                            "&post_logout_redirect_uri=%s"
+                            % (issuer, quote("http://192.168.1.206/physics/login", safe=""))
+                        )
+                auth.logout(token, user["id"] if user else None)
             self.send_response(HTTPStatus.SEE_OTHER)
-            self.send_header("Location", "/login")
+            self.send_header("Location", target)
             self.send_header("Set-Cookie", "hsp_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
             self.end_headers()
         finally:
