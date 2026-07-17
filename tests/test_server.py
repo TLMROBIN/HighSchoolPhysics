@@ -176,6 +176,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("需要复盘", html)
         self.assertIn("能力掌握", html)
         self.assertIn("核心素养掌握", html)
+        self.assertIn("能力说明“这道题要怎么想、怎么做”", html)
+        self.assertIn("和当前学习的关系：", html)
         self.assertIn("mastery-state-unpracticed", html)
 
     def test_student_relation_graph_uses_layered_layout_and_accessible_nodes(self):
@@ -207,6 +209,7 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("教材层级", html)
         self.assertIn("知识关联", html)
         self.assertIn('id="student-graph-data"', html)
+        self.assertIn('"shortName":"匀变速运动"', html)
         self.assertNotIn("kn-mechanics", html)
 
     def test_student_graph_assets_support_keyboard_zoom_detail_and_pointer_cancel(self):
@@ -322,6 +325,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("能力导航", html)
         self.assertIn("核心素养导航", html)
         self.assertIn("当前掌握证据", html)
+        self.assertIn("识别研究对象和相互作用并形成受力图", html)
+        self.assertIn("抽象、建立、检验和修正物理模型", html)
         self.assertIn('data-target-tab="graph"', html)
         self.assertIn('data-target-panel="ability"', html)
 
@@ -406,12 +411,28 @@ class ServerRenderingTests(unittest.TestCase):
             '<button type="submit" disabled aria-disabled="true" data-requires-answer>',
             redo_panel,
         )
+        self.assertIn(
+            'data-redo-draft-key="hsp-redo-draft:stu-1001:',
+            redo_panel,
+        )
+        self.assertIn(
+            'class="redo-score-context">原测评分数 <span>0/4</span>',
+            redo_panel,
+        )
+        self.assertNotRegex(
+            redo_panel,
+            r'<div class="card-head"><span>[^<]+</span><strong>',
+        )
         self.assertNotIn('name="answer" required autocomplete="off"', redo_panel)
         self.assertNotIn("正确答案：", redo_panel)
         self.assertNotIn("解析：", redo_panel)
         self.assertNotIn('data-mastery=', redo_panel)
         self.assertIn("正确答案：", wrong_panel)
         self.assertIn("解析：", wrong_panel)
+        self.assertRegex(
+            wrong_panel,
+            r'<div class="card-head"><span>[^<]+</span><strong>0/4</strong>',
+        )
         self.assertIn("去独立重做", wrong_panel)
         self.assertNotIn('data-student-form="redo-attempt"', wrong_panel)
 
@@ -423,6 +444,13 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("function syncRedoSubmitState", script)
         self.assertIn('input[name="answer"]:checked', script)
         self.assertIn("submit.disabled = !ready", script)
+        self.assertIn("function saveRedoDraft", script)
+        self.assertIn("function restoreRedoDraft", script)
+        self.assertIn("function clearRedoDraft", script)
+        self.assertIn("REDO_DRAFT_MAX_AGE_MS", script)
+        self.assertIn("window.localStorage.setItem", script)
+        self.assertIn("已恢复上次未提交的答案", script)
+        self.assertIn("clearRedoDraft(studentForm)", script)
 
     def test_pending_live_tag_wrong_overrides_stale_mastery_display(self):
         self._publish_demo_assessment()

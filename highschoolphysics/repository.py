@@ -4141,6 +4141,7 @@ class PhysicsRepository:
                     "tag_type": tag_type,
                     "tag_id": tag["id"],
                     "tag_name": tag["name"],
+                    "description": tag.get("description", ""),
                     "stable_code": tag.get("stable_code", ""),
                     "related_questions": (
                         self.related_questions_for_ability(tag["id"])
@@ -4252,6 +4253,7 @@ class PhysicsRepository:
                 "tag_type": tag_type,
                 "tag_id": tag_id,
                 "tag_name": tag["tag_name"],
+                "description": tag.get("description", ""),
                 "path_text": tag.get("path_text", ""),
                 "stable_code": tag.get("stable_code", ""),
                 "related_questions": related_questions,

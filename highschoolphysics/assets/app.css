@@ -895,6 +895,23 @@ select {
   font-size: 14px;
 }
 
+.student-evidence-guide,
+.tag-student-explanation {
+  color: var(--bluegray);
+  line-height: 1.55;
+}
+
+.student-evidence-guide {
+  margin: 0 0 12px;
+}
+
+.tag-student-explanation {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--amber-soft);
+}
+
 .student-navigation-modules {
   margin-top: 14px;
   background: var(--surface);
@@ -1203,6 +1220,16 @@ select {
 
 .redo-status {
   color: var(--bluegray);
+  font-weight: 700;
+}
+
+.redo-score-context {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.redo-score-context span {
   font-weight: 700;
 }
 

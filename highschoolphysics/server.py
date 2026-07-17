@@ -329,6 +329,7 @@ def _student_focus_node_ids(nodes, graph_edges, focus_node_id, limit=7):
 
 
 GRAPH_SHORT_LABELS = {
+    "匀变速直线运动的研究": "匀变速运动",
     "实验：探究加速度与力、质量的关系": "探究 a 与 F、m",
 }
 
@@ -517,6 +518,7 @@ def _render_tag_mastery_summary(title, items):
             """
             <article class="tag-mastery-card {mastery_class}" id="{tag_type}-{tag_id}">
               <div><strong>{name}</strong><span>{code}</span></div>
+              <p class="tag-student-explanation"><strong>和当前学习的关系：</strong>{description}</p>
               <p>计算：{calculated}</p>
               <p>{evidence}</p>
               <small>关联题目 {count} 题</small>
@@ -527,6 +529,10 @@ def _render_tag_mastery_summary(title, items):
                 tag_id=escape(item["tag_id"]),
                 name=escape(item["tag_name"]),
                 code=escape(item.get("stable_code") or item["tag_id"]),
+                description=escape(
+                    item.get("description")
+                    or "这个标签说明本题需要使用的物理方法或思维。"
+                ),
                 calculated=escape(item["calculated_mastery_state"]),
                 evidence=escape(item["mastery_evidence_text"]),
                 count=related_count,
@@ -608,6 +614,15 @@ def _render_tag_navigation_questions(module):
 def _render_tag_navigation_panel(panel, title, modules, active=False):
     cards = []
     for module in modules:
+        student_explanation = ""
+        if panel in ("ability", "literacy"):
+            student_explanation = (
+                '<p class="tag-student-explanation"><strong>这表示：</strong>%s</p>'
+                % escape(
+                    module.get("description")
+                    or "这个标签说明本题需要使用的物理方法或思维。"
+                )
+            )
         cards.append(
             """
             <article class="tag-navigation-card {mastery_class}" id="nav-{panel}-{tag_id}">
@@ -618,6 +633,7 @@ def _render_tag_navigation_panel(panel, title, modules, active=False):
                 </div>
                 <strong>{state}</strong>
               </div>
+              {student_explanation}
               <p class="mastery-evidence"><span>当前掌握证据</span><span>{evidence}</span></p>
               <div class="tag-navigation-counts">
                 <span>相关题 {related_count}</span>
@@ -633,6 +649,7 @@ def _render_tag_navigation_panel(panel, title, modules, active=False):
                 name=escape(module["tag_name"]),
                 path=escape(module.get("path_text") or module.get("stable_code") or module["tag_id"]),
                 state=escape(module["display_mastery_state"]),
+                student_explanation=student_explanation,
                 evidence=escape(module["mastery_evidence_text"]),
                 related_count=len(module["related_questions"]),
                 wrong_count=len(module["wrong_questions"]),
@@ -720,7 +737,7 @@ def _redo_status_label(value):
     }.get(value, value or "等待重做")
 
 
-def _render_wrong_cards(wrongs, id_prefix):
+def _render_wrong_cards(wrongs, id_prefix, student_id=""):
     cards = []
     for wrong in wrongs:
         options = ""
@@ -766,7 +783,17 @@ def _render_wrong_cards(wrongs, id_prefix):
         )
         feedback_id = "%s-feedback" % card_id
         is_redo = id_prefix == "redo"
+        header_score = "<strong>%s/%s</strong>" % (
+            wrong["score"],
+            wrong["max_score"],
+        )
+        redo_score_context = ""
         if is_redo:
+            header_score = ""
+            redo_score_context = (
+                '<p class="redo-score-context">原测评分数 '
+                '<span>%s/%s</span></p>'
+            ) % (wrong["score"], wrong["max_score"])
             submit_attributes = ""
             answer_review = (
                 '<p class="redo-prior-answer">上次作答：%s</p>'
@@ -814,13 +841,15 @@ def _render_wrong_cards(wrongs, id_prefix):
                 )
             task_content = """
               <form data-student-form="redo-attempt" class="redo-submit-form"
-                    aria-describedby="{feedback_id}">
+                    aria-describedby="{feedback_id}"
+                    data-redo-draft-key="hsp-redo-draft:{student_id}:{wrong_id}">
                 <input type="hidden" name="wrong_question_id" value="{wrong_id}">
                 {answer_control}
                 <button type="submit"{submit_attributes}>提交重做</button>
               </form>
             """.format(
                 feedback_id=escape(feedback_id),
+                student_id=escape(student_id),
                 wrong_id=escape(wrong["id"]),
                 answer_control=answer_control,
                 submit_attributes=submit_attributes,
@@ -863,11 +892,12 @@ def _render_wrong_cards(wrongs, id_prefix):
         cards.append(
             """
         <article class="wrong-card" id="{card_id}" data-knowledge-ids="{knowledge_ids}">
-          <div class="card-head"><span>{assessment}</span><strong>{score}/{max_score}</strong></div>
+          <div class="card-head"><span>{assessment}</span>{header_score}</div>
           <h2>{stem}</h2>
           {options}
           {answer_review}
           {tag_content}
+          {redo_score_context}
           {mastery_content}
           <p class="card-action-feedback" id="{feedback_id}" role="status" aria-live="polite"></p>
           <p class="redo-status">重做状态：{redo_status}</p>
@@ -878,12 +908,12 @@ def _render_wrong_cards(wrongs, id_prefix):
                 card_id=escape(card_id),
                 knowledge_ids=" ".join(escape(tag["tag_id"]) for tag in wrong["knowledge_tags"]),
                 assessment=escape(wrong["assessment_title"]),
-                score=wrong["score"],
-                max_score=wrong["max_score"],
+                header_score=header_score,
                 stem=escape(wrong["stem"]),
                 options=options,
                 answer_review=answer_review,
                 tag_content=tag_content,
+                redo_score_context=redo_score_context,
                 mastery_content=mastery_content,
                 feedback_id=escape(feedback_id),
                 redo_status=escape(_redo_status_label(redo_status)),
@@ -982,8 +1012,16 @@ def _student_next_step(dashboard, focus_node):
 
 
 def render_student_app(user, dashboard):
-    wrong_cards = _render_wrong_cards(dashboard["wrong_questions"], "wrong")
-    redo_cards = _render_wrong_cards(dashboard["redo_queue"], "redo")
+    wrong_cards = _render_wrong_cards(
+        dashboard["wrong_questions"],
+        "wrong",
+        student_id=user["id"],
+    )
+    redo_cards = _render_wrong_cards(
+        dashboard["redo_queue"],
+        "redo",
+        student_id=user["id"],
+    )
     graph_nodes = dashboard["knowledge_tree"]
     focus_node_id = _student_focus_node_id(dashboard)
     graph_by_id = {node["id"]: node for node in graph_nodes}
@@ -1212,7 +1250,10 @@ def render_student_app(user, dashboard):
 
     <details class="secondary-evidence">
       <summary>查看能力与核心素养依据</summary>
-      <div class="tag-mastery-sections">{ability_mastery}{literacy_mastery}</div>
+      <div class="secondary-evidence-body">
+        <p class="student-evidence-guide">能力说明“这道题要怎么想、怎么做”；核心素养说明“长期要形成什么物理思维”。</p>
+        <div class="tag-mastery-sections">{ability_mastery}{literacy_mastery}</div>
+      </div>
     </details>
     {student_navigation}
   </section>

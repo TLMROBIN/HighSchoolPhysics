@@ -95,6 +95,100 @@ function syncRedoSubmitState(form) {
   submit.setAttribute("aria-disabled", ready ? "false" : "true");
 }
 
+function redoDraftAnswer(form) {
+  const selected = form
+    ? form.querySelector('input[type="radio"][name="answer"]:checked')
+    : null;
+  if (selected) {
+    return selected.value;
+  }
+  const textAnswer = form
+    ? form.querySelector('[name="answer"]:not([type="radio"])')
+    : null;
+  return textAnswer ? textAnswer.value : "";
+}
+
+function saveRedoDraft(form) {
+  const key = form ? form.dataset.redoDraftKey : "";
+  if (!key) {
+    return;
+  }
+  const answer = redoDraftAnswer(form);
+  try {
+    if (answer) {
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({ answer, savedAt: new Date().toISOString() })
+      );
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch (_error) {
+    // The form remains usable when storage is unavailable.
+  }
+}
+
+function clearRedoDraft(form) {
+  const key = form ? form.dataset.redoDraftKey : "";
+  if (!key) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(key);
+  } catch (_error) {
+    // A successful submission must not be treated as failed because storage is unavailable.
+  }
+}
+
+const REDO_DRAFT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function restoreRedoDraft(form) {
+  const key = form ? form.dataset.redoDraftKey : "";
+  if (!key) {
+    syncRedoSubmitState(form);
+    return;
+  }
+  let draft = null;
+  try {
+    draft = JSON.parse(window.localStorage.getItem(key) || "null");
+  } catch (_error) {
+    draft = null;
+  }
+  const savedAt = draft ? Date.parse(draft.savedAt || "") : Number.NaN;
+  if (
+    !draft ||
+    !draft.answer ||
+    !Number.isFinite(savedAt) ||
+    Date.now() - savedAt > REDO_DRAFT_MAX_AGE_MS
+  ) {
+    if (draft) {
+      clearRedoDraft(form);
+    }
+    syncRedoSubmitState(form);
+    return;
+  }
+  const radios = Array.from(
+    form.querySelectorAll('input[type="radio"][name="answer"]')
+  );
+  const radio = radios.find((item) => item.value === draft.answer);
+  const textAnswer = form.querySelector('[name="answer"]:not([type="radio"])');
+  if (radio) {
+    radio.checked = true;
+  } else if (textAnswer) {
+    textAnswer.value = draft.answer;
+  } else {
+    clearRedoDraft(form);
+    syncRedoSubmitState(form);
+    return;
+  }
+  syncRedoSubmitState(form);
+  setInlineStudentStatus(
+    form,
+    "已恢复上次未提交的答案。请检查后再提交。",
+    "info"
+  );
+}
+
 function friendlyStudentError(error, actionLabel) {
   if (!error || error.status === 0 || error.message === "network_unavailable") {
     return `${actionLabel}没有完成。请检查网络后重试，你填写的内容仍保留在页面中。`;
@@ -789,6 +883,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 document.addEventListener("input", (event) => {
+  const redoAnswer = event.target.closest(
+    '[data-student-form="redo-attempt"] [name="answer"]:not([type="radio"])'
+  );
+  if (redoAnswer && redoAnswer.form) {
+    saveRedoDraft(redoAnswer.form);
+  }
   if (event.target.matches("[data-taxonomy-search]")) {
     filterAdminTaxonomy();
   }
@@ -801,11 +901,12 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
-  const redoChoice = event.target.closest(
-    '.redo-choice-option input[type="radio"]'
+  const redoAnswer = event.target.closest(
+    '[data-student-form="redo-attempt"] [name="answer"]'
   );
-  if (redoChoice && redoChoice.form) {
-    syncRedoSubmitState(redoChoice.form);
+  if (redoAnswer && redoAnswer.form) {
+    syncRedoSubmitState(redoAnswer.form);
+    saveRedoDraft(redoAnswer.form);
   }
   if (event.target.matches("[data-graph-search]")) {
     const node = findStudentKnowledge(event.target.value);
@@ -885,6 +986,7 @@ document.addEventListener("submit", async (event) => {
         endpoint,
         studentPayload
       );
+      clearRedoDraft(studentForm);
       const message = response.message || "重做已提交，正在更新待重做状态。";
       setInlineStudentStatus(studentForm, message, "success");
       setStatus(message, "success");
@@ -1384,7 +1486,7 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("DOMContentLoaded", () => {
   document
     .querySelectorAll('[data-student-form="redo-attempt"]')
-    .forEach(syncRedoSubmitState);
+    .forEach(restoreRedoDraft);
   const graph = document.querySelector(".student-relation-graph");
   if (graph && graph.dataset.graphDefaultFocus) {
     selectKnowledgeNode(graph.dataset.graphDefaultFocus);
