@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-16T22:15:37Z",
+  "title": "Design System: HighSchoolPhysics",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "沉静松绿",
+        "canonical": "#08766f",
+        "tonalRamp": ["oklch(18% 0.055 185)", "oklch(28% 0.07 185)", "oklch(38% 0.085 185)", "oklch(50% 0.095 185)", "oklch(62% 0.08 185)", "oklch(74% 0.06 185)", "oklch(86% 0.038 185)", "oklch(95% 0.018 185)"]
+      },
+      "primary-soft": {
+        "role": "primary",
+        "displayName": "松绿薄雾",
+        "canonical": "#dff3ef",
+        "tonalRamp": ["oklch(18% 0.028 180)", "oklch(30% 0.03 180)", "oklch(42% 0.032 180)", "oklch(55% 0.03 180)", "oklch(68% 0.028 180)", "oklch(80% 0.026 180)", "oklch(90% 0.024 180)", "oklch(96% 0.018 180)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "石墨墨色",
+        "canonical": "#17212f",
+        "tonalRamp": ["oklch(15% 0.03 250)", "oklch(24% 0.032 250)", "oklch(34% 0.03 250)", "oklch(46% 0.028 250)", "oklch(58% 0.024 250)", "oklch(70% 0.02 250)", "oklch(84% 0.014 250)", "oklch(95% 0.006 250)"]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "讲义灰",
+        "canonical": "#667085",
+        "tonalRamp": ["oklch(16% 0.025 258)", "oklch(28% 0.03 258)", "oklch(40% 0.034 258)", "oklch(54% 0.032 258)", "oklch(66% 0.026 258)", "oklch(78% 0.02 258)", "oklch(88% 0.012 258)", "oklch(96% 0.005 258)"]
+      },
+      "text-quiet": {
+        "role": "neutral",
+        "displayName": "蓝灰批注",
+        "canonical": "#41556f",
+        "tonalRamp": ["oklch(16% 0.04 252)", "oklch(28% 0.046 252)", "oklch(40% 0.05 252)", "oklch(52% 0.044 252)", "oklch(64% 0.036 252)", "oklch(76% 0.026 252)", "oklch(88% 0.014 252)", "oklch(96% 0.006 252)"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "铅笔分隔线",
+        "canonical": "#d8dee8",
+        "tonalRamp": ["oklch(16% 0.018 255)", "oklch(28% 0.02 255)", "oklch(40% 0.02 255)", "oklch(54% 0.019 255)", "oklch(68% 0.018 255)", "oklch(80% 0.016 255)", "oklch(90% 0.012 255)", "oklch(97% 0.005 255)"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "白色纸面",
+        "canonical": "#ffffff",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(28% 0 0)", "oklch(42% 0 0)", "oklch(56% 0 0)", "oklch(70% 0 0)", "oklch(82% 0 0)", "oklch(92% 0 0)", "oklch(100% 0 0)"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "冷灰台面",
+        "canonical": "#f4f7f9",
+        "tonalRamp": ["oklch(15% 0.008 230)", "oklch(28% 0.009 230)", "oklch(42% 0.01 230)", "oklch(56% 0.01 230)", "oklch(70% 0.009 230)", "oklch(82% 0.008 230)", "oklch(92% 0.007 230)", "oklch(98% 0.005 230)"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "校订琥珀",
+        "canonical": "#b7791f",
+        "tonalRamp": ["oklch(18% 0.07 72)", "oklch(28% 0.1 72)", "oklch(40% 0.125 72)", "oklch(54% 0.13 72)", "oklch(66% 0.115 72)", "oklch(78% 0.085 72)", "oklch(88% 0.05 72)", "oklch(96% 0.022 72)"]
+      },
+      "warning-soft": {
+        "role": "secondary",
+        "displayName": "琥珀便签",
+        "canonical": "#fff2d6",
+        "tonalRamp": ["oklch(18% 0.045 82)", "oklch(30% 0.05 82)", "oklch(42% 0.052 82)", "oklch(55% 0.05 82)", "oklch(68% 0.047 82)", "oklch(80% 0.042 82)", "oklch(90% 0.036 82)", "oklch(97% 0.02 82)"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "纠错红",
+        "canonical": "#b42318",
+        "tonalRamp": ["oklch(18% 0.09 28)", "oklch(28% 0.13 28)", "oklch(40% 0.17 28)", "oklch(52% 0.18 28)", "oklch(64% 0.15 28)", "oklch(76% 0.105 28)", "oklch(88% 0.06 28)", "oklch(96% 0.025 28)"]
+      },
+      "danger-soft": {
+        "role": "tertiary",
+        "displayName": "纠错浅红",
+        "canonical": "#fde3df",
+        "tonalRamp": ["oklch(18% 0.04 25)", "oklch(30% 0.045 25)", "oklch(42% 0.047 25)", "oklch(55% 0.045 25)", "oklch(68% 0.042 25)", "oklch(80% 0.038 25)", "oklch(90% 0.032 25)", "oklch(97% 0.016 25)"]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "掌握绿",
+        "canonical": "#2f6f3e",
+        "tonalRamp": ["oklch(18% 0.06 147)", "oklch(28% 0.085 147)", "oklch(40% 0.105 147)", "oklch(52% 0.11 147)", "oklch(64% 0.09 147)", "oklch(76% 0.065 147)", "oklch(88% 0.04 147)", "oklch(96% 0.018 147)"]
+      },
+      "success-soft": {
+        "role": "tertiary",
+        "displayName": "掌握浅绿",
+        "canonical": "#e4f4e8",
+        "tonalRamp": ["oklch(18% 0.035 146)", "oklch(30% 0.04 146)", "oklch(42% 0.042 146)", "oklch(55% 0.04 146)", "oklch(68% 0.037 146)", "oklch(80% 0.033 146)", "oklch(90% 0.028 146)", "oklch(97% 0.014 146)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {"displayName": "学生页标题", "purpose": "学生姓名和页面最高层标题。"},
+      "headline": {"displayName": "面板标题", "purpose": "关键学习区与后台主区块标题。"},
+      "title": {"displayName": "分组标题", "purpose": "卡片、知识模块和表单分组。"},
+      "body": {"displayName": "学习正文", "purpose": "题干、证据说明和行动指导。"},
+      "label": {"displayName": "紧凑标签", "purpose": "表头、字段和状态元数据。"}
+    },
+    "shadows": [
+      {"name": "focus-ring", "value": "0 0 0 3px rgba(8, 118, 111, 0.26)", "purpose": "键盘焦点与导航目标。"},
+      {"name": "legacy-ambient-card", "value": "0 14px 36px rgba(23, 33, 47, 0.1)", "purpose": "仅记录现有登录与运营聚焦表面；新普通卡片禁止使用。"}
+    ],
+    "motion": [
+      {"name": "target-highlight", "value": "160ms ease", "purpose": "导航到题卡或知识证据时的边界与聚焦环变化。"}
+    ],
+    "breakpoints": [
+      {"name": "compact-form", "value": "760px"},
+      {"name": "single-column", "value": "820px"}
+    ]
+  },
+  "components": [
+    {
+      "name": "学生主按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "学生流程中的唯一主动作，保持 44px 触控高度。",
+      "html": "<button class=\"ds-btn-primary\">开始纠错</button>",
+      "css": ".ds-btn-primary { min-height: 44px; padding: 7px 12px; border: 1px solid var(--teal); border-radius: 6px; background: var(--teal); color: #fff; font: 600 16px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; cursor: pointer; transition: filter 160ms ease; } .ds-btn-primary:hover { filter: brightness(.94); } .ds-btn-primary:focus-visible { outline: none; box-shadow: var(--focus-ring); } .ds-btn-primary:active { filter: brightness(.88); }"
+    },
+    {
+      "name": "学生次按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "次级学习动作，白底松绿字，不与主动作争夺注意力。",
+      "html": "<button class=\"ds-btn-secondary\">查看证据</button>",
+      "css": ".ds-btn-secondary { min-height: 44px; padding: 7px 12px; border: 1px solid var(--teal); border-radius: 6px; background: #fff; color: var(--teal); font: 600 16px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; cursor: pointer; transition: background-color 160ms ease; } .ds-btn-secondary:hover { background: var(--teal-soft); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: var(--focus-ring); } .ds-btn-secondary:active { background: #d3ece7; }"
+    },
+    {
+      "name": "文本输入框",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "白色纸面、清晰边界；学生关键输入使用 44px 高度。",
+      "html": "<label class=\"ds-field\"><span>重做答案</span><input class=\"ds-input\" placeholder=\"写下你的答案\"></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: var(--bluegray); font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; } .ds-input { min-height: 44px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); font: 400 16px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; } .ds-input:hover { border-color: var(--bluegray); } .ds-input:focus-visible { outline: none; border-color: var(--teal); box-shadow: var(--focus-ring); }"
+    },
+    {
+      "name": "管理员分区导航",
+      "kind": "nav",
+      "refersTo": "button-secondary",
+      "description": "紧凑、可预测的后台标签导航，当前项使用松绿实底。",
+      "html": "<nav class=\"ds-admin-nav\" aria-label=\"管理员分区\"><button class=\"ds-admin-tab is-active\">概览</button><button class=\"ds-admin-tab\">账号</button><button class=\"ds-admin-tab\">系统</button></nav>",
+      "css": ".ds-admin-nav { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--line); } .ds-admin-tab { min-height: 34px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--teal); font: 600 14px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; cursor: pointer; } .ds-admin-tab:hover { background: var(--teal-soft); } .ds-admin-tab.is-active { border-color: var(--teal); background: var(--teal); color: #fff; } .ds-admin-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }"
+    },
+    {
+      "name": "成功状态芯片",
+      "kind": "chip",
+      "refersTo": "chip-primary",
+      "description": "完成、就绪或已掌握状态，文字与颜色同时表达。",
+      "html": "<span class=\"ds-status-success\">已掌握</span>",
+      "css": ".ds-status-success { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 9px; border-radius: 999px; background: #e4f4e8; color: var(--green); font: 700 12px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }"
+    },
+    {
+      "name": "待处理状态芯片",
+      "kind": "chip",
+      "refersTo": "status-warning",
+      "description": "待复核、运行中或需关注状态，保持温和而明确。",
+      "html": "<span class=\"ds-status-warning\">待复核</span>",
+      "css": ".ds-status-warning { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 9px; border-radius: 999px; background: var(--amber-soft); color: var(--amber); font: 700 12px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; }"
+    },
+    {
+      "name": "普通内容面板",
+      "kind": "card",
+      "refersTo": "panel-default",
+      "description": "扁平白色纸面，通过边界和间距建立结构。",
+      "html": "<section class=\"ds-panel\"><h3>本次纠错</h3><p>先查看错误原因，再完成一次针对性重做。</p></section>",
+      "css": ".ds-panel { max-width: 420px; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font: 400 16px/1.55 -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; } .ds-panel h3 { margin: 0 0 8px; font-size: 18px; line-height: 1.3; } .ds-panel p { margin: 0; color: var(--muted); } .ds-panel:focus-within { border-color: var(--teal); }"
+    },
+    {
+      "name": "掌握状态摘要",
+      "kind": "custom",
+      "refersTo": "panel-default",
+      "description": "学生首页的紧凑证据摘要，使用数字和文字而非只靠颜色。",
+      "html": "<div class=\"ds-mastery-summary\"><strong>3</strong><span>待重做</span></div>",
+      "css": ".ds-mastery-summary { display: grid; gap: 2px; min-width: 96px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; } .ds-mastery-summary strong { font-size: 24px; line-height: 1.1; } .ds-mastery-summary span { color: var(--bluegray); font-size: 14px; line-height: 1.3; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "安静的物理解题桌",
+    "overview": "界面像学生摊开试卷、草稿纸和订正记录的一张安静书桌：所有信息都指向理解证据和完成下一步，而不是争夺注意力。冷灰台面承载稳定的日常使用，白色内容区保持清晰，沉静松绿只在主操作、当前选择和可行动线索上出现。\n\n这是一个有证据但不冷硬的学习工具。学生端宽松、可触、少术语；教师和管理员端可以更紧凑，但必须保持同一套控件和状态语言。系统明确拒绝游戏化奖励轰炸、后台式学生界面、炫技式“AI 感”和放大学生失败感的视觉表达。",
+    "keyCharacteristics": [
+      "浅色、低饱和、长时间使用不疲劳。",
+      "学生行动优先，视觉层级从薄弱点直接通向纠错动作。",
+      "证据状态有文字、有颜色、有来源，不靠装饰制造权威。",
+      "学生端宽松可触，教师与管理员端紧凑精确。",
+      "动效只说明状态变化，并尊重减少动态效果设置。"
+    ],
+    "rules": [
+      {"name": "The Evidence Color Rule", "body": "颜色只能表达操作优先级或有文字证据的真实状态；同一屏主色占比保持克制，状态不得只靠颜色区分。", "section": "colors"},
+      {"name": "The Student-First Reading Rule", "body": "学生端不得为了容纳更多信息而把正文压到 14px 以下；教师与管理员的表格标签可使用 13px，但题干、错误原因和操作反馈必须保持可读。", "section": "typography"},
+      {"name": "The Flat-at-Rest Rule", "body": "普通面板、题卡、表格和导航静止时一律扁平；深度首先由底色和结构间距表达，阴影不能成为“卡片感”的默认来源。", "section": "elevation"},
+      {"name": "The Role-Density Rule", "body": "学生端宽松可触，教师与管理员端紧凑精确；不同密度共享同一颜色、圆角、焦点和状态语言，不为不同角色发明三套组件。", "section": "components"}
+    ],
+    "dos": [
+      "Do 用沉静松绿标记唯一主动作、当前导航和可行动证据。",
+      "Do 让错误、掌握度和运行状态同时拥有文字标签、颜色与证据来源。",
+      "Do 保持学生端主要触控目标至少 44×44px，并在 820px 以下转为清晰单列。",
+      "Do 使用 6px 控件圆角、8px 普通面板圆角和 10px 少数运营面板圆角。",
+      "Do 在键盘操作时始终显示 3px 松绿聚焦环，并尊重减少动态效果设置。"
+    ],
+    "donts": [
+      "Don't 把学习做成积分、排行榜和奖励轰炸的游戏化产品。",
+      "Don't 把学生端做成教师后台，不向学生堆叠表格、专业术语和运维信息。",
+      "Don't 使用炫目渐变、玻璃卡片或无意义动效制造“AI 感”。",
+      "Don't 用刺眼红色、羞辱性措辞或公开比较放大学生的失败感。",
+      "Don't 使用粗侧边色条、渐变文字、装饰性网格背景或重复的同尺寸卡片阵列。",
+      "Don't 在同一表面叠加 1px 装饰边框和宽柔阴影；普通卡片必须保持扁平。",
+      "Don't 让长题干、公式、图谱标签或表格在平板视口中溢出容器。"
+    ]
+  }
+}

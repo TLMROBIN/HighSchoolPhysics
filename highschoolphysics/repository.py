@@ -3417,6 +3417,25 @@ class PhysicsRepository:
         self.conn.commit()
         return {"id": mark_id, "level": level, "note": note}
 
+    def clear_knowledge_mastery_mark(self, actor_id, student_id, knowledge_node_id):
+        self._require(actor_id, "modify", "mastery_mark", student_id)
+        result = self.conn.execute(
+            """
+            delete from knowledge_mastery_marks
+            where student_id = ? and knowledge_node_id = ?
+            """,
+            (student_id, knowledge_node_id),
+        )
+        self.audit(
+            actor_id,
+            "knowledge_mastery_mark_cleared",
+            "knowledge_node",
+            knowledge_node_id,
+            {"student_id": student_id},
+        )
+        self.conn.commit()
+        return {"cleared": result.rowcount > 0}
+
     def set_mastery_mark(self, actor_id, wrong_question_id, level, note=""):
         wrong = self.conn.execute(
             "select * from wrong_questions where id = ?",
@@ -3459,6 +3478,25 @@ class PhysicsRepository:
         )
         self.conn.commit()
         return {"id": mark_id, "level": level, "note": note}
+
+    def clear_mastery_mark(self, actor_id, wrong_question_id):
+        wrong = self._require_wrong_question_student(actor_id, wrong_question_id)
+        result = self.conn.execute(
+            """
+            delete from mastery_marks
+            where student_id = ? and wrong_question_id = ?
+            """,
+            (wrong["student_id"], wrong_question_id),
+        )
+        self.audit(
+            actor_id,
+            "mastery_mark_cleared",
+            "wrong_question",
+            wrong_question_id,
+            {},
+        )
+        self.conn.commit()
+        return {"cleared": result.rowcount > 0}
 
     def class_diagnostics(self, actor_id, assessment_id):
         self._require(actor_id, "view", "diagnostics", assessment_id)
@@ -3992,6 +4030,7 @@ class PhysicsRepository:
             "knowledge_tree": self.student_knowledge_tree(
                 student_id,
                 mastery_metrics,
+                wrongs,
             ),
             "ability_mastery": self.student_tag_mastery_summary(
                 "ability",
@@ -4064,6 +4103,15 @@ class PhysicsRepository:
             )
         )
 
+    def _mastery_evidence_summary(self, metric):
+        if not metric:
+            return "还没有练习记录。"
+        return "历史表现：%s 次评测，正确率 %s%%；重做 %s 次。" % (
+            metric["assessment_attempts"],
+            round(float(metric.get("correct_rate") or 0) * 100),
+            metric["redo_attempts"],
+        )
+
     def _mastery_view_model(self, metric, tag_name, manual_mark=None):
         calculated_state = metric["mastery_state"] if metric else "未练习"
         manual_level = manual_mark["level"] if manual_mark else ""
@@ -4075,7 +4123,8 @@ class PhysicsRepository:
             "manual_mastery_level": manual_level,
             "manual_mastery_note": manual_mark["note"] if manual_mark else "",
             "mastery_css_class": mastery_css_class(calculated_state),
-            "mastery_evidence_text": self._mastery_evidence_text(metric),
+            "mastery_evidence_text": self._mastery_evidence_summary(metric),
+            "mastery_evidence_detail_text": self._mastery_evidence_text(metric),
             "mastery_rate_text": self._rate_text(metric),
             "mastery_metric": metric,
         }
@@ -4212,12 +4261,29 @@ class PhysicsRepository:
                     if self._wrong_needs_redo(wrong)
                 ],
             }
+            pending_wrong_count = len(module["redo_tasks"])
+            module["pending_wrong_count"] = pending_wrong_count
+            if tag_type == "knowledge" and pending_wrong_count and not module["manual_mastery_level"]:
+                module["display_mastery_state"] = "待巩固"
+                module["mastery_level"] = "待巩固"
+                module["mastery_css_class"] = mastery_css_class("有困难")
+                metric = module.get("mastery_metric") or {}
+                module["mastery_evidence_text"] = (
+                    "本次测评新增 %s 道待纠错题，先完成重做。"
+                    "历史表现：此前 %s 次评测，正确率 %s%%。"
+                    % (
+                        pending_wrong_count,
+                        metric.get("assessment_attempts") or 0,
+                        round(float(metric.get("correct_rate") or 0) * 100),
+                    )
+                )
             modules.append(module)
         return modules
 
-    def student_knowledge_tree(self, student_id, mastery_metrics=None):
+    def student_knowledge_tree(self, student_id, mastery_metrics=None, wrongs=None):
         paths = self.knowledge_node_paths()
         by_tag = self._metric_by_tag(mastery_metrics or [])
+        wrongs = wrongs or []
         marks = {
             row["knowledge_node_id"]: row_to_dict(row)
             for row in self.conn.execute(
@@ -4239,7 +4305,29 @@ class PhysicsRepository:
                 mark,
             )
             node.update(mastery_view)
+            pending_wrong_count = sum(
+                1
+                for wrong in wrongs
+                if self._wrong_needs_redo(wrong)
+                and self._wrong_has_tag(wrong, "knowledge", node["id"])
+            )
+            node["pending_wrong_count"] = pending_wrong_count
+            if pending_wrong_count and not mastery_view["manual_mastery_level"]:
+                node["display_mastery_state"] = "待巩固"
+                node["mastery_css_class"] = mastery_css_class("有困难")
+                metric = mastery_view.get("mastery_metric") or {}
+                node["mastery_evidence_text"] = (
+                    "本次测评新增 %s 道待纠错题，先完成重做。"
+                    "历史表现：此前 %s 次评测，正确率 %s%%。"
+                    % (
+                        pending_wrong_count,
+                        metric.get("assessment_attempts") or 0,
+                        round(float(metric.get("correct_rate") or 0) * 100),
+                    )
+                )
             node["mastery_level"] = mastery_view["display_mastery_state"]
+            if pending_wrong_count and not mastery_view["manual_mastery_level"]:
+                node["mastery_level"] = "待巩固"
             node["related_questions"] = related
             node["related_question_count"] = len(related)
             nodes.append(node)

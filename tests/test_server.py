@@ -142,15 +142,16 @@ class ServerRenderingTests(unittest.TestCase):
 
         self.assertIn('data-tab-panel="graph"', html)
         self.assertIn('class="student-tab is-active"', html)
-        self.assertIn("模块视图", html)
-        self.assertIn("关系图谱", html)
+        self.assertIn("今天先解决什么", html)
+        self.assertIn("从薄弱点出发", html)
+        self.assertIn("按教材浏览", html)
         self.assertIn("相关题目", html)
         self.assertIn('data-action="mark-knowledge"', html)
         self.assertIn('class="bottom-nav"', html)
         self.assertIn("知识图谱", html)
         self.assertIn("错题本", html)
         self.assertIn("待重做", html)
-        self.assertIn("最近考试", html)
+        self.assertIn("最近测评", html)
 
     def test_student_app_renders_calculated_mastery_colors_and_evidence(self):
         self._publish_demo_assessment()
@@ -170,8 +171,8 @@ class ServerRenderingTests(unittest.TestCase):
 
         self.assertIn("mastery-state-mastered", html)
         self.assertIn("正确率 100%", html)
-        self.assertIn("计算：已掌握", html)
-        self.assertIn("手动覆盖：需教师讲解", html)
+        self.assertIn("为什么是这个状态：历史表现：1 次评测，正确率 100%", html)
+        self.assertIn("我的标记：需教师讲解", html)
         self.assertIn("需要复盘", html)
         self.assertIn("能力掌握", html)
         self.assertIn("核心素养掌握", html)
@@ -190,13 +191,22 @@ class ServerRenderingTests(unittest.TestCase):
 
         html = render_student_app(student, self.repo.student_dashboard(student["id"]))
 
-        self.assertIn('data-layout="deterministic-layered-v1"', html)
+        self.assertIn('data-layout="focus-radial-v1"', html)
+        self.assertIn('viewBox="0 0 720 360"', html)
+        self.assertIn('role="group"', html)
         self.assertIn('role="button"', html)
         self.assertIn('tabindex="0"', html)
-        self.assertIn('data-detail-level="module"', html)
-        self.assertIn('data-detail-level="child"', html)
-        self.assertIn('aria-label="选择知识节点', html)
+        self.assertIn('aria-label="查看知识点', html)
         self.assertIn('data-graph-detail-control', html)
+        self.assertIn('data-graph-search', html)
+        self.assertIn('class="graph-legend"', html)
+        self.assertIn('data-graph-zoom-status', html)
+        self.assertIn('data-graph-node-status', html)
+        self.assertIn('data-graph-related-summary', html)
+        self.assertIn('data-graph-related-list', html)
+        self.assertIn("教材层级", html)
+        self.assertIn("知识关联", html)
+        self.assertIn('id="student-graph-data"', html)
         self.assertNotIn("kn-mechanics", html)
 
     def test_student_graph_assets_support_keyboard_zoom_detail_and_pointer_cancel(self):
@@ -204,13 +214,82 @@ class ServerRenderingTests(unittest.TestCase):
         styles = Path("highschoolphysics/assets/app.css").read_text()
 
         self.assertIn("function graphScaleState", script)
+        self.assertIn("function renderStudentGraph", script)
+        self.assertIn("function studentGraphLayout", script)
+        self.assertIn("function graphLabelLines", script)
+        self.assertIn('viewBox: "0 0 360 420"', script)
+        self.assertIn("allRelatedIds.slice(0, narrow ? 4 : 7)", script)
+        self.assertIn("另有 ${hiddenCount} 个未显示", script)
         self.assertIn("data-graph-scale-state", script)
+        self.assertIn("data-graph-zoom-status", script)
         self.assertIn('addEventListener("keydown"', script)
         self.assertIn("setPointerCapture", script)
         self.assertIn("pointercancel", script)
         self.assertIn("lostpointercapture", script)
         self.assertIn('[data-graph-scale-state="low"]', styles)
         self.assertIn('[data-graph-scale-state="high"]', styles)
+
+    def test_student_app_uses_progressive_disclosure_and_searchable_wrong_filter(self):
+        self._publish_demo_assessment()
+        student = self.auth.login("stu_1001", "student123", "unit-test").user
+
+        html = render_student_app(
+            student,
+            self.repo.student_dashboard(student["id"]),
+        )
+
+        self.assertIn('class="module-browser"', html)
+        self.assertIn('data-action="collapse-modules"', html)
+        self.assertIn('data-wrong-filter-search', html)
+        self.assertIn('id="wrong-knowledge-options"', html)
+        self.assertIn('data-graph-default-focus="kn-pep2019-r1-c04-s03"', html)
+        self.assertIn("先看需要处理的错题", html)
+        self.assertNotIn('class="filter-row"', html)
+        self.assertLessEqual(html.count('data-knowledge-filter='), 8)
+
+    def test_student_app_exposes_live_status_accessible_tabs_and_plain_language(self):
+        student = self.auth.login("stu_1001", "student123", "unit-test").user
+
+        html = render_student_app(student, self.repo.student_dashboard(student["id"]))
+
+        self.assertIn('id="action-status"', html)
+        self.assertIn('aria-live="polite"', html)
+        self.assertIn('role="tablist"', html)
+        self.assertIn('role="tab"', html)
+        self.assertIn('aria-selected="true"', html)
+        self.assertIn('role="tabpanel"', html)
+        self.assertIn('aria-label="放大知识图谱"', html)
+        self.assertIn('aria-label="缩小知识图谱"', html)
+        self.assertIn('data-action="undo-student-action"', html)
+        self.assertNotIn("Phase 2E", html)
+        self.assertNotIn("附属功能", html)
+        self.assertNotIn("｜显示：", html)
+        self.assertNotIn("｜计算：", html)
+
+    def test_student_assets_include_busy_undo_touch_and_reduced_motion_support(self):
+        script = Path("highschoolphysics/assets/app.js").read_text()
+        styles = Path("highschoolphysics/assets/app.css").read_text()
+
+        self.assertIn("function setStudentBusy", script)
+        self.assertIn("function setStudentUndo", script)
+        self.assertIn("function friendlyStudentError", script)
+        self.assertIn("dataWrongFilterSearch", script)
+        self.assertLess(
+            script.index("const studentPayload = formPayload"),
+            script.index("setStudentBusy(studentForm, true)"),
+        )
+        self.assertIn('setAttribute("aria-selected"', script)
+        self.assertIn('window.scrollTo({ top: 0, behavior: "auto" })', script)
+        self.assertIn("restoreFocus = false", script)
+        self.assertIn("selectedNode.focus()", script)
+        self.assertIn("相关证据已更新", script)
+        self.assertIn(".student-app button", styles)
+        self.assertIn("min-height: 44px", styles)
+        self.assertIn(".related-questions a", styles)
+        self.assertIn(".tag-question-card h5 a", styles)
+        self.assertIn("@media (min-width: 821px)", styles)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", styles)
+        self.assertNotIn("opacity: 0.2", styles)
 
     def test_student_app_renders_three_family_navigation_without_duplicate_ids(self):
         self._publish_demo_assessment()
@@ -312,6 +391,57 @@ class ServerRenderingTests(unittest.TestCase):
 
         self.assertIn("提交重做", html)
         self.assertIn('data-student-form="redo-attempt"', html)
+        redo_panel = html.split('id="student-panel-redo"', 1)[1].split(
+            'id="student-panel-recent"', 1
+        )[0]
+        wrong_panel = html.split('id="student-panel-wrong"', 1)[1].split(
+            'id="student-panel-redo"', 1
+        )[0]
+        self.assertIn("请先独立完成这次作答", redo_panel)
+        self.assertIn("选择本次答案", redo_panel)
+        self.assertEqual(redo_panel.count('type="radio" name="answer"'), 4)
+        self.assertNotIn('name="answer" required autocomplete="off"', redo_panel)
+        self.assertNotIn("正确答案：", redo_panel)
+        self.assertNotIn("解析：", redo_panel)
+        self.assertNotIn('data-mastery=', redo_panel)
+        self.assertIn("正确答案：", wrong_panel)
+        self.assertIn("解析：", wrong_panel)
+        self.assertIn("去独立重做", wrong_panel)
+        self.assertNotIn('data-student-form="redo-attempt"', wrong_panel)
+
+    def test_pending_live_tag_wrong_overrides_stale_mastery_display(self):
+        self._publish_demo_assessment()
+        student = self.auth.login("stu_1001", "student123", "unit-test").user
+
+        html = render_student_app(
+            student,
+            self.repo.student_dashboard(student["id"]),
+        )
+
+        self.assertIn("当前状态：待巩固", html)
+        self.assertIn("本次测评新增 1 道待纠错题，先完成重做", html)
+        self.assertIn("历史表现：此前 1 次评测，正确率 100%", html)
+        self.assertIn("查看计算依据", html)
+
+    def test_recent_assessment_cards_link_back_to_learning_actions(self):
+        self._publish_demo_assessment()
+        student = self.auth.login("stu_1001", "student123", "unit-test").user
+
+        html = render_student_app(
+            student,
+            self.repo.student_dashboard(student["id"]),
+        )
+        recent_panel = html.split('id="student-panel-recent"', 1)[1].split(
+            'class="bottom-nav"', 1
+        )[0]
+
+        self.assertIn('class="assessment-list"', recent_panel)
+        self.assertIn('class="assessment-card"', recent_panel)
+        self.assertIn("继续重做", recent_panel)
+        self.assertIn("薄弱点：牛顿第二定律 · 丢分题 1 道", recent_panel)
+        self.assertIn("查看当前知识图谱", recent_panel)
+        self.assertIn('data-target-tab="redo"', recent_panel)
+        self.assertNotIn("<table", recent_panel)
 
     def test_student_app_exposes_redo_history_and_latest_status(self):
         self._publish_demo_assessment()
@@ -334,8 +464,9 @@ class ServerRenderingTests(unittest.TestCase):
             self.repo.student_dashboard(student["id"]),
         )
 
-        self.assertIn("重做状态：done", html)
+        self.assertIn("重做状态：已完成", html)
         self.assertIn("重做记录", html)
+        self.assertIn("本次答案：C", html)
         self.assertIn("重做正确", html)
 
     def test_change_password_page_requires_current_and_confirmed_passwords(self):
@@ -510,7 +641,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn(".phase2g-analytics .analytics-block", styles)
         self.assertIn("justify-self: start", styles)
         html = render_login_page()
-        self.assertIn('/assets/app.css?v=20260617-admin-panel-fit', html)
+        self.assertIn('/assets/app.css?v=20260717-student-polish-final', html)
+        self.assertIn('/assets/app.js?v=20260717-student-polish-final', html)
 
     def test_admin_app_exposes_export_profiles_and_error_reason_tags(self):
         admin = self.auth.login("admin", "admin123", "unit-test").user

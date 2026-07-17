@@ -594,6 +594,56 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertEqual(updated_wrong["error_reason_tags"][0]["name"], "概念混淆")
         self.assertEqual(updated_wrong["redo_attempts"][0]["feedback"], "重做正确")
 
+    def test_student_can_clear_wrong_and_knowledge_mastery_for_undo(self):
+        self._publish_demo_assessment()
+        conn = connect(self.server.db_path)
+        try:
+            wrong = PhysicsRepository(conn).list_wrong_questions_for_student(
+                "stu-1001"
+            )[0]
+        finally:
+            conn.close()
+        _, student_cookie, _ = self.server.login("stu_1001", "student123")
+
+        status, _, _ = self.server.post_json(
+            "/api/student/mastery",
+            {
+                "wrong_question_id": wrong["id"],
+                "level": "基本掌握",
+                "note": "HTTP 标记",
+            },
+            student_cookie,
+        )
+        self.assertEqual(status, 200)
+        status, _, payload = self.server.post_json(
+            "/api/student/mastery",
+            {"wrong_question_id": wrong["id"], "clear": True},
+            student_cookie,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["result"]["cleared"])
+
+        status, _, _ = self.server.post_json(
+            "/api/student/knowledge-mastery",
+            {
+                "knowledge_node_id": "kn-pep2019-r1-c04-s03",
+                "level": "需教师讲解",
+                "note": "HTTP 标记",
+            },
+            student_cookie,
+        )
+        self.assertEqual(status, 200)
+        status, _, payload = self.server.post_json(
+            "/api/student/knowledge-mastery",
+            {
+                "knowledge_node_id": "kn-pep2019-r1-c04-s03",
+                "clear": True,
+            },
+            student_cookie,
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(payload)["result"]["cleared"])
+
     def test_phase_2d_routes_execute_teacher_student_loop(self):
         _, teacher_cookie, _ = self.server.login("teacher_li", "teacher123")
         status, _, payload = self.server.post_json(

@@ -22,14 +22,13 @@ from .errors import (
     PermissionDenied,
 )
 from .exporting import build_wrong_book_html
-from .graph_layout import layout_knowledge_graph
 from .repository import PhysicsRepository, dumps
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
 
 
 ASSET_DIR = Path(__file__).with_name("assets")
-ASSET_VERSION = "20260617-admin-panel-fit"
+ASSET_VERSION = "20260717-student-polish-final"
 
 
 def ensure_database(path, demo_mode=False):
@@ -53,11 +52,16 @@ def truthy(value):
 def render_layout(title, user, body, active=""):
     user_text = ""
     if user:
+        role_label = {
+            "student": "学生",
+            "teacher": "教师",
+            "admin": "管理员",
+        }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
             "<span>%s</span><strong>%s</strong><a href='/logout'>退出</a>"
             "</div>"
-            % (escape(user["role"]), escape(user["display_name"]))
+            % (escape(role_label), escape(user["display_name"]))
         )
     return """<!doctype html>
 <html lang="zh-CN">
@@ -73,7 +77,7 @@ def render_layout(title, user, body, active=""):
     {user_text}
   </header>
   <main>{body}</main>
-  <script src="/assets/app.js"></script>
+  <script src="/assets/app.js?v={asset_version}"></script>
 </body>
 </html>""".format(
         title=escape(title),
@@ -181,17 +185,23 @@ def _manual_mastery_html(item):
     if item.get("manual_mastery_note"):
         note = "｜%s" % escape(item["manual_mastery_note"])
     return (
-        '<span class="manual-mastery">手动覆盖：%s%s</span>'
+        '<span class="manual-mastery">我的标记：%s%s</span>'
         % (escape(item["manual_mastery_level"]), note)
     )
 
 
-def _render_module_tree(nodes, target_question_ids):
+def _render_module_tree(nodes, target_question_ids, focus_node_id=None):
     children = {}
     by_id = {}
     for node in nodes:
         by_id[node["id"]] = node
         children.setdefault(node["parent_id"], []).append(node)
+
+    focus_path = set()
+    current = by_id.get(focus_node_id)
+    while current:
+        focus_path.add(current["id"])
+        current = by_id.get(current.get("parent_id"))
 
     def render_node(node):
         child_html = "".join(render_node(child) for child in children.get(node["id"], []))
@@ -199,38 +209,31 @@ def _render_module_tree(nodes, target_question_ids):
             "<li>%s</li>"
             % _related_question_link(question, target_question_ids)
             for question in node["related_questions"]
-        ) or "<li>暂无关联题目</li>"
+        ) or "<li>暂时没有与测评关联的题目</li>"
+        open_attr = " open" if node["id"] in focus_path else ""
         return """
-        <details class="module-node {mastery_class}" open id="knowledge-{id}" data-knowledge-id="{id}">
+        <details class="module-node {mastery_class}"{open_attr} id="knowledge-{id}" data-knowledge-id="{id}">
           <summary>
             <span>{name}</span>
             <small>{path}</small>
             <strong>{mastery}</strong>
           </summary>
-          <div class="mastery-evidence">
-            <span>计算：{calculated}</span>
-            <span>{evidence}</span>
-            {manual}
-          </div>
           <div class="module-node-body">
-            <div class="mastery-actions" data-knowledge-id="{id}">
-              <button data-action="mark-knowledge" data-level="未掌握">未掌握</button>
-              <button data-action="mark-knowledge" data-level="基本掌握">基本掌握</button>
-              <button data-action="mark-knowledge" data-level="已掌握">已掌握</button>
-              <button data-action="mark-knowledge" data-level="需教师讲解">需教师讲解</button>
-            </div>
-            <p>相关题目：{count} 题</p>
+            <p class="mastery-evidence"><span>系统依据：{evidence}</span>{manual}</p>
+            <button type="button" class="secondary" data-action="focus-knowledge"
+                    data-knowledge-id="{id}">在关系图中查看</button>
+            <p>相关题目 {count} 题</p>
             <ul>{related}</ul>
             {children}
           </div>
         </details>
         """.format(
+            open_attr=open_attr,
             id=escape(node["id"]),
             mastery_class=escape(node["mastery_css_class"]),
             name=escape(node["name"]),
             path=escape(node["path_text"]),
             mastery=escape(node["display_mastery_state"]),
-            calculated=escape(node["calculated_mastery_state"]),
             evidence=escape(node["mastery_evidence_text"]),
             manual=_manual_mastery_html(node),
             count=node["related_question_count"],
@@ -244,24 +247,136 @@ def _render_module_tree(nodes, target_question_ids):
     return "".join(render_node(root) for root in roots)
 
 
-def _render_student_relation_graph(nodes, edges):
-    layout = layout_knowledge_graph(nodes, edges)
-    view_box = layout["view_box"]
+def _student_graph_edges(nodes, edges):
+    node_ids = {node["id"] for node in nodes}
+    values = []
+    seen = set()
+
+    def add(source, target, kind, relation):
+        if source not in node_ids or target not in node_ids or source == target:
+            return
+        key = (source, target, kind)
+        reverse = (target, source, kind)
+        if key in seen or reverse in seen:
+            return
+        seen.add(key)
+        values.append(
+            {
+                "source": source,
+                "target": target,
+                "kind": kind,
+                "relation": relation,
+            }
+        )
+
+    for node in nodes:
+        if node.get("parent_id"):
+            add(node["parent_id"], node["id"], "hierarchy", "教材层级")
+    for edge in edges:
+        add(
+            edge["source_node_id"],
+            edge["target_node_id"],
+            "relation",
+            edge.get("relation_type") or "知识关联",
+        )
+    return values
+
+
+def _student_focus_node_ids(nodes, graph_edges, focus_node_id, limit=7):
+    by_id = {node["id"]: node for node in nodes}
+    if focus_node_id not in by_id:
+        focus_node_id = nodes[0]["id"] if nodes else ""
+    if not focus_node_id:
+        return []
+
+    neighbours = []
+    for edge in graph_edges:
+        other = ""
+        if edge["source"] == focus_node_id:
+            other = edge["target"]
+        elif edge["target"] == focus_node_id:
+            other = edge["source"]
+        if other:
+            neighbours.append(
+                (
+                    0 if edge["kind"] == "relation" else 1,
+                    int(by_id[other].get("level") or 0),
+                    by_id[other].get("stable_code") or "",
+                    other,
+                )
+            )
+
+    focus_parent_id = by_id[focus_node_id].get("parent_id")
+    if focus_parent_id:
+        for node in nodes:
+            if node.get("parent_id") == focus_parent_id and node["id"] != focus_node_id:
+                neighbours.append(
+                    (
+                        2,
+                        int(node.get("level") or 0),
+                        node.get("stable_code") or "",
+                        node["id"],
+                    )
+                )
+
+    ordered = [focus_node_id]
+    for _priority, _level, _code, node_id in sorted(neighbours):
+        if node_id not in ordered:
+            ordered.append(node_id)
+        if len(ordered) >= limit:
+            break
+    return ordered
+
+
+def _short_graph_label(value):
+    text = str(value or "")
+    return text if len(text) <= 9 else text[:8] + "…"
+
+
+def _render_student_relation_graph(nodes, edges, focus_node_id):
+    graph_edges = _student_graph_edges(nodes, edges)
+    visible_ids = _student_focus_node_ids(nodes, graph_edges, focus_node_id)
+    by_id = {node["id"]: node for node in nodes}
+    positions = [
+        (360, 180),
+        (132, 82),
+        (360, 68),
+        (588, 82),
+        (132, 278),
+        (360, 292),
+        (588, 278),
+    ]
+    position_by_id = {
+        node_id: positions[index]
+        for index, node_id in enumerate(visible_ids)
+    }
     lines = []
-    for edge in layout["edges"]:
-        start = edge["source"]
-        end = edge["target"]
+    for edge in graph_edges:
+        if edge["source"] not in position_by_id or edge["target"] not in position_by_id:
+            continue
+        start = position_by_id[edge["source"]]
+        end = position_by_id[edge["target"]]
         lines.append(
-            "<line x1='%s' y1='%s' x2='%s' y2='%s'></line>"
-            % (start["x"], start["y"], end["x"], end["y"])
+            "<line x1=\"%s\" y1=\"%s\" x2=\"%s\" y2=\"%s\" "
+            "data-edge-kind=\"%s\"><title>%s</title></line>"
+            % (
+                start[0],
+                start[1],
+                end[0],
+                end[1],
+                escape(edge["kind"]),
+                escape(edge["relation"]),
+            )
         )
     node_markup = []
-    for node in layout["nodes"]:
+    for index, node_id in enumerate(visible_ids):
+        node = by_id[node_id]
+        x, y = position_by_id[node_id]
+        selected = index == 0
         aria_label = (
-            "选择知识节点 %s，计算 %s，显示 %s，相关题目 %s 题"
+            "查看知识点 %s，当前%s，相关题目%s题"
             % (
                 node["name"],
-                node["calculated_mastery_state"],
                 node["display_mastery_state"],
                 node["related_question_count"],
             )
@@ -270,46 +385,113 @@ def _render_student_relation_graph(nodes, edges):
             """
             <g class="graph-node {mastery_class}"
                data-knowledge-id="{id}" data-action="select-knowledge"
-               data-detail-level="{detail_level}" data-min-label-scale="{min_label_scale}"
+               data-detail-level="{detail_level}"
                role="button" tabindex="0" aria-label="{aria_label}"
+               aria-current="{aria_current}"
                transform="translate({x},{y})">
               <circle r="{radius}"></circle>
-              <text y="4">{name}</text>
-              <title>{path}｜计算：{calculated}｜{evidence}｜显示：{mastery}｜相关题目 {count} 题</title>
+              <text y="5">{short_name}</text>
+              <title>{path}｜当前状态：{mastery}｜{evidence}｜相关题目 {count} 题</title>
             </g>
             """.format(
                 id=escape(node["id"]),
-                mastery_class=escape(node["mastery_css_class"]),
-                detail_level=escape(node["detail_level"]),
-                min_label_scale=node["min_label_scale"],
+                mastery_class=(
+                    escape(node["mastery_css_class"])
+                    + (" is-selected" if selected else "")
+                ),
+                detail_level="focus" if selected else "neighbor",
                 aria_label=escape(aria_label),
-                x=node["x"],
-                y=node["y"],
-                radius=18 + min(10, node["related_question_count"] * 2),
-                name=escape(node["name"]),
+                aria_current="true" if selected else "false",
+                x=x,
+                y=y,
+                radius=32 if selected else 27,
+                short_name=escape(_short_graph_label(node["name"])),
                 path=escape(node["path_text"]),
-                calculated=escape(node["calculated_mastery_state"]),
                 evidence=escape(node["mastery_evidence_text"]),
                 mastery=escape(node["display_mastery_state"]),
                 count=node["related_question_count"],
             )
+        )
+    search_options = "".join(
+        '<option value="{path}" data-knowledge-id="{id}">{name}</option>'.format(
+            path=escape(node["path_text"]),
+            id=escape(node["id"]),
+            name=escape(node["name"]),
+        )
+        for node in nodes
     )
+    graph_payload = json.dumps(
+        {
+            "nodes": [
+                {
+                    "id": node["id"],
+                    "name": node["name"],
+                    "parentId": node.get("parent_id") or "",
+                    "path": node["path_text"],
+                    "masteryClass": node["mastery_css_class"],
+                    "displayState": node["display_mastery_state"],
+                    "evidence": node["mastery_evidence_text"],
+                    "questionCount": node["related_question_count"],
+                    "level": int(node.get("level") or 0),
+                    "stableCode": node.get("stable_code") or "",
+                }
+                for node in nodes
+            ],
+            "edges": graph_edges,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).replace("</", "<\\/")
+    focus_path = by_id.get(focus_node_id, {}).get("path_text", "")
     return """
-    <div class="relation-toolbar">
-      <button data-action="graph-zoom-in" data-graph-detail-control>+</button>
-      <button data-action="graph-zoom-out" data-graph-detail-control>-</button>
-      <button data-action="graph-reset" data-graph-detail-control>重置</button>
+    <div class="graph-controls">
+      <label class="graph-search-field">搜索知识点
+        <input type="search" list="student-graph-options" value="{focus_path}"
+               data-graph-search autocomplete="off"
+               placeholder="输入章节或知识点名称">
+      </label>
+      <datalist id="student-graph-options">{search_options}</datalist>
+      <div class="relation-toolbar" aria-label="知识图谱视图控制">
+        <button type="button" class="secondary" data-action="graph-focus-current"
+                data-graph-default-focus="{focus_id}">回到当前任务</button>
+        <details class="graph-view-controls">
+          <summary>调整视图</summary>
+          <div>
+            <button type="button" class="secondary" data-action="graph-zoom-in"
+                    data-graph-detail-control aria-label="放大知识图谱">＋</button>
+            <button type="button" class="secondary" data-action="graph-zoom-out"
+                    data-graph-detail-control aria-label="缩小知识图谱">－</button>
+            <button type="button" class="secondary" data-action="graph-reset"
+                    data-graph-detail-control aria-label="复位知识图谱视图">复位</button>
+          </div>
+        </details>
+      </div>
     </div>
-    <svg class="student-relation-graph" viewBox="0 0 {width} {height}"
-         role="img" data-layout="{layout}" data-graph-scale-state="medium">
+    <svg class="student-relation-graph" viewBox="0 0 720 360"
+         role="group" aria-label="可交互的知识关系图，默认显示当前知识点和直接相关知识点"
+         data-layout="focus-radial-v1" data-graph-scale-state="medium"
+         data-graph-default-focus="{focus_id}">
       <g class="graph-stage">{edges}{nodes}</g>
     </svg>
+    <div class="graph-legend" aria-label="知识图谱图例">
+      <span><i data-edge-kind="hierarchy" aria-hidden="true"></i>教材层级</span>
+      <span><i data-edge-kind="relation" aria-hidden="true"></i>知识关联</span>
+      <span>当前缩放 <output data-graph-zoom-status aria-live="polite">100%</output></span>
+      <span>当前视图 <output data-graph-node-status aria-live="polite">7/7 个节点</output></span>
+    </div>
+    <details class="graph-related-list">
+      <summary data-graph-related-summary>查看全部关联知识点</summary>
+      <ul data-graph-related-list></ul>
+    </details>
+    <p class="graph-help">当前视图优先展示最相关节点；完整关联可在上方列表查看，搜索也可直接跳到任一知识点。</p>
+    <script type="application/json" id="student-graph-data">{graph_payload}</script>
     """.format(
-        width=view_box["width"],
-        height=view_box["height"],
-        layout=escape(layout["layout"]),
+        focus_path=escape(focus_path),
+        focus_id=escape(focus_node_id),
+        search_options=search_options,
         edges="".join(lines),
         nodes="".join(node_markup),
+        graph_payload=graph_payload,
     )
 
 
@@ -317,6 +499,12 @@ def _render_tag_mastery_summary(title, items):
     cards = []
     for item in items:
         related_count = len(item.get("related_questions") or [])
+        if (
+            item.get("calculated_mastery_state") == "未练习"
+            and not item.get("manual_mastery_level")
+            and related_count == 0
+        ):
+            continue
         cards.append(
             """
             <article class="tag-mastery-card {mastery_class}" id="{tag_type}-{tag_id}">
@@ -340,7 +528,7 @@ def _render_tag_mastery_summary(title, items):
         cards.append("<article class='empty-state'>暂无标签</article>")
     return """
     <section class="tag-mastery-summary">
-      <div class="panel-head"><h3>{title}</h3><span>Phase 2E 显示掌握颜色；下方导航可进入题目和重做任务</span></div>
+      <div class="panel-head"><h3>{title}</h3><span>只显示已有测评或题目依据的项目</span></div>
       <div class="tag-mastery-grid">{cards}</div>
     </section>
     """.format(title=escape(title), cards="".join(cards))
@@ -447,13 +635,16 @@ def _render_tag_navigation_panel(panel, title, modules, active=False):
     if not cards:
         cards.append("<article class='empty-state'>暂无可导航标签</article>")
     active_class = " is-active" if active else ""
+    hidden_attr = "" if active else " hidden"
     return """
-    <section class="tag-family-panel{active_class}" data-tag-family-panel="{panel}">
-      <div class="panel-head"><h3>{title}</h3><span>按标签查看相关题、错题、重做和掌握证据</span></div>
+    <section class="tag-family-panel{active_class}" id="tag-family-{panel}"
+             data-tag-family-panel="{panel}" role="tabpanel"{hidden_attr}>
+      <div class="panel-head"><h3>{title}</h3><span>查看相关题、错题、待重做和掌握依据</span></div>
       <div class="tag-navigation-grid">{cards}</div>
     </section>
     """.format(
         active_class=active_class,
+        hidden_attr=hidden_attr,
         panel=escape(panel),
         title=escape(title),
         cards="".join(cards),
@@ -461,14 +652,37 @@ def _render_tag_navigation_panel(panel, title, modules, active=False):
 
 
 def _render_student_navigation(dashboard):
+    def has_evidence(module):
+        return bool(
+            module.get("related_questions")
+            or module.get("wrong_questions")
+            or module.get("redo_tasks")
+            or module.get("manual_mastery_level")
+            or module.get("calculated_mastery_state") != "未练习"
+        )
+
     families = [
-        ("knowledge", "知识导航", dashboard.get("knowledge_navigation", [])),
-        ("ability", "能力导航", dashboard.get("ability_navigation", [])),
-        ("literacy", "核心素养导航", dashboard.get("literacy_navigation", [])),
+        (
+            "knowledge",
+            "知识导航",
+            [item for item in dashboard.get("knowledge_navigation", []) if has_evidence(item)],
+        ),
+        (
+            "ability",
+            "能力导航",
+            [item for item in dashboard.get("ability_navigation", []) if has_evidence(item)],
+        ),
+        (
+            "literacy",
+            "核心素养导航",
+            [item for item in dashboard.get("literacy_navigation", []) if has_evidence(item)],
+        ),
     ]
     buttons = "".join(
-        '<button class="{active}" data-tag-family-tab="{panel}">{title}</button>'.format(
+        '<button type="button" class="{active}" data-tag-family-tab="{panel}" '
+        'role="tab" aria-controls="tag-family-{panel}" aria-selected="{selected}">{title}</button>'.format(
             active="is-active" if index == 0 else "",
+            selected="true" if index == 0 else "false",
             panel=escape(panel),
             title=escape(title),
         )
@@ -479,12 +693,23 @@ def _render_student_navigation(dashboard):
         for index, (panel, title, items) in enumerate(families)
     )
     return """
-    <section class="student-navigation-modules">
-      <div class="panel-head"><h2>知识、能力、核心素养导航</h2><span>从任一标签进入对应题目和重做任务</span></div>
-      <div class="tag-family-tabs">{buttons}</div>
-      {panels}
-    </section>
+    <details class="student-navigation-modules">
+      <summary>按学习依据浏览更多</summary>
+      <div class="secondary-evidence-body">
+        <div class="panel-head"><h2>知识、能力与核心素养</h2><span>只展示已有学习依据的项目</span></div>
+        <div class="tag-family-tabs" role="tablist" aria-label="学习依据类型">{buttons}</div>
+        {panels}
+      </div>
+    </details>
     """.format(buttons=buttons, panels=panels)
+
+
+def _redo_status_label(value):
+    return {
+        "pending": "等待重做",
+        "submitted": "已提交，等待教师复核",
+        "done": "已完成",
+    }.get(value, value or "等待重做")
 
 
 def _render_wrong_cards(wrongs, id_prefix):
@@ -497,6 +722,7 @@ def _render_wrong_cards(wrongs, id_prefix):
                 for key, value in sorted(wrong["options"].items())
             )
         mastery = wrong.get("mastery_level") or "未标记"
+        mastery_note = wrong.get("mastery_note") or ""
         card_id = "%s-question-%s" % (id_prefix, wrong["question_id"])
         redo_status = wrong.get("latest_redo_status") or wrong.get("redo_status") or "pending"
         redo_attempts = wrong.get("redo_attempts") or []
@@ -511,10 +737,11 @@ def _render_wrong_cards(wrongs, id_prefix):
                         attempt.get("max_score") or wrong["max_score"],
                     )
                 rows.append(
-                    "<li>%s：%s　%s</li>"
+                    "<li>%s：%s　本次答案：%s　%s</li>"
                     % (
-                        escape(attempt.get("status") or ""),
+                        escape(_redo_status_label(attempt.get("status") or "")),
                         escape(score_text),
+                        escape(attempt.get("answer") or "空白"),
                         escape(attempt.get("feedback") or "等待教师复核"),
                     )
                 )
@@ -522,29 +749,117 @@ def _render_wrong_cards(wrongs, id_prefix):
                 '<div class="redo-history"><strong>重做记录</strong><ul>%s</ul></div>'
                 % "".join(rows)
             )
+        mastery_buttons = "".join(
+            '<button type="button" data-mastery="{level}" aria-pressed="{pressed}">{level}</button>'.format(
+                level=escape(level),
+                pressed="true" if mastery == level else "false",
+            )
+            for level in ("未掌握", "基本掌握", "已掌握", "需教师讲解")
+        )
+        feedback_id = "%s-feedback" % card_id
+        is_redo = id_prefix == "redo"
+        if is_redo:
+            answer_review = (
+                '<p class="redo-prior-answer">上次作答：%s</p>'
+                '<p class="redo-guidance">请先独立完成这次作答。提交后可到错题本查看正确答案和解析。</p>'
+            ) % escape(wrong.get("wrong_answer") or "空白")
+            knowledge_names = "、".join(
+                escape(tag.get("path_text") or tag["name"])
+                for tag in wrong["knowledge_tags"]
+            ) or "暂未标注知识点"
+            tag_content = '<p class="redo-context">关联知识：%s</p>' % knowledge_names
+            mastery_content = ""
+            history_content = ""
+            if wrong["options"]:
+                options = ""
+                answer_control = """
+                  <fieldset class="redo-choice-fieldset" aria-describedby="{feedback_id}">
+                    <legend>选择本次答案</legend>
+                    <div class="redo-choice-grid">{choices}</div>
+                  </fieldset>
+                """.format(
+                    feedback_id=escape(feedback_id),
+                    choices="".join(
+                        """
+                        <label class="redo-choice-option">
+                          <input type="radio" name="answer" value="{key}" required>
+                          <span><strong>{key}.</strong> {value}</span>
+                        </label>
+                        """.format(key=escape(key), value=escape(value))
+                        for key, value in sorted(wrong["options"].items())
+                    ),
+                )
+            else:
+                answer_control = """
+                  <label>填写本次答案
+                    <input name="answer" required autocomplete="off" inputmode="text"
+                           aria-describedby="{feedback_id} redo-answer-hint-{wrong_id}">
+                  </label>
+                  <p class="redo-answer-hint" id="redo-answer-hint-{wrong_id}">请写出完整答案；数值题请同时填写单位。</p>
+                """.format(
+                    feedback_id=escape(feedback_id),
+                    wrong_id=escape(wrong["id"]),
+                )
+            task_content = """
+              <form data-student-form="redo-attempt" class="redo-submit-form"
+                    aria-describedby="{feedback_id}">
+                <input type="hidden" name="wrong_question_id" value="{wrong_id}">
+                {answer_control}
+                <button type="submit">提交重做</button>
+              </form>
+            """.format(
+                feedback_id=escape(feedback_id),
+                wrong_id=escape(wrong["id"]),
+                answer_control=answer_control,
+            )
+        else:
+            answer_review = (
+                "<p>我的答案：%s　正确答案：%s</p>"
+                '<div class="answer-block">解析：%s</div>'
+            ) % (
+                escape(wrong.get("wrong_answer") or "空白"),
+                escape(wrong["correct_answer"]),
+                escape(wrong.get("analysis") or "暂无解析"),
+            )
+            tag_content = '<div class="tag-row">%s%s</div>' % (
+                _knowledge_link_pills(wrong["knowledge_tags"]),
+                _ability_link_pills(wrong["ability_tags"]),
+            )
+            mastery_content = """
+              <div class="mastery-actions" data-wrong-id="{wrong_id}"
+                   data-current-level="{mastery_value}" data-current-note="{mastery_note}">
+                <span class="action-label">我现在：</span>{mastery_buttons}
+              </div>
+            """.format(
+                wrong_id=escape(wrong["id"]),
+                mastery_value="" if mastery == "未标记" else escape(mastery),
+                mastery_note=escape(mastery_note),
+                mastery_buttons=mastery_buttons,
+            )
+            history_content = redo_history
+            if redo_status == "pending":
+                task_content = (
+                    '<button type="button" data-action="open-question" '
+                    'data-target-tab="redo" data-target-id="redo-question-%s">去独立重做</button>'
+                    % escape(wrong["question_id"])
+                )
+            elif redo_status == "submitted":
+                task_content = '<p class="redo-followup">答案已提交，等待教师复核。</p>'
+            else:
+                task_content = '<p class="redo-followup">本题重做已完成，可以结合解析继续巩固。</p>'
         cards.append(
             """
         <article class="wrong-card" id="{card_id}" data-knowledge-ids="{knowledge_ids}">
           <div class="card-head"><span>{assessment}</span><strong>{score}/{max_score}</strong></div>
           <h2>{stem}</h2>
           {options}
-          <p>我的答案：{wrong_answer}　正确答案：{correct_answer}</p>
-          <div class="answer-block">解析：{analysis}</div>
-          <div class="tag-row">{knowledge}{ability}</div>
-          <div class="mastery-actions" data-wrong-id="{wrong_id}">
-            <button data-mastery="未掌握">未掌握</button>
-            <button data-mastery="基本掌握">基本掌握</button>
-            <button data-mastery="已掌握">已掌握</button>
-            <button data-mastery="需教师讲解">需教师讲解</button>
-            <span>{mastery}</span>
-          </div>
+          {answer_review}
+          {tag_content}
+          {mastery_content}
+          <p class="card-action-feedback" id="{feedback_id}" role="status" aria-live="polite"></p>
           <p class="redo-status">重做状态：{redo_status}</p>
-          {redo_history}
-          <form data-student-form="redo-attempt" class="redo-submit-form">
-            <input type="hidden" name="wrong_question_id" value="{wrong_id}">
-            <label>重做答案<input name="answer" required></label>
-            <button type="submit">提交重做</button>
-          </form>
+          {history_content}
+          {task_content}
         </article>
             """.format(
                 card_id=escape(card_id),
@@ -554,72 +869,189 @@ def _render_wrong_cards(wrongs, id_prefix):
                 max_score=wrong["max_score"],
                 stem=escape(wrong["stem"]),
                 options=options,
-                wrong_answer=escape(wrong.get("wrong_answer") or "空白"),
-                correct_answer=escape(wrong["correct_answer"]),
-                analysis=escape(wrong.get("analysis") or "暂无解析"),
-                knowledge=_knowledge_link_pills(wrong["knowledge_tags"]),
-                ability=_ability_link_pills(wrong["ability_tags"]),
-                wrong_id=escape(wrong["id"]),
-                mastery=escape(mastery),
-                redo_status=escape(redo_status),
-                redo_history=redo_history,
+                answer_review=answer_review,
+                tag_content=tag_content,
+                mastery_content=mastery_content,
+                feedback_id=escape(feedback_id),
+                redo_status=escape(_redo_status_label(redo_status)),
+                history_content=history_content,
+                task_content=task_content,
             )
         )
     if not cards:
-        cards.append("<article class='empty-state'>当前没有待处理题目</article>")
+        if id_prefix == "redo":
+            cards.append(
+                """
+                <article class="empty-state">
+                  <h3>当前没有待重做题目</h3>
+                  <p>可以回到知识图谱复习当前薄弱点，新的重做任务会自动出现在这里。</p>
+                  <button type="button" class="secondary" data-tab="graph">查看知识图谱</button>
+                </article>
+                """
+            )
+        else:
+            cards.append(
+                """
+                <article class="empty-state">
+                  <h3>还没有错题记录</h3>
+                  <p>完成并发布一次测评后，错题和解析会出现在这里。</p>
+                  <button type="button" class="secondary" data-tab="graph">先浏览知识图谱</button>
+                </article>
+                """
+            )
     return "".join(cards)
+
+
+def _student_focus_node_id(dashboard):
+    nodes = dashboard.get("knowledge_tree", [])
+    by_id = {node["id"]: node for node in nodes}
+    for wrong in dashboard.get("redo_queue", []) + dashboard.get("wrong_questions", []):
+        candidates = [
+            by_id[tag["tag_id"]]
+            for tag in wrong.get("knowledge_tags", [])
+            if tag.get("tag_id") in by_id
+        ]
+        if candidates:
+            return max(
+                candidates,
+                key=lambda node: (
+                    int(node.get("level") or 0),
+                    len(node.get("path_text") or ""),
+                ),
+            )["id"]
+    for state in ("需教师讲解", "未掌握", "有困难", "不熟练", "基本掌握"):
+        for node in nodes:
+            if node.get("display_mastery_state") == state:
+                return node["id"]
+    for node in nodes:
+        if node.get("related_question_count"):
+            return node["id"]
+    return nodes[0]["id"] if nodes else ""
+
+
+def _student_next_step(dashboard, focus_node):
+    node_name = focus_node["name"] if focus_node else "知识图谱"
+    redo_queue = dashboard.get("redo_queue", [])
+    wrongs = dashboard.get("wrong_questions", [])
+    if redo_queue:
+        wrong = redo_queue[0]
+        target_id = "redo-question-%s" % wrong["question_id"]
+        return {
+            "title": "先重做一道题",
+            "description": "%s 中的错题与“%s”有关。先看清关系和依据，再完成重做。"
+            % (wrong["assessment_title"], node_name),
+            "action": (
+                '<button type="button" data-action="open-question" data-target-tab="redo" '
+                'data-target-id="%s">开始重做</button>' % escape(target_id)
+            ),
+        }
+    if wrongs:
+        wrong = wrongs[0]
+        target_id = "wrong-question-%s" % wrong["question_id"]
+        return {
+            "title": "先复盘最近错题",
+            "description": "从“%s”进入最近的错误依据，再决定是否需要重做或请教师讲解。"
+            % node_name,
+            "action": (
+                '<button type="button" data-action="open-question" data-target-tab="wrong" '
+                'data-target-id="%s">查看错题</button>' % escape(target_id)
+            ),
+        }
+    return {
+        "title": "先认识一个知识关系",
+        "description": "目前还没有已发布的错题。可以先从“%s”出发，熟悉它与前后知识的关系。"
+        % node_name,
+        "action": (
+            '<button type="button" data-action="select-knowledge" data-knowledge-id="%s">查看当前知识点</button>'
+            % escape(focus_node["id"] if focus_node else "")
+        ),
+    }
 
 
 def render_student_app(user, dashboard):
     wrong_cards = _render_wrong_cards(dashboard["wrong_questions"], "wrong")
     redo_cards = _render_wrong_cards(dashboard["redo_queue"], "redo")
-    assessment_rows = []
-    for item in dashboard["assessments"]:
-        score = "-"
-        if item["score"] is not None:
-            score = "%s/%s" % (item["score"], item["max_score"])
-        assessment_rows.append(
-            "<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
-            % (escape(item["title"]), escape(item["status"]), escape(score))
-        )
-    mastery_cells = "".join(
-        "<div><strong>%s</strong><span>%s</span></div>" % (count, escape(level))
-        for level, count in dashboard["mastery_counts"].items()
-    )
     graph_nodes = dashboard["knowledge_tree"]
+    focus_node_id = _student_focus_node_id(dashboard)
+    graph_by_id = {node["id"]: node for node in graph_nodes}
+    focus_node = graph_by_id.get(focus_node_id)
+    next_step = _student_next_step(dashboard, focus_node)
     target_question_ids = {
         wrong["question_id"] for wrong in dashboard["wrong_questions"]
     }
-    module_tree = _render_module_tree(graph_nodes, target_question_ids)
-    relation_graph = _render_student_relation_graph(graph_nodes, dashboard["knowledge_edges"])
+    module_tree = _render_module_tree(
+        graph_nodes,
+        target_question_ids,
+        focus_node_id=focus_node_id,
+    )
+    relation_graph = _render_student_relation_graph(
+        graph_nodes,
+        dashboard["knowledge_edges"],
+        focus_node_id,
+    )
+
     related_panels = []
     for node in graph_nodes:
         questions = "".join(
             "<li>%s</li>"
             % _related_question_link(question, target_question_ids)
             for question in node["related_questions"]
-        ) or "<li>暂无关联题目</li>"
+        ) or "<li>暂时没有与已发布测评关联的题目</li>"
+        manual_level = node.get("manual_mastery_level") or ""
+        mastery_buttons = "".join(
+            '<button type="button" data-action="mark-knowledge" data-level="{level}" '
+            'aria-pressed="{pressed}">{level}</button>'.format(
+                level=escape(level),
+                pressed="true" if manual_level == level else "false",
+            )
+            for level in ("未掌握", "基本掌握", "已掌握", "需教师讲解")
+        )
+        active = node["id"] == focus_node_id
         related_panels.append(
             """
-            <section class="related-question-panel" data-related-for="{id}">
-              <h3>{name}</h3>
-              <p>{path}｜显示：{mastery}｜计算：{calculated}</p>
-              <p class="mastery-evidence">{evidence}{manual}</p>
-              <ul>{questions}</ul>
+            <section class="related-question-panel{active_class}" data-related-for="{id}"{hidden_attr}>
+              <div class="selected-knowledge-head">
+                <div><p class="selected-path">{path}</p><h3>{name}</h3></div>
+                <strong class="mastery-status">当前状态：{mastery}</strong>
+              </div>
+              <p class="mastery-evidence"><span>为什么是这个状态：{evidence}</span>{manual}</p>
+              {evidence_detail}
+              <div class="mastery-actions graph-mark-actions" data-knowledge-id="{id}"
+                   data-current-level="{manual_level}" data-current-note="{manual_note}">
+                <span class="action-label">我现在：</span>{mastery_buttons}
+              </div>
+              <p class="card-action-feedback" role="status" aria-live="polite"></p>
+              <div class="related-questions"><h4>相关题目</h4><ul>{questions}</ul></div>
             </section>
             """.format(
+                active_class=" is-active" if active else "",
+                hidden_attr="" if active else " hidden",
                 id=escape(node["id"]),
                 name=escape(node["name"]),
                 path=escape(node["path_text"]),
                 mastery=escape(node["display_mastery_state"]),
-                calculated=escape(node["calculated_mastery_state"]),
                 evidence=escape(node["mastery_evidence_text"]),
+                evidence_detail=(
+                    '<details class="mastery-evidence-detail"><summary>查看计算依据</summary>'
+                    '<p>%s</p></details>' % escape(node["mastery_evidence_detail_text"])
+                    if node.get("mastery_evidence_detail_text")
+                    and node["mastery_evidence_detail_text"] != node["mastery_evidence_text"]
+                    else ""
+                ),
                 manual=_manual_mastery_html(node),
+                manual_level=escape(manual_level),
+                manual_note=escape(node.get("manual_mastery_note") or ""),
+                mastery_buttons=mastery_buttons,
                 questions=questions,
             )
         )
-    knowledge_filter_buttons = "".join(
-        "<button data-knowledge-filter='%s'>%s</button>" % (escape(node["id"]), escape(node["name"]))
+
+    wrong_filter_options = "".join(
+        '<option value="{path}" data-knowledge-id="{id}">{name}</option>'.format(
+            path=escape(node["path_text"]),
+            id=escape(node["id"]),
+            name=escape(node["name"]),
+        )
         for node in graph_nodes
     )
     ability_mastery = _render_tag_mastery_summary(
@@ -631,71 +1063,206 @@ def render_student_app(user, dashboard):
         dashboard.get("literacy_mastery", []),
     )
     student_navigation = _render_student_navigation(dashboard)
+
+    assessment_cards = []
+    assessment_status = {
+        "draft": "准备中",
+        "scheduled": "待开始",
+        "in_progress": "进行中",
+        "submitted": "已提交",
+        "published": "已发布",
+    }
+    for item in dashboard["assessments"]:
+        score = "—"
+        if item["score"] is not None:
+            score = "%s/%s" % (item["score"], item["max_score"])
+        assessment_wrongs = [
+            wrong for wrong in dashboard["wrong_questions"]
+            if wrong.get("assessment_id") == item["id"]
+        ]
+        assessment_redos = [
+            wrong for wrong in dashboard["redo_queue"]
+            if wrong.get("assessment_id") == item["id"]
+        ]
+        weak_point_names = []
+        for wrong in assessment_wrongs:
+            for tag in wrong.get("knowledge_tags", []):
+                name = tag.get("name") or tag.get("path_text")
+                if name and name not in weak_point_names:
+                    weak_point_names.append(name)
+        evidence_line = "薄弱点：%s · 丢分题 %s 道" % (
+            "、".join(weak_point_names[:2]) or "本次未发现薄弱点",
+            len(assessment_wrongs),
+        )
+        if assessment_redos:
+            first_wrong = assessment_redos[0]
+            action = (
+                '<button type="button" data-action="open-question" data-target-tab="redo" '
+                'data-target-id="redo-question-%s">继续重做</button>'
+                % escape(first_wrong["question_id"])
+            )
+        elif assessment_wrongs:
+            first_wrong = assessment_wrongs[0]
+            action = (
+                '<button type="button" class="secondary" data-action="open-question" '
+                'data-target-tab="wrong" data-target-id="wrong-question-%s">查看错题</button>'
+                % escape(first_wrong["question_id"])
+            )
+        else:
+            action = (
+                '<button type="button" class="secondary" data-tab="graph">查看知识图谱</button>'
+            )
+        published_date = (item.get("published_at") or "")[:10] or "日期待更新"
+        assessment_cards.append(
+            """
+            <article class="assessment-card">
+              <div class="assessment-card-head">
+                <div><p>{date}</p><h3>{title}</h3></div>
+                <strong class="assessment-score">{score}</strong>
+              </div>
+              <p>{status}｜待处理错题 {wrong_count} 道</p>
+              <p class="assessment-evidence">{evidence_line}</p>
+              <div class="assessment-actions">
+                <button type="button" class="secondary" data-tab="graph">查看当前知识图谱</button>
+                {action}
+              </div>
+            </article>
+            """.format(
+                date=escape(published_date),
+                title=escape(item["title"]),
+                score=escape(score),
+                status=escape(assessment_status.get(item["status"], item["status"])),
+                wrong_count=len(assessment_redos),
+                evidence_line=escape(evidence_line),
+                action=action,
+            )
+        )
+    if assessment_cards:
+        assessment_content = '<div class="assessment-list">%s</div>' % "".join(assessment_cards)
+    else:
+        assessment_content = """
+        <article class="empty-state">
+          <h3>还没有已发布的测评</h3>
+          <p>教师发布测评结果后，这里会显示得分和对应的学习依据。</p>
+          <button type="button" class="secondary" data-tab="graph">先浏览知识图谱</button>
+        </article>
+        """
+
+    recent_title = (
+        dashboard["assessments"][0]["title"]
+        if dashboard.get("assessments")
+        else "尚无已发布测评"
+    )
     body = """
 <section class="student-app">
-  <div class="student-hero">
-    <div><span>学生</span><h1>{name}</h1></div>
-    <div class="score-strip">{mastery_cells}</div>
+  <div id="action-status" class="action-status student-action-status" role="status"
+       aria-live="polite" aria-atomic="true" hidden>
+    <span data-status-message></span>
+    <button type="button" class="secondary" data-action="undo-student-action" hidden>撤销刚才修改</button>
   </div>
-  <section class="student-tab is-active" data-tab-panel="graph">
-    <div class="panel-head"><h2>知识图谱</h2><span>先从知识点掌握情况进入学习</span></div>
-    <div class="graph-mode-grid">
-      <section class="graph-mode">
-        <h3>模块视图</h3>
-        <p>按模块逐级展开，每个知识点都可以标注掌握程度。</p>
-        {module_tree}
-      </section>
-      <section class="graph-mode">
-        <h3>关系图谱</h3>
-        <p>可拖拽、缩放；点击知识点查看相关题目并标记熟练度。</p>
-        {relation_graph}
-        <div class="mastery-actions graph-mark-actions" data-knowledge-id="">
-          <button data-action="mark-knowledge" data-level="未掌握">未掌握</button>
-          <button data-action="mark-knowledge" data-level="基本掌握">基本掌握</button>
-          <button data-action="mark-knowledge" data-level="已掌握">已掌握</button>
-          <button data-action="mark-knowledge" data-level="需教师讲解">需教师讲解</button>
+
+  <section class="student-tab is-active" id="student-panel-graph" data-tab-panel="graph"
+           role="tabpanel" aria-labelledby="student-tab-graph">
+    <header class="student-start">
+      <div class="student-start-copy">
+        <p class="student-greeting">{name}，今天先解决什么</p>
+        <h1>{task_title}</h1>
+        <p>{task_description}</p>
+        <div class="student-task-meta" aria-label="当前学习概况">
+          <span>待重做 {redo_count}</span>
+          <span>错题 {wrong_count}</span>
+          <span>最近测评：{recent_title}</span>
         </div>
-        <div class="related-question-list">{related_panels}</div>
-      </section>
-    </div>
-    <div class="tag-mastery-sections">
-      {ability_mastery}
-      {literacy_mastery}
-    </div>
+      </div>
+      <div class="student-primary-action">{task_action}</div>
+    </header>
+
+    <section class="student-graph-workspace" id="student-graph-workspace" tabindex="-1">
+      <div class="panel-head">
+        <div><h2>从薄弱点出发</h2><p>关系图优先展示当前知识点和最相关知识，完整关联可在图下展开。</p></div>
+        <a class="button-link secondary" href="#module-browser">按教材浏览</a>
+      </div>
+      {relation_graph}
+      <div class="related-question-list">{related_panels}</div>
+    </section>
+
+    <details class="module-browser" id="module-browser">
+      <summary>按教材浏览完整体系</summary>
+      <div class="module-browser-body">
+        <div class="panel-head">
+          <div><h2>教材目录</h2><p>默认只展开当前知识点所在路径，其余内容按需打开。</p></div>
+          <button type="button" class="secondary" data-action="collapse-modules">全部收起</button>
+        </div>
+        <div class="module-tree">{module_tree}</div>
+      </div>
+    </details>
+
+    <details class="secondary-evidence">
+      <summary>查看能力与核心素养依据</summary>
+      <div class="tag-mastery-sections">{ability_mastery}{literacy_mastery}</div>
+    </details>
     {student_navigation}
   </section>
-  <section class="student-tab" data-tab-panel="wrong">
-    <div class="panel-head"><h2>错题本</h2><span>附属功能，可按知识点层级筛选</span></div>
-    <div class="filter-row"><button data-knowledge-filter="all">全部</button>{knowledge_filters}</div>
+
+  <section class="student-tab" id="student-panel-wrong" data-tab-panel="wrong"
+           role="tabpanel" aria-labelledby="student-tab-wrong" hidden>
+    <div class="panel-head"><div><h2>错题本</h2><p>先看需要处理的错题；找特定知识点时再打开筛选。</p></div></div>
     <div class="wrong-grid">{wrong_cards}</div>
+    <details class="wrong-filter-tools">
+      <summary>按知识点筛选</summary>
+      <div class="wrong-filter-body">
+        <label>搜索教材、章节或知识点
+          <input type="search" list="wrong-knowledge-options" data-wrong-filter-search
+                 autocomplete="off" placeholder="例如：必修第一册 > 运动和力的关系">
+        </label>
+        <datalist id="wrong-knowledge-options">{wrong_filter_options}</datalist>
+        <button type="button" class="secondary" data-action="clear-wrong-filter">清除筛选</button>
+        <p data-wrong-filter-status role="status" aria-live="polite">当前显示全部错题</p>
+        <p class="empty-state" data-wrong-filter-empty hidden>这个知识点下暂时没有错题。可以清除筛选查看其他错题。</p>
+      </div>
+    </details>
   </section>
-  <section class="student-tab" data-tab-panel="redo">
-    <h2>待重做</h2>
+
+  <section class="student-tab" id="student-panel-redo" data-tab-panel="redo"
+           role="tabpanel" aria-labelledby="student-tab-redo" hidden>
+    <div class="panel-head"><div><h2>待重做</h2><p>提交后会保留答案，并显示教师复核状态。</p></div></div>
     <div class="wrong-grid">{redo_cards}</div>
   </section>
-  <section class="student-tab" data-tab-panel="recent">
-    <h2>最近考试</h2>
-    <table><thead><tr><th>测评</th><th>状态</th><th>得分</th></tr></thead><tbody>{assessment_rows}</tbody></table>
+
+  <section class="student-tab" id="student-panel-recent" data-tab-panel="recent"
+           role="tabpanel" aria-labelledby="student-tab-recent" hidden>
+    <div class="panel-head"><div><h2>最近测评</h2><p>测评结果会继续连接到图谱和错题重做。</p></div></div>
+    {assessment_content}
   </section>
-  <nav class="bottom-nav">
-    <button class="is-active" data-tab="graph">知识图谱</button>
-    <button data-tab="wrong">错题本</button>
-    <button data-tab="redo">待重做</button>
-    <button data-tab="recent">最近考试</button>
+
+  <nav class="bottom-nav" role="tablist" aria-label="学生学习导航">
+    <button type="button" class="is-active" id="student-tab-graph" data-tab="graph"
+            role="tab" aria-controls="student-panel-graph" aria-selected="true">知识图谱</button>
+    <button type="button" id="student-tab-wrong" data-tab="wrong"
+            role="tab" aria-controls="student-panel-wrong" aria-selected="false">错题本</button>
+    <button type="button" id="student-tab-redo" data-tab="redo"
+            role="tab" aria-controls="student-panel-redo" aria-selected="false">待重做</button>
+    <button type="button" id="student-tab-recent" data-tab="recent"
+            role="tab" aria-controls="student-panel-recent" aria-selected="false">最近测评</button>
   </nav>
 </section>""".format(
         name=escape(user["display_name"]),
-        mastery_cells=mastery_cells,
+        task_title=escape(next_step["title"]),
+        task_description=escape(next_step["description"]),
+        task_action=next_step["action"],
+        redo_count=len(dashboard.get("redo_queue", [])),
+        wrong_count=len(dashboard.get("wrong_questions", [])),
+        recent_title=escape(recent_title),
         module_tree=module_tree,
         relation_graph=relation_graph,
         related_panels="".join(related_panels),
         ability_mastery=ability_mastery,
         literacy_mastery=literacy_mastery,
         student_navigation=student_navigation,
-        knowledge_filters=knowledge_filter_buttons,
+        wrong_filter_options=wrong_filter_options,
         wrong_cards=wrong_cards,
         redo_cards=redo_cards,
-        assessment_rows="".join(assessment_rows),
+        assessment_content=assessment_content,
     )
     return render_layout("学生端 - 高中物理闭环系统", user, body, "student")
 
@@ -2804,21 +3371,34 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json({"ok": True, "attempt": attempt})
             elif path == "/api/student/mastery" and user["role"] == "student":
-                result = repo.set_mastery_mark(
-                    user["id"],
-                    payload["wrong_question_id"],
-                    payload["level"],
-                    payload.get("note", ""),
-                )
+                if truthy(payload.get("clear")):
+                    result = repo.clear_mastery_mark(
+                        user["id"],
+                        payload["wrong_question_id"],
+                    )
+                else:
+                    result = repo.set_mastery_mark(
+                        user["id"],
+                        payload["wrong_question_id"],
+                        payload["level"],
+                        payload.get("note", ""),
+                    )
                 self._send_json({"ok": True, "result": result})
             elif path == "/api/student/knowledge-mastery" and user["role"] == "student":
-                result = repo.set_knowledge_mastery_mark(
-                    actor_id=user["id"],
-                    student_id=user["id"],
-                    knowledge_node_id=payload["knowledge_node_id"],
-                    level=payload["level"],
-                    note=payload.get("note", ""),
-                )
+                if truthy(payload.get("clear")):
+                    result = repo.clear_knowledge_mastery_mark(
+                        actor_id=user["id"],
+                        student_id=user["id"],
+                        knowledge_node_id=payload["knowledge_node_id"],
+                    )
+                else:
+                    result = repo.set_knowledge_mastery_mark(
+                        actor_id=user["id"],
+                        student_id=user["id"],
+                        knowledge_node_id=payload["knowledge_node_id"],
+                        level=payload["level"],
+                        note=payload.get("note", ""),
+                    )
                 self._send_json({"ok": True, "message": "知识点掌握标记已更新", "result": result})
             elif path == "/api/teacher/wrong-book-pdf":
                 if user["role"] not in ("teacher", "admin"):
