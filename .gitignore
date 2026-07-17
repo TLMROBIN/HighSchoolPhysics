@@ -9,3 +9,8 @@ data/*.sqlite3-*
 .DS_Store
 
 .worktrees/
+
+# Local agent tooling and reference materials are not release artifacts.
+.mavis/
+.opencode/
+references/
