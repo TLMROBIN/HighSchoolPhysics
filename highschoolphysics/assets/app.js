@@ -26,7 +26,7 @@ async function postJSON(url, payload) {
   return data;
 }
 
-function setStatus(text, kind) {
+function setStatus(text, kind, scope = "") {
   const status = document.querySelector("#action-status");
   if (!status) {
     return;
@@ -38,7 +38,26 @@ function setStatus(text, kind) {
     status.textContent = text;
   }
   status.dataset.kind = kind || "info";
+  if (scope) {
+    status.dataset.scope = scope;
+  } else {
+    delete status.dataset.scope;
+  }
   status.removeAttribute("hidden");
+}
+
+function clearTransientStudentStatus(scope) {
+  const status = document.querySelector("#action-status");
+  if (!status || status.dataset.scope !== scope) {
+    return;
+  }
+  const message = status.querySelector("[data-status-message]");
+  if (message) {
+    message.textContent = "";
+  }
+  status.hidden = true;
+  delete status.dataset.kind;
+  delete status.dataset.scope;
 }
 
 function reloadSoon() {
@@ -64,6 +83,16 @@ function setInlineStudentStatus(container, text, kind) {
     status.textContent = text;
     status.dataset.kind = kind || "info";
   }
+}
+
+function syncRedoSubmitState(form) {
+  const submit = form ? form.querySelector("[data-requires-answer]") : null;
+  if (!submit) {
+    return;
+  }
+  const ready = Boolean(form.querySelector('input[name="answer"]:checked'));
+  submit.disabled = !ready;
+  submit.setAttribute("aria-disabled", ready ? "false" : "true");
 }
 
 function friendlyStudentError(error, actionLabel) {
@@ -209,6 +238,7 @@ function activateStudentTab(name) {
     panel.hidden = !isActive;
   });
   if (switched) {
+    clearTransientStudentStatus("graph-selection");
     window.scrollTo({ top: 0, behavior: "auto" });
   }
 }
@@ -291,7 +321,11 @@ function selectKnowledgeNode(nodeId, renderGraph = true, restoreFocus = false) {
         selectedNode.focus();
       }
       if (selected) {
-        setStatus(`已选择“${selected.name}”，相关证据已更新。`, "info");
+        setStatus(
+          `已选择“${selected.name}”，相关证据已更新。`,
+          "info",
+          "graph-selection"
+        );
       }
     });
   }
@@ -595,7 +629,7 @@ function renderStudentGraph(focusId) {
     const circle = document.createElementNS(SVG_NS, "circle");
     circle.setAttribute("r", selected ? "32" : "27");
     const text = document.createElementNS(SVG_NS, "text");
-    const labelLines = graphLabelLines(node.name);
+    const labelLines = graphLabelLines(node.shortName || node.name);
     text.setAttribute("y", labelLines.length > 1 ? "-4" : "5");
     labelLines.forEach((line, lineIndex) => {
       const tspan = document.createElementNS(SVG_NS, "tspan");
@@ -767,6 +801,12 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("change", (event) => {
+  const redoChoice = event.target.closest(
+    '.redo-choice-option input[type="radio"]'
+  );
+  if (redoChoice && redoChoice.form) {
+    syncRedoSubmitState(redoChoice.form);
+  }
   if (event.target.matches("[data-graph-search]")) {
     const node = findStudentKnowledge(event.target.value);
     if (node) {
@@ -1342,6 +1382,9 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+  document
+    .querySelectorAll('[data-student-form="redo-attempt"]')
+    .forEach(syncRedoSubmitState);
   const graph = document.querySelector(".student-relation-graph");
   if (graph && graph.dataset.graphDefaultFocus) {
     selectKnowledgeNode(graph.dataset.graphDefaultFocus);

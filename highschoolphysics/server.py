@@ -328,8 +328,15 @@ def _student_focus_node_ids(nodes, graph_edges, focus_node_id, limit=7):
     return ordered
 
 
+GRAPH_SHORT_LABELS = {
+    "实验：探究加速度与力、质量的关系": "探究 a 与 F、m",
+}
+
+
 def _short_graph_label(value):
     text = str(value or "")
+    if text in GRAPH_SHORT_LABELS:
+        return GRAPH_SHORT_LABELS[text]
     return text if len(text) <= 9 else text[:8] + "…"
 
 
@@ -426,6 +433,7 @@ def _render_student_relation_graph(nodes, edges, focus_node_id):
                 {
                     "id": node["id"],
                     "name": node["name"],
+                    "shortName": _short_graph_label(node["name"]),
                     "parentId": node.get("parent_id") or "",
                     "path": node["path_text"],
                     "masteryClass": node["mastery_css_class"],
@@ -759,6 +767,7 @@ def _render_wrong_cards(wrongs, id_prefix):
         feedback_id = "%s-feedback" % card_id
         is_redo = id_prefix == "redo"
         if is_redo:
+            submit_attributes = ""
             answer_review = (
                 '<p class="redo-prior-answer">上次作答：%s</p>'
                 '<p class="redo-guidance">请先独立完成这次作答。提交后可到错题本查看正确答案和解析。</p>'
@@ -771,6 +780,9 @@ def _render_wrong_cards(wrongs, id_prefix):
             mastery_content = ""
             history_content = ""
             if wrong["options"]:
+                submit_attributes = (
+                    ' disabled aria-disabled="true" data-requires-answer'
+                )
                 options = ""
                 answer_control = """
                   <fieldset class="redo-choice-fieldset" aria-describedby="{feedback_id}">
@@ -805,12 +817,13 @@ def _render_wrong_cards(wrongs, id_prefix):
                     aria-describedby="{feedback_id}">
                 <input type="hidden" name="wrong_question_id" value="{wrong_id}">
                 {answer_control}
-                <button type="submit">提交重做</button>
+                <button type="submit"{submit_attributes}>提交重做</button>
               </form>
             """.format(
                 feedback_id=escape(feedback_id),
                 wrong_id=escape(wrong["id"]),
                 answer_control=answer_control,
+                submit_attributes=submit_attributes,
             )
         else:
             answer_review = (

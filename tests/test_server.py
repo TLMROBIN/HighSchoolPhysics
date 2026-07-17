@@ -217,6 +217,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("function renderStudentGraph", script)
         self.assertIn("function studentGraphLayout", script)
         self.assertIn("function graphLabelLines", script)
+        self.assertIn("node.shortName || node.name", script)
+        self.assertIn("探究 a 与 F、m", Path("highschoolphysics/server.py").read_text())
         self.assertIn('viewBox: "0 0 360 420"', script)
         self.assertIn("allRelatedIds.slice(0, narrow ? 4 : 7)", script)
         self.assertIn("另有 ${hiddenCount} 个未显示", script)
@@ -400,6 +402,10 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("请先独立完成这次作答", redo_panel)
         self.assertIn("选择本次答案", redo_panel)
         self.assertEqual(redo_panel.count('type="radio" name="answer"'), 4)
+        self.assertIn(
+            '<button type="submit" disabled aria-disabled="true" data-requires-answer>',
+            redo_panel,
+        )
         self.assertNotIn('name="answer" required autocomplete="off"', redo_panel)
         self.assertNotIn("正确答案：", redo_panel)
         self.assertNotIn("解析：", redo_panel)
@@ -408,6 +414,15 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("解析：", wrong_panel)
         self.assertIn("去独立重做", wrong_panel)
         self.assertNotIn('data-student-form="redo-attempt"', wrong_panel)
+
+    def test_student_assets_clear_graph_status_and_enable_answered_redo(self):
+        script = Path("highschoolphysics/assets/app.js").read_text()
+
+        self.assertIn('clearTransientStudentStatus("graph-selection")', script)
+        self.assertIn('"graph-selection"', script)
+        self.assertIn("function syncRedoSubmitState", script)
+        self.assertIn('input[name="answer"]:checked', script)
+        self.assertIn("submit.disabled = !ready", script)
 
     def test_pending_live_tag_wrong_overrides_stale_mastery_display(self):
         self._publish_demo_assessment()
