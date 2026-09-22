@@ -64,6 +64,9 @@ class LearningTests(unittest.TestCase):
   self.assertNotIn('correct_answer_json',out)
   self.assertIn('教师工作台',learning_views.teacher(self.repo,self.admin,{}))
   with self.assertRaises(PermissionDenied):learning.submit(self.repo,'stu-1002',dict(wrong_id=self.w['id'],request_key='x',answer='B'))
+ def test_fill_wrong_view_explains_parent_question_context(self):
+  self.assertIn('完整填空题',learning_views.fill_question_context({'question_type':'fill'}))
+  self.assertEqual('',learning_views.fill_question_context({'question_type':'single_choice'}))
  def test_create_import_preview_publish_without_scores(self):
   p={'stem':'一个新的多选题','question_type':'multiple_choice','answer':'BD','options':'甲\n乙\n丙\n丁','knowledge':'kn-pep2019-r1-c04-s03','ability':'ab-model-construction'}
   learning.api(self.repo,self.admin,'question',p)
