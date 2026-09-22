@@ -11,6 +11,7 @@ SERVER_PORT="${SERVER_PORT:-8765}"
 SERVER_DB="${SERVER_DB:-data/school.sqlite3}"
 SERVER_LOG="${SERVER_LOG:-data/server-auto-update.log}"
 PID_FILE="${PID_FILE:-data/server.pid}"
+APP_SERVICE="${APP_SERVICE:-highschoolphysics-app.service}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8765/}"
 
 log() {
@@ -22,11 +23,18 @@ fail() {
   exit 1
 }
 
+managed_service_available() {
+  command -v systemctl >/dev/null && systemctl --user cat "$APP_SERVICE" >/dev/null 2>&1
+}
+
 server_pids() {
   pgrep -f "${PYTHON_BIN} -m highschoolphysics.server.*--port ${SERVER_PORT}" || true
 }
 
 stop_server() {
+  if managed_service_available; then
+    systemctl --user stop "$APP_SERVICE"
+  fi
   local pids
   pids="$(server_pids)"
   if [[ -z "$pids" ]]; then
@@ -46,6 +54,11 @@ stop_server() {
 }
 
 start_server() {
+  if managed_service_available; then
+    log "starting managed service ${APP_SERVICE}"
+    systemctl --user start "$APP_SERVICE"
+    return
+  fi
   mkdir -p "$(dirname "$SERVER_LOG")"
   log "starting server on ${SERVER_HOST}:${SERVER_PORT} db=${SERVER_DB}"
   nohup "$PYTHON_BIN" -m highschoolphysics.server \
@@ -98,7 +111,11 @@ main() {
     log "checkout already current"
   fi
 
-  if [[ "$before" != "$after" || -z "$(server_pids)" ]]; then
+  local managed_inactive=0
+  if managed_service_available && ! systemctl --user is-active --quiet "$APP_SERVICE"; then
+    managed_inactive=1
+  fi
+  if [[ "$before" != "$after" || -z "$(server_pids)" || "$managed_inactive" == "1" ]]; then
     stop_server
     start_server
   else
