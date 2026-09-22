@@ -118,11 +118,11 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertNotIn("teacher123", payload.decode("utf-8"))
 
-    def test_http_login_shows_demo_credentials_when_enabled(self):
+    def test_http_login_remains_sso_only_when_demo_enabled(self):
         status, _, payload = self.server.request("GET", "/login")
 
         self.assertEqual(status, 200)
-        self.assertIn("teacher_li / teacher123", payload.decode("utf-8"))
+        self.assertNotIn("teacher_li / teacher123", payload.decode("utf-8"))
 
     def test_unknown_candidate_returns_structured_404(self):
         _, cookie, _ = self.server.login("teacher_li", "teacher123")
@@ -590,7 +590,7 @@ class HttpIntegrationTests(unittest.TestCase):
             )[0]
         finally:
             conn.close()
-        self.assertEqual(updated_wrong["latest_redo_status"], "done")
+        self.assertEqual(updated_wrong["latest_redo_status"], "reviewed")
         self.assertEqual(updated_wrong["error_reason_tags"][0]["name"], "概念混淆")
         self.assertEqual(updated_wrong["redo_attempts"][0]["feedback"], "重做正确")
 
@@ -675,6 +675,12 @@ class HttpIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         assessment_id = json.loads(payload)["assessment"]["id"]
+        # This fixture contains only one student's scan. Explicitly exclude
+        # other classmates; missing scans must never silently become zero scores.
+        conn = connect(self.server.db_path)
+        conn.execute("update assessment_participants set status='not_included' where assessment_id=? and student_id!='stu-1001'", (assessment_id,))
+        conn.commit()
+        conn.close()
 
         status, _, payload = self.server.post_json(
             "/api/teacher/ocr-import",

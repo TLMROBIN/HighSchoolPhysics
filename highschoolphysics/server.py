@@ -22,13 +22,15 @@ from .errors import (
     PermissionDenied,
 )
 from .exporting import build_wrong_book_html
+from .exam_import import import_bundle, get_asset, stage_chunk, staged_bundle
+from .exam_views import render_exams, image_html
 from .repository import PhysicsRepository, dumps
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
 
 
 ASSET_DIR = Path(__file__).with_name("assets")
-ASSET_VERSION = "20260717-student-polish-final"
+ASSET_VERSION = "20260922-exam-import"
 
 
 def ensure_database(path, demo_mode=False):
@@ -59,7 +61,7 @@ def render_layout(title, user, body, active=""):
         }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
-            "<span>%s</span><strong>%s</strong><a href='logout'>退出</a>"
+            "<span>%s</span><strong>%s</strong><a href='exams'>考试与作答</a><a href='logout'>退出</a>"
             "</div>"
             % (escape(role_label), escape(user["display_name"]))
         )
@@ -720,7 +722,8 @@ def _redo_status_label(value):
     return {
         "pending": "等待重做",
         "submitted": "已提交，等待教师复核",
-        "done": "已完成",
+        "done": "本次已答对（已复核）",
+        "reviewed": "已复核，需再练",
     }.get(value, value or "等待重做")
 
 
@@ -762,8 +765,9 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 % "".join(rows)
             )
         mastery_buttons = "".join(
-            '<button type="button" data-mastery="{level}" aria-pressed="{pressed}">{level}</button>'.format(
+            '<button type="button" data-mastery="{level}" aria-pressed="{pressed}">{label}</button>'.format(
                 level=escape(level),
+                label="我觉得会了" if level == "已掌握" else escape(level),
                 pressed="true" if mastery == level else "false",
             )
             for level in ("未掌握", "基本掌握", "已掌握", "需教师讲解")
@@ -808,10 +812,10 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                     choices="".join(
                         """
                         <label class="redo-choice-option">
-                          <input type="radio" name="answer" value="{key}" required>
+                          <input type="{input_type}" name="answer" value="{key}" {required}>
                           <span><strong>{key}.</strong> {value}</span>
                         </label>
-                        """.format(key=escape(key), value=escape(value))
+                        """.format(key=escape(key), value=escape(value), input_type="checkbox" if wrong["question_type"] == "multiple_choice" else "radio", required="" if wrong["question_type"] == "multiple_choice" else "required")
                         for key, value in sorted(wrong["options"].items())
                     ),
                 )
@@ -847,7 +851,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 '<div class="answer-block">解析：%s</div>'
             ) % (
                 escape(wrong.get("wrong_answer") or "空白"),
-                escape(wrong["correct_answer"]),
+                escape(" / ".join(str(x) for x in wrong["correct_answer"].get("answer")) if isinstance(wrong["correct_answer"], dict) and isinstance(wrong["correct_answer"].get("answer"), list) else wrong["correct_answer"].get("answer", "") if isinstance(wrong["correct_answer"], dict) else wrong["correct_answer"]),
                 escape(wrong.get("analysis") or "暂无解析"),
             )
             tag_content = '<div class="tag-row">%s%s</div>' % (
@@ -866,7 +870,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 mastery_buttons=mastery_buttons,
             )
             history_content = redo_history
-            if redo_status == "pending":
+            if redo_status in ("pending", "reviewed"):
                 task_content = (
                     '<button type="button" data-action="open-question" '
                     'data-target-tab="redo" data-target-id="redo-question-%s">去独立重做</button>'
@@ -875,12 +879,16 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
             elif redo_status == "submitted":
                 task_content = '<p class="redo-followup">答案已提交，等待教师复核。</p>'
             else:
-                task_content = '<p class="redo-followup">本题重做已完成，可以结合解析继续巩固。</p>'
+                task_content = '<p class="redo-followup">本次重做已答对，继续巩固。</p>'
+        media_content = "".join(image_html(mid) for mid in wrong.get("question_media_ids", []))
+        if not is_redo and wrong.get("response_media_id"):
+            media_content += '<details><summary>查看我的答题原图与评分依据</summary>' + image_html(wrong["response_media_id"], "我的答题原图") + '<p>' + escape(wrong.get("score_reason", "")) + '</p></details>'
         cards.append(
             """
         <article class="wrong-card" id="{card_id}" data-knowledge-ids="{knowledge_ids}">
           <div class="card-head"><span>{assessment}</span>{header_score}</div>
           <h2>{stem}</h2>
+          {media_content}
           {options}
           {answer_review}
           {tag_content}
@@ -888,6 +896,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
           {mastery_content}
           <p class="card-action-feedback" id="{feedback_id}" role="status" aria-live="polite"></p>
           <p class="redo-status">重做状态：{redo_status}</p>
+          <p>本题重做答对 {correct_redos} / 3 次（以已复核结果计）；{learning_state}</p>
           {history_content}
           {task_content}
         </article>
@@ -897,6 +906,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 assessment=escape(wrong["assessment_title"]),
                 header_score=header_score,
                 stem=escape(wrong["stem"]),
+                media_content=media_content,
                 options=options,
                 answer_review=answer_review,
                 tag_content=tag_content,
@@ -904,6 +914,8 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 mastery_content=mastery_content,
                 feedback_id=escape(feedback_id),
                 redo_status=escape(_redo_status_label(redo_status)),
+                correct_redos=wrong.get("verified_correct_redos", 0),
+                learning_state="本题已掌握" if redo_status == "done" and wrong.get("verified_correct_redos", 0) >= 3 else "仍需巩固，自评不替代此记录",
                 history_content=history_content,
                 task_content=task_content,
             )
@@ -2996,6 +3008,26 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 self._redirect("/change-password")
             elif path == "/":
                 self._redirect(self._home_for(user))
+            elif path == "/exams":
+                if not user:
+                    self._redirect("/login")
+                else:
+                    repo = PhysicsRepository(conn)
+                    aid = (parse_qs(parsed.query).get("id") or [None])[0]
+                    self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams"))
+            elif path == "/exam-media":
+                if not user:
+                    self._send_error(HTTPStatus.FORBIDDEN, "请先登录")
+                else:
+                    aid = (parse_qs(parsed.query).get("id") or [""])[0]
+                    data = get_asset(PhysicsRepository(conn), user["id"], aid)
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", "image/png")
+                    self.send_header("Cache-Control", "private, no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
             elif path == "/app":
                 if not user:
                     self._redirect("/login")
@@ -3139,7 +3171,13 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 )
                 return
             repo = PhysicsRepository(conn)
-            if path == "/api/teacher/generate-candidate" and user["role"] in ("teacher", "admin"):
+            if path == "/api/exams/upload-chunk":
+                self._send_json({"ok": True, "result": stage_chunk(repo, user["id"], payload)})
+            elif path == "/api/exams/import":
+                bundle = staged_bundle(repo, user["id"], payload["upload_id"]) if payload.get("upload_id") else payload["bundle"]
+                result = import_bundle(repo, user["id"], bundle, preview=payload.get("preview", True) is not False)
+                self._send_json({"ok": True, "result": result})
+            elif path == "/api/teacher/generate-candidate" and user["role"] in ("teacher", "admin"):
                 result = repo.generate_llm_candidates(
                     user["id"],
                     payload.get("question_id", "q-newton-1"),

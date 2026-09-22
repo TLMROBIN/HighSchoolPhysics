@@ -1,14 +1,18 @@
 from decimal import Decimal, InvalidOperation
+import re
 
 
 def _normalize_options(value):
     if value is None:
         return []
     if isinstance(value, (list, tuple, set)):
-        pieces = value
-    else:
-        pieces = str(value).replace("，", ",").replace(";", ",").split(",")
-    return sorted([str(piece).strip().upper() for piece in pieces if str(piece).strip()])
+        value = ",".join(str(v) for v in value)
+    text = str(value).upper().strip()
+    compact = re.sub(r"[\s,，;；、]+", "", text)
+    if re.fullmatch(r"[A-Z]*", compact):
+        return sorted(set(compact))
+    return [text]
+
 
 
 def _normalize_answer(value):
@@ -29,11 +33,14 @@ def grade_answer(rule, response):
     points = int(rule.get("points", 0))
     answer = rule.get("answer")
     normalized_response = _normalize_answer(response)
+    partial_score = 0
 
     if question_type in ("single_choice", "multiple_choice"):
         expected = _normalize_options(answer)
-        actual = _normalize_options(normalized_response)
+        actual = _normalize_options(response)
         correct = bool(expected) and expected == actual
+        if question_type == "multiple_choice" and actual and set(actual) < set(expected):
+            partial_score = max(0, min(points, int(rule.get("partial_points", 0))))
     elif question_type == "fill":
         match = rule.get("match", "exact")
         answers = answer if isinstance(answer, (list, tuple)) else [answer]
@@ -53,10 +60,10 @@ def grade_answer(rule, response):
         correct = False
 
     return {
-        "score": points if correct else 0,
+        "score": points if correct else partial_score,
         "max_score": points,
         "correct": correct,
-        "status": "correct" if correct else "wrong",
+        "status": "correct" if correct else "partial" if partial_score else "wrong",
         "review_reasons": [],
     }
 

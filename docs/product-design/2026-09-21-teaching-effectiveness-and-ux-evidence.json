@@ -1,0 +1,40 @@
+{
+  "checked_date": "2026-09-21",
+  "commit": "ebc280f436705894e9ccbd0f9aeb17c830d4583e",
+  "deployed_database_readonly_aggregates": {
+    "students": 841,
+    "teachers": 1,
+    "administrators": 1,
+    "knowledge_nodes": 158,
+    "questions": 0,
+    "assessments": 0,
+    "redo_attempts": 0,
+    "knowledge_edges": 0
+  },
+  "isolated_fixture_probe": {
+    "reviewed_wrong_status": "reviewed",
+    "in_redo_queue": false,
+    "navigation_still_needs_redo": true,
+    "wrong_card_says_completed": true,
+    "single_correct_mastery": "已掌握",
+    "one_wrong_four_correct_redos_mastery": "已掌握",
+    "graph_edge_types": [
+      {
+        "relation_type": "前置",
+        "n": 1
+      },
+      {
+        "relation_type": "易混",
+        "n": 1
+      },
+      {
+        "relation_type": "迁移",
+        "n": 1
+      }
+    ],
+    "isolated_fixture": true
+  },
+  "visual_audit_completed": false,
+  "application_modified": false,
+  "production_data_modified": false
+}

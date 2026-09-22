@@ -1,0 +1,1061 @@
+{
+  "status": "draft_not_for_import",
+  "page_numbering": "1-based physical PDF pages",
+  "warning": "Adjacency and form layout do not establish student identity. Confirm both page headers and roster before import. No student identities are included.",
+  "candidates": [
+    {
+      "candidate_id": "class13-001",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        1,
+        2
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-002",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        3,
+        4
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-003",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        5,
+        6
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-004",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        7,
+        8
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-005",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        9,
+        10
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-006",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        11,
+        12
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-007",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        13,
+        14
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-008",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        15,
+        16
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-009",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        17,
+        18
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-010",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        19,
+        20
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-011",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        21,
+        22
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-012",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        23,
+        24
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-013",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        25,
+        26
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-014",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        27,
+        28
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-015",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        29,
+        30
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-016",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        31,
+        32
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-017",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        33,
+        34
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-018",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        35,
+        36
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-019",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        37,
+        38
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-020",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        39,
+        40
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-021",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        41,
+        42
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-022",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        43,
+        44
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-023",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        45,
+        46
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-024",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        47,
+        48
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-025",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        49,
+        50
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-026",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        51,
+        52
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-027",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        53,
+        54
+      ],
+      "rotate_180_degrees_on_copy": [
+        54
+      ],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-028",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        55,
+        56
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-029",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        57,
+        58
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-030",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        59,
+        60
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-031",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        61,
+        62
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-032",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        63,
+        64
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-033",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        65,
+        66
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-034",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        67,
+        68
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-035",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        69,
+        70
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-036",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        71,
+        72
+      ],
+      "rotate_180_degrees_on_copy": [
+        71
+      ],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-037",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        73,
+        74
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-038",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        75,
+        76
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-039",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        77,
+        78
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-040",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        79,
+        80
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-041",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        81,
+        82
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-042",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        83,
+        84
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-043",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        85,
+        86
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-044",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        87,
+        88
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-045",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        89,
+        90
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-046",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        91,
+        92
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-047",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        93,
+        94
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-048",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        95,
+        96
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class13-049",
+      "source_file": "高三第一次周测 13班.pdf",
+      "class_label": "13",
+      "physical_pages_in_form_order": [
+        97,
+        98
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-001",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        2,
+        1
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-002",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        4,
+        3
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-003",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        6,
+        5
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-004",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        8,
+        7
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-005",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        10,
+        9
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-006",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        12,
+        11
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-007",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        14,
+        13
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-008",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        16,
+        15
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-009",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        18,
+        17
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-010",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        20,
+        19
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-011",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        22,
+        21
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-012",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        24,
+        23
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-013",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        26,
+        25
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-014",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        28,
+        27
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-015",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        30,
+        29
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-016",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        32,
+        31
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-017",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        34,
+        33
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-018",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        36,
+        35
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-019",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        38,
+        37
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-020",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        40,
+        39
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-021",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        42,
+        41
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-022",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        44,
+        43
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-023",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        46,
+        45
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-024",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        48,
+        47
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-025",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        50,
+        49
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    },
+    {
+      "candidate_id": "class14-026",
+      "source_file": "高三第一次周测 14班.pdf",
+      "class_label": "14",
+      "physical_pages_in_form_order": [
+        52,
+        51
+      ],
+      "rotate_180_degrees_on_copy": [],
+      "identity_status": "unverified",
+      "student_id": null,
+      "pairing_status": "adjacency_candidate_only",
+      "grading_status": "not_started"
+    }
+  ]
+}

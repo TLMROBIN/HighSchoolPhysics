@@ -2605,3 +2605,15 @@ select {
     background: #fff;
   }
 }
+
+.exam-workspace { max-width: 1100px; margin: 24px auto; }
+.exam-workspace details { margin: 16px 0; }
+.exam-workspace summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.exam-list li { margin: 16px 0; }
+.exam-question { padding: 24px 0; border-bottom: 1px solid #d6dce3; }
+.exam-image { display: block; width: 100%; max-width: 1000px; height: auto; margin: 12px 0; background: white; }
+.exam-table-scroll { overflow-x: auto; }
+.exam-workspace table { width: 100%; border-collapse: collapse; }
+.exam-workspace th, .exam-workspace td { text-align: left; padding: 10px; border-bottom: 1px solid #d6dce3; vertical-align: top; }
+.exam-workspace small { display: block; color: #536170; max-width: 24em; }
+.exam-workspace input[type=file] { max-width: 100%; }

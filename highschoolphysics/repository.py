@@ -487,6 +487,7 @@ class PhysicsRepository:
                 "points": row["points"],
                 "match": match,
                 "tolerance": tolerance,
+                "partial_points": answer.get("partial_points", 0) if isinstance(answer, dict) else 0,
             }
             snapshot_id = "snap-" + uuid.uuid4().hex[:12]
             snapshots.append(
@@ -607,8 +608,14 @@ class PhysicsRepository:
             assessment_id,
             operation="grade",
         )
+        if assessment["grading_status"] == "published":
+            raise StateConflict("已发布考试请通过成绩修订修改，不能重复覆盖作答")
         batch_id = "scan-" + uuid.uuid4().hex[:12]
         normalized = normalize_ocr_items(items)
+        participants = {r["student_id"] for r in self.conn.execute(
+            "select student_id from assessment_participants where assessment_id=? and status='present'", (assessment_id,))}
+        if any(item["student_id"] not in participants for item in normalized):
+            raise InvalidRequest("作答学生不在本次参测名单内")
         low_count = sum(
             1 for item in normalized if item["review_status"] == "required"
         )
@@ -2336,6 +2343,13 @@ class PhysicsRepository:
             self.conn.commit()
             return {"status": "blocked_for_review", "review_required": unresolved}
 
+        expected = self.conn.execute("""
+            select count(*) from assessment_participants p cross join question_version_snapshots s
+            where p.assessment_id=? and s.assessment_id=p.assessment_id and p.status='present'
+        """, (assessment_id,)).fetchone()[0]
+        actual = self.conn.execute("select count(*) from student_responses where assessment_id=?", (assessment_id,)).fetchone()[0]
+        if not expected or actual != expected:
+            raise StateConflict("逐题作答覆盖不完整，不能批改或发布；请检查参测名单和缺失题号")
         responses = self.conn.execute(
             """
             select r.*, s.grading_rule_json, s.answer_json
@@ -2362,6 +2376,11 @@ class PhysicsRepository:
             student_ids.add(row["student_id"])
             rule = loads(row["grading_rule_json"], {})
             graded = grade_answer(rule, row["final_answer"])
+            if row["confirmed_score"] is not None and row["reviewed_by"] and row["review_status"] == "confirmed":
+                score = row["confirmed_score"]
+                if not 0 <= score <= graded["max_score"]:
+                    raise InvalidRequest("复核分数超出范围")
+                graded.update(score=score, correct=score == graded["max_score"])
             status = "correct" if graded["correct"] else "wrong"
             self.conn.execute(
                 """
@@ -2391,7 +2410,7 @@ class PhysicsRepository:
                         row["answer_json"],
                         graded["score"],
                         graded["max_score"],
-                        "客观题自动批改未得分",
+                        "未完全答对，详见原作答与评分依据",
                     ),
                 )
 
@@ -2705,6 +2724,8 @@ class PhysicsRepository:
 
     def submit_redo_attempt(self, actor_id, wrong_question_id, answer):
         wrong = self._require_wrong_question_student(actor_id, wrong_question_id)
+        if isinstance(answer, (list, tuple)):
+            answer = ",".join(str(v) for v in answer)
         attempt_id = "redo-" + uuid.uuid4().hex[:12]
         self.conn.execute(
             """
@@ -2745,6 +2766,14 @@ class PhysicsRepository:
             ).fetchone()
         )
 
+    def verified_redo_correct_count(self, wrong_question_id):
+        return self.conn.execute("""select count(*) from redo_attempts a
+            join wrong_questions w on w.id=a.wrong_question_id
+            join wrong_questions target on target.id=?
+            where w.student_id=target.student_id and w.question_id=target.question_id
+              and a.reviewed_by is not null and a.score=a.max_score and a.max_score>0
+        """, (wrong_question_id,)).fetchone()[0]
+
     def review_redo_attempt(self, actor_id, attempt_id, score, feedback=""):
         attempt = self.conn.execute(
             "select * from redo_attempts where id = ?",
@@ -2758,6 +2787,8 @@ class PhysicsRepository:
         )
         score = int(score)
         max_score = int(wrong["max_score"])
+        if not 0 <= score <= max_score:
+            raise InvalidRequest("重做分数超出本题满分")
         status = "done" if score >= max_score else "reviewed"
         self.conn.execute(
             """
@@ -2768,14 +2799,14 @@ class PhysicsRepository:
             """,
             (score, max_score, status, feedback, actor_id, attempt_id),
         )
+        learned = status == "done" and self.verified_redo_correct_count(wrong["id"]) >= 3
+        task_status = "done" if learned else "reviewed"
         self.conn.execute(
             """
             update wrong_questions
-            set latest_redo_status = ?,
-                redo_status = ?
-            where id = ?
+            set latest_redo_status = ?, redo_status = ? where id = ?
             """,
-            (status, status, wrong["id"]),
+            (task_status, task_status, wrong["id"]),
         )
         self.recalculate_student_mastery_metrics(wrong["student_id"])
         self.audit(
@@ -3227,6 +3258,13 @@ class PhysicsRepository:
         ]
         item["error_reason_tags"] = self.error_reason_tags_for_wrong(item["id"])
         item["redo_attempts"] = self.redo_attempts_for_wrong(item["id"])
+        item["verified_correct_redos"] = self.verified_redo_correct_count(item["id"])
+        item["question_media_ids"] = [r["id"] for r in self.conn.execute(
+            "select id from exam_assets where question_id=? order by rowid", (item["question_id"],))]
+        response = self.conn.execute("select ocr_payload_json,score_reason from student_responses where id=?", (item["response_id"],)).fetchone()
+        if response:
+            item["response_media_id"] = loads(response["ocr_payload_json"], {}).get("media_id")
+            item["score_reason"] = response["score_reason"]
         return item
 
     def wrong_question_detail(self, actor_id, wrong_question_id):
@@ -3507,7 +3545,7 @@ class PhysicsRepository:
         )
         assessment = self.assessment_detail(actor_id, assessment_id, operation="view")
         participants = self.conn.execute(
-            "select count(*) as count from assessment_participants where assessment_id = ?",
+            "select count(*) as count from assessment_participants where assessment_id = ? and status = 'present'",
             (assessment_id,),
         ).fetchone()["count"]
         question_count = self.conn.execute(
@@ -3515,6 +3553,16 @@ class PhysicsRepository:
             (assessment_id,),
         ).fetchone()["count"]
         denominator = max(1, participants)
+        exposure = {"knowledge": {}, "ability": {}}
+        question_exposure = {}
+        for response in self.conn.execute("select r.question_id,s.tag_snapshot_json from student_responses r join question_version_snapshots s on s.id=r.snapshot_id where r.assessment_id=? and r.grading_status in ('correct','wrong','partial')", (assessment_id,)):
+            question_exposure[response["question_id"]] = question_exposure.get(response["question_id"], 0) + 1
+            for kind in exposure:
+                names = {t["name"] for t in loads(response["tag_snapshot_json"], []) if t.get("tag_type") == kind}
+                if not names:
+                    names = {"未标注知识点" if kind == "knowledge" else "未标注能力"}
+                for name in names:
+                    exposure[kind][name] = exposure[kind].get(name, 0) + 1
         by_knowledge = {}
         by_ability = {}
         by_question = {}
@@ -3538,17 +3586,18 @@ class PhysicsRepository:
                 bucket = by_ability.setdefault(tag["name"], {"name": tag["name"], "wrong_count": 0})
                 bucket["wrong_count"] += 1
 
-        def with_rate(items):
+        def with_rate(items, kind):
             values = []
             for item in items:
                 item = dict(item)
-                item["error_rate"] = round(item["wrong_count"] / denominator, 3)
+                item["response_count"] = exposure[kind].get(item["name"], 0)
+                item["error_rate"] = round(item["wrong_count"] / item["response_count"], 3) if item["response_count"] else 0
                 values.append(item)
             return sorted(values, key=lambda item: (-item["wrong_count"], item["name"]))
 
         high_frequency = []
         for item in by_question.values():
-            item["error_rate"] = round(item["wrong_count"] / denominator, 3)
+            item["error_rate"] = round(item["wrong_count"] / max(1, question_exposure.get(item["question_id"], 0)), 3)
             high_frequency.append(item)
         high_frequency.sort(key=lambda item: (-item["wrong_count"], item["question_id"]))
         self.audit(
@@ -3564,8 +3613,8 @@ class PhysicsRepository:
             "participant_count": participants,
             "question_count": question_count,
             "wrong_question_count": len(wrongs),
-            "knowledge_error_rates": with_rate(by_knowledge.values()),
-            "ability_error_rates": with_rate(by_ability.values()),
+            "knowledge_error_rates": with_rate(by_knowledge.values(), "knowledge"),
+            "ability_error_rates": with_rate(by_ability.values(), "ability"),
             "high_frequency_wrong_questions": high_frequency,
             "grade_average": self.grade_average_for_assessment(assessment["grade"]),
         }
@@ -4024,7 +4073,7 @@ class PhysicsRepository:
         return {
             "assessments": rows_to_dicts(rows),
             "wrong_questions": wrongs,
-            "redo_queue": [item for item in wrongs if item["redo_status"] == "pending"],
+            "redo_queue": [item for item in wrongs if self._wrong_needs_redo(item)],
             "mastery_counts": self.mastery_counts(actor_id, student_id),
             "mastery_metrics": mastery_metrics,
             "knowledge_tree": self.student_knowledge_tree(
@@ -5130,6 +5179,10 @@ class PhysicsRepository:
                 ),
             ),
         )
+        # Password lifecycle is owned by the verified identity provider.
+        # Legacy local temporary-password flags must not block an SSO account.
+        self.conn.execute("update users set must_change_password=0 where id=?", (user["id"],))
+        user = self.conn.execute("select * from users where id=?", (user["id"],)).fetchone()
         self.conn.commit()
         return {
             "user": row_to_dict(user),

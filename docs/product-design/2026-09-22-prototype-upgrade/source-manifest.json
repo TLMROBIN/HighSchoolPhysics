@@ -1,0 +1,38 @@
+{
+  "inspected_on": "2026-09-22",
+  "source_directory": "/Users/binyu/Documents/高三答题卡",
+  "originals_modified": false,
+  "files": [
+    {
+      "path": "/Users/binyu/Documents/高三答题卡/高三第一次周测 13班.pdf",
+      "bytes": 11438218,
+      "sha256": "e7f25404dfed36077fa1ffd66c49618f166a238c8abe638ffaf006df1b1b73fa",
+      "role": "scanned_answer_cards",
+      "physical_pages": 98
+    },
+    {
+      "path": "/Users/binyu/Documents/高三答题卡/高三第一次周测 14班.pdf",
+      "bytes": 5535084,
+      "sha256": "580e57f366d58e6cd38e8ae539309b7361e04e621944445b3ea89a3ab377bbc6",
+      "role": "scanned_answer_cards",
+      "physical_pages": 52
+    },
+    {
+      "path": "/Users/binyu/Documents/高三答题卡/高三第一次周测.docx",
+      "bytes": 1509108,
+      "sha256": "3eb8cccd7bafb1fe2cb9bc7730a95785b199bafa8cd0c3d85d319c17a514f6c6",
+      "role": "questions_answer_card_and_solutions"
+    },
+    {
+      "path": "/Users/binyu/Documents/高三答题卡/高三第一次周测评分细则.docx",
+      "bytes": 138852,
+      "sha256": "9d75aba20a29780ea6ecfdecbb108e4d879a14a19e74c0fb2ecd32ac21a23fd8",
+      "role": "rubric"
+    }
+  ],
+  "notes": [
+    "No standalone per-question score table found among these four files.",
+    "PDF page counts and candidate pairs are not confirmed participant counts.",
+    "DOCX QA rendering used font substitution and can repaginate; use question numbers for source location."
+  ]
+}

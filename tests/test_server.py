@@ -75,12 +75,11 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertNotIn("student123", html)
         self.assertNotIn("admin123", html)
 
-    def test_login_shows_demo_credentials_when_enabled(self):
+    def test_login_remains_sso_only_even_when_demo_mode_is_enabled(self):
         html = render_login_page("", demo_mode=True)
-
-        self.assertIn("teacher_li / teacher123", html)
-        self.assertIn("stu_1001 / student123", html)
-        self.assertIn("admin / admin123", html)
+        self.assertIn("使用统一平台登录", html)
+        self.assertNotIn("teacher123", html)
+        self.assertNotIn('type="password"', html)
 
     def test_init_admin_cli_creates_login_and_exits(self):
         db_path = Path(self.tmpdir.name) / "bootstrap.sqlite3"
@@ -363,15 +362,10 @@ class ServerRenderingTests(unittest.TestCase):
 
     def test_completed_redo_stays_in_wrong_book_but_leaves_redo_panel(self):
         self._publish_demo_assessment()
-        self.conn.execute(
-            """
-            update wrong_questions
-            set redo_status = 'done'
-            where student_id = ? and question_id = ?
-            """,
-            ("stu-1001", "q-newton-1"),
-        )
-        self.conn.commit()
+        wrong = self.conn.execute("select id from wrong_questions where student_id='stu-1001' and question_id='q-newton-1'").fetchone()[0]
+        for _ in range(3):
+            attempt = self.repo.submit_redo_attempt("stu-1001", wrong, "B")
+            self.repo.review_redo_attempt("user-teacher-li", attempt["id"], 4)
         student = self.auth.login("stu_1001", "student123", "unit-test").user
 
         html = render_student_app(
@@ -507,7 +501,8 @@ class ServerRenderingTests(unittest.TestCase):
             self.repo.student_dashboard(student["id"]),
         )
 
-        self.assertIn("重做状态：已完成", html)
+        self.assertIn("重做状态：已复核，需再练", html)
+        self.assertIn("本题重做答对 1 / 3 次", html)
         self.assertIn("重做记录", html)
         self.assertIn("本次答案：C", html)
         self.assertIn("重做正确", html)
@@ -684,8 +679,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn(".phase2g-analytics .analytics-block", styles)
         self.assertIn("justify-self: start", styles)
         html = render_login_page()
-        self.assertIn('/assets/app.css?v=20260717-student-polish-final', html)
-        self.assertIn('/assets/app.js?v=20260717-student-polish-final', html)
+        self.assertIn('/assets/app.css?v=20260922-exam-import', html)
+        self.assertIn('/assets/app.js?v=20260922-exam-import', html)
 
     def test_admin_app_exposes_export_profiles_and_error_reason_tags(self):
         admin = self.auth.login("admin", "admin123", "unit-test").user

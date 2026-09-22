@@ -52,15 +52,16 @@ class LivePhysicsServer:
             conn.close()
 
     def login(self, username, password):
-        body = urlencode({"username": username, "password": password})
-        status, headers, payload = self.request(
-            "POST",
-            "/login",
-            body,
-            {"Content-Type": "application/x-www-form-urlencoded"},
-        )
-        cookie = headers.get("Set-Cookie", "").split(";", 1)[0]
-        return status, cookie, payload
+        # Establish only a test session; production accepts SSO exclusively.
+        from highschoolphysics.auth import AuthService
+        conn = connect(self.db_path)
+        try:
+            result = AuthService(conn).login(username, password, user_agent="http-test-fixture")
+            return 303, "hsp_session=" + result.token, b""
+        except ValueError:
+            return 401, "", b"Invalid credentials"
+        finally:
+            conn.close()
 
     def post_json(self, path, payload, cookie):
         return self.request(

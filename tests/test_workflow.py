@@ -593,7 +593,7 @@ class WorkflowTests(unittest.TestCase):
         updated_wrong = self.repo.list_wrong_questions_for_student(
             self.student.user["id"]
         )[0]
-        self.assertEqual(updated_wrong["latest_redo_status"], "done")
+        self.assertEqual(updated_wrong["latest_redo_status"], "reviewed")
         self.assertEqual(updated_wrong["error_reason_tags"][0]["name"], "概念混淆")
         self.assertEqual(updated_wrong["redo_attempts"][0]["feedback"], "重做正确")
 
@@ -1694,6 +1694,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("state=%s" % login["state"], login["authorization_url"])
         self.assertIn("code_challenge=", login["authorization_url"])
 
+        self.conn.execute("update users set must_change_password=1 where id='user-teacher-li'")
+        self.conn.commit()
         result = self.repo.complete_sso_callback(
             state=login["state"],
             claims={
@@ -1705,6 +1707,7 @@ class WorkflowTests(unittest.TestCase):
             },
         )
         self.assertEqual(result["user"]["id"], "user-teacher-li")
+        self.assertEqual(result["user"]["must_change_password"], 0)
         binding = self.conn.execute(
             """
             select *

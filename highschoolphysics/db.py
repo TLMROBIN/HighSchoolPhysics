@@ -8,7 +8,7 @@ from .taxonomy import DEFAULT_ONTOLOGY_ID, install_default_taxonomy
 
 
 DEFAULT_DB_PATH = Path("data/highschoolphysics.sqlite3")
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 
 def connect(path=DEFAULT_DB_PATH):
@@ -1049,6 +1049,29 @@ def initialize_database(conn):
         from schools
         """
     )
+    _ensure_column(conn, "student_responses", "confirmed_score integer")
+    _ensure_column(conn, "student_responses", "score_reason text not null default ''")
+    conn.executescript("""
+        create table if not exists exam_upload_chunks (
+            upload_id text not null, actor_id text not null references users(id),
+            chunk_index integer not null, total integer not null, content text not null,
+            created_at text default current_timestamp, primary key(upload_id,chunk_index)
+        );
+        create table if not exists exam_imports (
+            school_id text not null references schools(id), batch_key text not null,
+            payload_hash text not null, result_json text not null,
+            created_by text not null references users(id), created_at text default current_timestamp,
+            primary key(school_id,batch_key)
+        );
+        create table if not exists exam_assets (
+            id text primary key, school_id text not null references schools(id),
+            question_id text references questions(id), assessment_id text references assessment_sessions(id),
+            student_id text references users(id), png blob not null,
+            check ((question_id is not null and student_id is null and assessment_id is null)
+                or (question_id is null and student_id is not null and assessment_id is not null))
+        );
+        create index if not exists exam_asset_question on exam_assets(question_id);
+    """)
     conn.execute("pragma user_version = %d" % SCHEMA_VERSION)
     conn.commit()
 

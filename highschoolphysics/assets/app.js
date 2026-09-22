@@ -96,6 +96,9 @@ function syncRedoSubmitState(form) {
 }
 
 function redoDraftAnswer(form) {
+  if (form && form.querySelector('input[type="checkbox"][name="answer"]')) {
+    return Array.from(form.querySelectorAll('input[type="checkbox"][name="answer"]:checked')).map(x => x.value).join(',');
+  }
   const selected = form
     ? form.querySelector('input[type="radio"][name="answer"]:checked')
     : null;
@@ -164,6 +167,12 @@ function restoreRedoDraft(form) {
     if (draft) {
       clearRedoDraft(form);
     }
+    syncRedoSubmitState(form);
+    return;
+  }
+  if (form.querySelector('input[type="checkbox"][name="answer"]')) {
+    const values = String(draft.answer).split(',');
+    form.querySelectorAll('input[type="checkbox"][name="answer"]').forEach(x => { x.checked = values.includes(x.value); });
     syncRedoSubmitState(form);
     return;
   }
@@ -1484,6 +1493,9 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
+  if (document.querySelector('.student-app') && ['#wrong', '#redo'].includes(location.hash)) {
+    activateStudentTab(location.hash.slice(1));
+  }
   document
     .querySelectorAll('[data-student-form="redo-attempt"]')
     .forEach(restoreRedoDraft);
@@ -1510,3 +1522,57 @@ window.addEventListener("resize", () => {
     }
   }, 120);
 });
+
+// Reviewed exam package import: preview must succeed before publication.
+(() => {
+  const file = document.getElementById('exam-bundle-file');
+  if (!file) return;
+  const preview = document.getElementById('exam-preview');
+  const publish = document.getElementById('exam-import');
+  const output = document.getElementById('exam-import-result');
+  let checked = null;
+  file.addEventListener('change', () => { checked = null; publish.disabled = true; output.textContent = ''; });
+  async function run(isPreview) {
+    preview.disabled = true; publish.disabled = true;
+    try {
+      let uploadId = checked;
+      if (isPreview) {
+        if (!file.files[0]) throw new Error('请先选择整理包');
+        if (file.files[0].size > 64 * 1024 * 1024) throw new Error('整理包不能超过64MB');
+        const text = await file.files[0].text();
+        JSON.parse(text);
+        const size = 200000, total = Math.ceil(text.length / size);
+        uploadId = null;
+        for (let index = 0; index < total; index++) {
+          output.textContent = `正在上传并检查：${index + 1}/${total}…`;
+          const part = await fetch('api/exams/upload-chunk', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({upload_id:uploadId,index,total,text:text.slice(index*size,(index+1)*size)})});
+          const ack = await part.json();
+          if (!part.ok || !ack.ok) throw new Error(ack.message || '上传失败，请重新检查');
+          uploadId = ack.result.upload_id;
+        }
+      }
+      if (!uploadId) throw new Error('请先选择整理包并检查');
+      output.textContent = isPreview ? '正在检查题目、学生和逐题记录…' : '正在导入并发布，请勿关闭页面…';
+      const response = await fetch('api/exams/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({upload_id:uploadId,preview:isPreview})});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || '导入失败，未完成');
+      const r = data.result;
+      output.replaceChildren();
+      const summary = document.createElement('p');
+      summary.textContent = `${r.status === 'preview' ? '检查通过' : '已发布'}：${r.student_count}名学生，${r.question_count}个评分项，${r.response_count}条作答，满分${r.full_score}分。`;
+      output.append(summary);
+      for (const group of r.classes) {
+        const line = document.createElement('p');
+        line.textContent = `${group.class_name}：${group.students}人；本次未纳入：${group.not_included.join('、') || '无'}`;
+        output.append(line);
+      }
+      if (isPreview && !r.already_imported) { checked = uploadId; publish.disabled = false; }
+      for (const a of r.assessments || []) {
+        const link = document.createElement('a'); link.href = `exams?id=${encodeURIComponent(a.id)}`; link.textContent = `查看${a.title} `; output.append(link);
+      }
+    } catch(error) { checked = null; output.textContent = `未完成：${error.message}`; }
+    finally { preview.disabled = false; }
+  }
+  preview.addEventListener('click', () => run(true));
+  publish.addEventListener('click', () => run(false));
+})();
