@@ -62,7 +62,8 @@ def validate_bundle(repo, actor_id, bundle):
             raise InvalidRequest('评分规则需要answer字段')
         if not q.get('knowledge_node_ids') or not q.get('ability_tag_ids'):
             raise InvalidRequest('每个评分项都必须有知识点与能力标签')
-        for kind, key in [('knowledge','knowledge_node_ids'),('ability','ability_tag_ids')]:
+        for kind, key in [('knowledge','knowledge_node_ids'),('ability','ability_tag_ids'),('literacy','literacy_tag_ids')]:
+            q[key] = q.get(key, [])
             repo._validate_tag_limit(kind, q[key])
             repo._assert_active_tags(actor['school_id'], kind, q[key])
         for image in q.get('images', []):
@@ -157,7 +158,8 @@ def import_bundle(repo, actor_id, bundle, preview=True):
                 source=bundle['title'],grade=bundle.get('grade',''),chapter=item.get('chapter','综合'),
                 difficulty='medium',quality_status='reviewed',original_question_number=item['number'])
             question_ids[item['number']] = q['id']
-            tx.confirm_question_tags(actor_id,q['id'],knowledge_node_ids=item['knowledge_node_ids'],ability_tag_ids=item['ability_tag_ids'])
+            tx.confirm_question_tags(actor_id,q['id'],knowledge_node_ids=item['knowledge_node_ids'],
+                ability_tag_ids=item['ability_tag_ids'],literacy_tag_ids=item.get('literacy_tag_ids',[]))
             for im in item.get('images',[]):
                 asset(im,question_id=q['id'])
         paper = tx.assemble_paper(actor_id,bundle['title'],bundle.get('source','周测整理包'),

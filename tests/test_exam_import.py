@@ -68,6 +68,19 @@ class ExamImportTests(unittest.TestCase):
         for answer,score in [('BD',6),(['D','B'],6),('B，D',6),('B',3),('',0),('BCD',0),('A',0)]:
             self.assertEqual(grade_answer(rule,answer)['score'],score)
 
+    def test_import_persists_literacy_tags_in_question_snapshot(self):
+        self.bundle['questions'][0]['literacy_tag_ids']=['lit-thinking-model']
+        result=import_bundle(self.repo,self.admin,self.bundle,False)
+        aid=result['assessments'][0]['id']
+        snapshot=self.conn.execute(
+            'select s.tag_snapshot_json from question_version_snapshots s '
+            'join student_responses r on r.snapshot_id=s.id '
+            "where r.assessment_id=? and r.question_id=(select id from questions where original_question_number='8') limit 1",
+            (aid,)
+        ).fetchone()[0]
+        tags=__import__('json').loads(snapshot)
+        self.assertTrue(any(tag['tag_type']=='literacy' and tag['tag_id']=='lit-thinking-model' for tag in tags))
+
     def test_chunked_upload_is_complete_and_owned_before_preview(self):
         import json
         from highschoolphysics.exam_import import stage_chunk, staged_bundle
