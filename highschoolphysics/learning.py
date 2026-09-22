@@ -17,10 +17,12 @@ TZ = ZoneInfo('Asia/Shanghai')
 def now():
     return datetime.now(timezone.utc).isoformat()
 
-def day(value):
+def instant(value):
     dt = datetime.fromisoformat(value.replace('Z','+00:00'))
-    if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(TZ).date()
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+def day(value):
+    return instant(value).astimezone(TZ).date()
 
 def enabled(conn):
     return bool(conn.execute("select 1 from sqlite_master where name='learning_state'").fetchone())
@@ -93,6 +95,7 @@ def migrate(conn):
 def check(rule, answer):
     if not str(answer).strip(): return 'blank'
     if rule.get('type') not in ('single_choice','multiple_choice','fill'): raise InvalidRequest('目前只支持选择题和填空题')
+    if rule.get('type') in ('single_choice','multiple_choice') and not re.fullmatch(r'[A-Fa-f,，、;；\s]+',str(answer)): return 'pending'
     if grade_answer(dict(rule,points=1),answer)['correct']: return 'correct'
     return 'pending' if rule.get('type')=='fill' else 'wrong'
 
@@ -104,7 +107,7 @@ def progress(conn, wrong, today=None):
     attempts=conn.execute('select a.* from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and w.question_id=? and s.question_version=? order by a.submitted_at,a.id',(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events += [(a['submitted_at'],a['outcome'],a['purpose']) for a in attempts if a['purpose']=='verify']
     count=0; due=today; last='需再练'
-    for date,result,purpose in sorted(events):
+    for date,result,purpose in sorted(events,key=lambda event: instant(event[0])):
         d=day(date)
         if result=='pending': continue
         last=LABELS[result]
@@ -220,10 +223,14 @@ def api(repo,user,action,p):
         if p['status'] not in ('present','absent','not_included'): raise InvalidRequest('无效状态')
         c.execute('update assessment_participants set status=? where assessment_id=? and student_id=?',(p['status'],a['id'],p['student_id']));c.commit();return {'message':'纳入范围已更新'}
     if action=='answers':
-        rows=list(csv.DictReader(io.StringIO(p.get('csv','').lstrip('\ufeff'))))
+        reader=csv.DictReader(io.StringIO(p.get('csv','').lstrip('\ufeff')))
+        rows=list(reader)
+        if not set(('学生','题号','作答','结果')).issubset(reader.fieldnames or []): raise InvalidRequest('表格列名必须包含：学生,题号,作答,结果')
         if not rows: raise InvalidRequest('请提供 CSV 表格，列名：学生,题号,作答,结果')
         prepared=[]
         for row in rows:
+            if any(row.get(k) is None for k in ('学生','题号','作答','结果')): raise InvalidRequest('表格有缺失单元格，请明确填写空白或待确认，不要把缺失当空白')
+            if row['结果'] not in ('','正确','错误','空白','待确认'): raise InvalidRequest('结果只能填正确、错误、空白或待确认')
             students=c.execute('select u.* from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=? and p.status=\'present\' and (u.username=? or u.display_name=? or u.student_no=?)',(a['id'],row['学生'],row['学生'],row['学生'])).fetchall()
             if len(students)!=1: raise InvalidRequest('学生无法唯一匹配：'+row['学生'])
             s=c.execute('select s.* from question_version_snapshots s where assessment_id=? and position=?',(a['id'],row['题号'])).fetchone()

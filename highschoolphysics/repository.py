@@ -3246,7 +3246,9 @@ class PhysicsRepository:
             item.get("error_reason_tag_ids_json"),
             [],
         )
-        tags = self.tags_for_question(item["question_id"])
+        frozen = self.conn.execute("select s.tag_snapshot_json from student_responses r join question_version_snapshots s on s.id=r.snapshot_id where r.id=?",(item["response_id"],)).fetchone()
+        from .learning import enabled
+        tags = loads(frozen[0], []) if frozen and enabled(self.conn) else self.tags_for_question(item["question_id"])
         item["knowledge_tags"] = [
             tag for tag in tags if tag["tag_type"] == "knowledge"
         ]

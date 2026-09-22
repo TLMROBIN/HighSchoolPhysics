@@ -136,8 +136,29 @@ check_local() {
 }
 
 check_remote() {
-  local local_head
+  local local_head local_github_head
   local_head="$(git rev-parse HEAD)"
+  # A fresh query through the local authenticated origin can verify the same
+  # GitHub repository when the deployment host has a broken HTTPS connection.
+  local_github_head="$(python3 - "$REMOTE_GITHUB_URL" <<'PY_GITHUB'
+import subprocess, sys
+from urllib.parse import urlparse
+
+def canonical(value):
+    value=value.strip().replace('git@github.com:', 'https://github.com/')
+    parsed=urlparse(value)
+    path=parsed.path.rstrip('/')
+    if path.endswith('.git'): path=path[:-4]
+    return parsed.hostname, path
+try:
+    origin=subprocess.check_output(['git','remote','get-url','origin'],text=True).strip()
+    if canonical(origin)==canonical(sys.argv[1]):
+        result=subprocess.run(['git','ls-remote',origin,'refs/heads/main'],capture_output=True,text=True,timeout=25,check=True)
+        print(result.stdout.split()[0])
+except (subprocess.SubprocessError, IndexError):
+    pass
+PY_GITHUB
+)"
 
   printf '\n== Remote HighSchoolPhysics deploy check ==\n'
   printf 'REMOTE_HOST=%s\n' "$REMOTE_HOST"
@@ -154,7 +175,8 @@ check_remote() {
     "$REMOTE_PUBLIC_BASE_URL" \
     "$REMOTE_ENTRY_PATH" \
     "$REMOTE_GITHUB_URL" \
-    "$REQUIRE_REMOTE_HEAD_MATCH" <<'REMOTE_HSP_VERIFY'
+    "$REQUIRE_REMOTE_HEAD_MATCH" \
+    "$local_github_head" <<'REMOTE_HSP_VERIFY'
 set -euo pipefail
 
 remote_dir="$1"
@@ -164,6 +186,7 @@ public_base_url="$4"
 entry_path="$5"
 github_url="$6"
 require_remote_head_match="$7"
+local_github_head="$8"
 
 pass() { printf '[PASS] %s\n' "$1"; }
 warn() { printf '[WARN] %s\n' "$1" >&2; }
@@ -173,7 +196,11 @@ cd "$remote_dir"
 
 remote_head="$(git rev-parse HEAD)"
 origin_head="$(git rev-parse origin/main 2>/dev/null || true)"
-github_head="$(git ls-remote "$github_url" refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
+github_head="$(timeout 25 git ls-remote "$github_url" refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
+if [[ -z "$github_head" && -n "$local_github_head" ]]; then
+  github_head="$local_github_head"
+  printf '[INFO] GitHub main verified through a fresh local query to the same repository\n'
+fi
 
 printf 'remote_head=%s\n' "$remote_head"
 printf 'local_head=%s\n' "$local_head"

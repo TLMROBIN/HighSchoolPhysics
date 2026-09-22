@@ -90,15 +90,21 @@ def build_wrong_book_html(
                     for key, value in sorted(wrong["options"].items())
                 )
                 parts.append("<p>%s</p>" % option_text)
-            parts.append(
-                "<p>原作答：%s　得分：%s/%s　掌握标记：%s</p>"
-                % (
-                    html.escape(wrong.get("wrong_answer") or "空白"),
-                    wrong["score"],
-                    wrong["max_score"],
-                    html.escape(wrong.get("mastery_level") or "未标记"),
+            if wrong["score"] is None:
+                parts.append("<p>首次作答记录：%s</p>" % html.escape(wrong.get("wrong_answer") or "空白"))
+                import base64
+                for asset in repo.conn.execute('select png from exam_assets where question_id=?',(wrong['question_id'],)):
+                    parts.append('<img alt="原题图" style="max-width:100%%" src="data:image/png;base64,%s">' % base64.b64encode(asset[0]).decode('ascii'))
+            else:
+                parts.append(
+                    "<p>原作答：%s　得分：%s/%s　掌握标记：%s</p>"
+                    % (
+                        html.escape(wrong.get("wrong_answer") or "空白"),
+                        wrong["score"],
+                        wrong["max_score"],
+                        html.escape(wrong.get("mastery_level") or "未标记"),
+                    )
                 )
-            )
             if export_options["include_answers"]:
                 parts.append(
                     "<p>正确答案：%s</p>"
