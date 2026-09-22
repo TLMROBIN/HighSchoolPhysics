@@ -67,7 +67,12 @@ def metrics(repo,uid):
             key=(t['tag_type'],t['tag_id'])
             if key in seen or t['tag_type'] not in ('knowledge','ability'): continue
             seen.add(key);g=groups[(t['tag_type'],t['name'])];g['q'].add(r['question_id']);g['attempts']+=1;g[r['outcome']]+=1
-    return '<p>原测与每次独立验证均计入尝试；看过解析后的学习练习单独保留，不计入正确率。</p><table><tr><th>关联标签</th><th>不同题数</th><th>作答次数</th><th>正确率</th></tr>'+''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%.1f%%</td></tr>'%('<a href="app?tag='+quote(k[1])+'#wrong">'+esc(k[1])+'</a>',len(g['q']),g['attempts'],100*g['correct']/g['attempts']) for k,g in groups.items())+'</table>'
+    graph=['<details><summary>展开知识点与能力关联图</summary><div style="overflow:auto"><svg role="img" aria-label="知识点和能力与练习题关联图" width="900" height="%s" xmlns="http://www.w3.org/2000/svg">'%max(150,45*len(groups)+60)]
+    for i,(key,g) in enumerate(groups.items()):
+        y=45*i+35
+        graph.append('<path d="M100 %s H260" stroke="#65a5a2"/><text x="12" y="%s" fill="#183c48">%s</text><a href="app?tag=%s#wrong"><rect x="260" y="%s" width="600" height="34" rx="8" fill="#e8f5f3"/><text x="274" y="%s" fill="#164b49">%s · %s 道题</text></a>'%(y,y+5,'知识点' if key[0]=='knowledge' else '能力',quote(key[1]),y-20,y+3,esc(key[1]),len(g['q'])))
+    graph.append('</svg></div></details>')
+    return ''.join(graph)+'<p>原测与每次独立验证均计入尝试；看过解析后的学习练习单独保留，不计入正确率。</p><table><tr><th>关联标签</th><th>不同题数</th><th>作答次数</th><th>正确率</th></tr>'+''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%.1f%%</td></tr>'%('<a href="app?tag='+quote(k[1])+'#wrong">'+esc(k[1])+'</a>',len(g['q']),g['attempts'],100*g['correct']/g['attempts']) for k,g in groups.items())+'</table>'
 
 def teacher(repo,user,params):
     c=repo.conn;body=[base(user),'<h2>教师工作台</h2><p><a href="#create">① 录题与创建周测</a> · <a href="#review">② 待确认作答</a> · <a href="exams">③ 周测统计</a> · <a href="#progress">④ 复习进度</a></p>']
