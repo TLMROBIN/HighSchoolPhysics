@@ -25,6 +25,7 @@ from .exporting import build_wrong_book_html
 from .exam_import import import_bundle, get_asset, stage_chunk, staged_bundle
 from .exam_views import render_exams, image_html
 from .repository import PhysicsRepository, dumps
+from . import learning, learning_views
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
 
@@ -39,6 +40,7 @@ def ensure_database(path, demo_mode=False):
         initialize_database(conn)
         if demo_mode:
             seed_demo_data(conn)
+        learning.migrate(conn)
     finally:
         conn.close()
 
@@ -3014,7 +3016,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 else:
                     repo = PhysicsRepository(conn)
                     aid = (parse_qs(parsed.query).get("id") or [None])[0]
-                    self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams"))
+                    self._send_html(render_layout("考试与作答", user, (learning_views.exams(repo, user, aid) if learning.enabled(conn) else render_exams(repo, user, aid)), "exams"))
             elif path == "/exam-media":
                 if not user:
                     self._send_error(HTTPStatus.FORBIDDEN, "请先登录")
@@ -3033,7 +3035,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._redirect("/login")
                 elif user["role"] == "student":
                     repo = PhysicsRepository(conn)
-                    self._send_html(render_student_app(user, repo.student_dashboard(user["id"])))
+                    self._send_html((render_layout("我的学习", user, learning_views.student(repo, user, parse_qs(parsed.query)), "app") if learning.enabled(conn) else render_student_app(user, repo.student_dashboard(user["id"]))))
                 else:
                     self._redirect(self._home_for(user))
             elif path == "/teacher":
@@ -3041,7 +3043,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._redirect("/login")
                 elif user["role"] in ("teacher", "admin"):
                     repo = PhysicsRepository(conn)
-                    self._send_html(render_teacher_app(user, repo.teacher_dashboard(user["id"])))
+                    self._send_html((render_layout("教师工作台", user, learning_views.teacher(repo, user, parse_qs(parsed.query)), "teacher") if learning.enabled(conn) else render_teacher_app(user, repo.teacher_dashboard(user["id"]))))
                 else:
                     self._send_error(HTTPStatus.FORBIDDEN, "Forbidden")
             elif path == "/admin":
@@ -3072,6 +3074,9 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         class_id = None
                         student_id = user["id"]
                     repo = PhysicsRepository(conn)
+                    if learning.enabled(conn):
+                        self._send_html(render_layout("错题学习单", user, '<base href="../../">' + learning_views.export_wrong_book(repo, user, assessment_id, student_id, class_id), "exams"))
+                        return
                     self._send_html(
                         build_wrong_book_html(
                             repo,
@@ -3140,6 +3145,12 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 )
             payload = self._read_payload()
             auth = AuthService(conn)
+            if path.startswith("/api/learning/"):
+                result = learning.api(PhysicsRepository(conn), user, path.rsplit("/", 1)[-1], payload)
+                self._send_json({"ok": True, "result": result})
+                return
+            if learning.enabled(conn) and path in ("/api/exams/import", "/api/exams/upload-chunk", "/api/teacher/grade", "/api/student/redo-attempt", "/api/teacher/redo-attempt/review", "/api/teacher/grading-revision", "/api/teacher/ocr-import", "/api/teacher/resolve-review"):
+                raise InvalidRequest("请使用新的周测与学习记录入口；本系统不再记录分数")
             if path in ("/change-password", "/api/password/change"):
                 if payload.get("new_password") != payload.get(
                     "confirm_password",
