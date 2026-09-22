@@ -84,6 +84,18 @@ def validate_bundle(repo, actor_id, bundle):
         if not students:
             raise InvalidRequest('班级没有待导入作答')
         roster = {s['id']:s for s in repo.students_for_class(cid)}
+        roster_notes = []
+        for addition in group.get('roster_additions', []):
+            if actor['role'] != 'admin' or not addition.get('reason'):
+                raise PermissionDenied('非当前班级学生需由管理员明确确认参测名单和原因')
+            student = repo.conn.execute("select * from users where id=? and school_id=? and role='student' and status='active'",
+                                       (addition.get('student_id'), actor['school_id'])).fetchone()
+            if not student or student['class_id'] != addition.get('current_class_id') or student['display_name'] != addition.get('name'):
+                raise InvalidRequest('补充参测学生身份或当前班级已变化，请重新核对')
+            if student['id'] in roster:
+                raise InvalidRequest('补充参测学生已在当前名单，不应重复添加')
+            roster[student['id']] = dict(student)
+            roster_notes.append({'name':student['display_name'],'reason':addition['reason']})
         for student in students:
             sid = student['student_id']
             if sid not in roster or sid in all_students:
@@ -105,7 +117,7 @@ def validate_bundle(repo, actor_id, bundle):
                     if not item.get('score_reason'):
                         raise InvalidRequest('复核分数需要记录依据')
         missing = [s['display_name'] for sid,s in roster.items() if sid not in all_students]
-        reports.append({'class_id':cid,'class_name':cls['name'],'students':len(students),'not_included':missing})
+        reports.append({'class_id':cid,'class_name':cls['name'],'students':len(students),'not_included':missing,'roster_notes':roster_notes})
     return {'title':bundle['title'],'question_count':len(questions),'full_score':sum(points.values()),
             'student_count':len(all_students),'response_count':len(all_students)*len(codes),'classes':reports}
 
@@ -162,7 +174,7 @@ def import_bundle(repo, actor_id, bundle, preview=True):
             evidence = {}
             for student in group['students']:
                 sid = student['student_id']
-                conn.execute("update assessment_participants set status='present' where assessment_id=? and student_id=?",(aid,sid))
+                conn.execute("insert into assessment_participants(assessment_id,student_id,status) values(?,?,'present') on conflict(assessment_id,student_id) do update set status='present'",(aid,sid))
                 media_id = asset(student['scan_image'],assessment_id=aid,student_id=sid)
                 for number,r in student['responses'].items():
                     qid=question_ids[number]

@@ -1565,6 +1565,11 @@ window.addEventListener("resize", () => {
         const line = document.createElement('p');
         line.textContent = `${group.class_name}：${group.students}人；本次未纳入：${group.not_included.join('、') || '无'}`;
         output.append(line);
+        for (const note of group.roster_notes || []) {
+          const row = document.createElement('p');
+          row.textContent = `补充参测：${note.name}；${note.reason}`;
+          output.append(row);
+        }
       }
       if (isPreview && !r.already_imported) { checked = uploadId; publish.disabled = false; }
       for (const a of r.assessments || []) {

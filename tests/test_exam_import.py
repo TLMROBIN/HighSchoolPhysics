@@ -101,3 +101,19 @@ class ExamImportTests(unittest.TestCase):
         self.repo.review_redo_attempt(self.admin,failed['id'],0)
         detail=self.repo.wrong_question_detail(self.admin,wrong)
         self.assertTrue(self.repo._wrong_needs_redo(detail))
+
+    def test_explicit_admin_roster_addition_preserves_current_identity(self):
+        from tests.http_support import seed_other_class
+        seed_other_class(self.conn)
+        other=self.conn.execute("select * from users where id='stu-2001'").fetchone()
+        addition={'student_id':other['id'],'name':other['display_name'],'current_class_id':other['class_id'],'reason':'本次参测名单已确认，保留现在的班级身份'}
+        student=copy.deepcopy(self.bundle['classes'][0]['students'][0]);student.update(student_id=other['id'],name=other['display_name'])
+        self.bundle['classes'][0]['students'].append(student)
+        with self.assertRaises(InvalidRequest):import_bundle(self.repo,self.admin,self.bundle)
+        self.bundle['classes'][0]['roster_additions']=[addition]
+        with self.assertRaises(PermissionDenied):import_bundle(self.repo,'user-teacher-li',self.bundle)
+        result=import_bundle(self.repo,self.admin,self.bundle,False)
+        self.assertEqual(result['student_count'],2)
+        self.assertEqual(self.conn.execute('select class_id from users where id=?',(other['id'],)).fetchone()[0],other['class_id'])
+        aid=result['assessments'][0]['id']
+        self.assertIn(other['display_name'],render_exams(self.repo,dict(other),aid))
