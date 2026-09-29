@@ -64,7 +64,7 @@ def render_layout(title, user, body, active=""):
         }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
-            "<span>%s</span><strong>%s</strong><a href='exams'>考试与作答</a><a href='logout'>退出</a>"
+            "<span>%s</span><strong>%s</strong><a href='exams'>考试与作答</a><a href='logout' onclick=\"return confirm('确定退出登录吗？')\">退出</a>"
             "</div>"
             % (escape(role_label), escape(user["display_name"]))
         )
