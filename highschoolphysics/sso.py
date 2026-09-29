@@ -95,7 +95,14 @@ def _decode_jwt_payload_without_verification(token):
         raise OidcExchangeError("OIDC id_token payload is invalid") from exc
 
 
-def exchange_oidc_code_for_claims(config, client_secret, code, code_verifier, redirect_uri):
+def exchange_oidc_code_for_claims(
+    config,
+    client_secret,
+    code,
+    code_verifier,
+    redirect_uri,
+    include_id_token_hint=False,
+):
     token_endpoint = config.get("token_endpoint")
     if not token_endpoint:
         raise OidcExchangeError("OIDC token endpoint is not configured")
@@ -109,9 +116,14 @@ def exchange_oidc_code_for_claims(config, client_secret, code, code_verifier, re
     if client_secret:
         data["client_secret"] = client_secret
     token_payload = _post_form(token_endpoint, data)
+    id_token = token_payload.get("id_token")
     access_token = token_payload.get("access_token")
     if config.get("userinfo_endpoint") and access_token:
-        return _get_json(config["userinfo_endpoint"], access_token)
-    if token_payload.get("id_token"):
-        return _decode_jwt_payload_without_verification(token_payload["id_token"])
-    raise OidcExchangeError("OIDC token response did not include usable claims")
+        claims = _get_json(config["userinfo_endpoint"], access_token)
+    elif id_token:
+        claims = _decode_jwt_payload_without_verification(id_token)
+    else:
+        raise OidcExchangeError("OIDC token response did not include usable claims")
+    if include_id_token_hint:
+        return claims, id_token
+    return claims

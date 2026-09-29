@@ -4,8 +4,9 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 import html
+from http.cookies import SimpleCookie
 
 from .auth import AuthService, validate_password
 from .db import (
@@ -3812,6 +3813,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
 
     def _handle_logout(self):
         token = self._session_token()
+        cookies = SimpleCookie()
+        cookies.load(self.headers.get("Cookie", ""))
+        id_token_hint_cookie = cookies.get("hsp_id_token_hint")
+        id_token_hint = id_token_hint_cookie.value if id_token_hint_cookie else ""
         conn = connect(self.db_path)
         try:
             target = "/login"
@@ -3821,17 +3826,29 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 if auth.session_source(token) == "sso":
                     provider = PhysicsRepository(conn).enabled_oidc_provider()
                     if provider is not None:
-                        issuer = provider["issuer"].rstrip("/")
-                        target = (
-                            "%s/protocol/openid-connect/logout"
-                            "?client_id=highschoolphysics"
-                            "&post_logout_redirect_uri=%s"
-                            % (issuer, quote("http://192.168.1.206/physics/login", safe=""))
+                        issuer_path = urlparse(provider["issuer"]).path.rstrip("/")
+                        public_host = self.headers.get("X-Forwarded-Host") or self.headers.get("Host")
+                        if public_host:
+                            public_scheme = "https" if self.headers.get("X-Forwarded-Proto") == "https" else "http"
+                            public_origin = "%s://%s" % (public_scheme, public_host)
+                            issuer = "%s%s" % (public_origin, issuer_path)
+                            post_logout_redirect_uri = "%s/directory-admin/api/auth/login" % public_origin
+                        else:
+                            issuer = provider["issuer"].rstrip("/")
+                            post_logout_redirect_uri = "http://10.50.159.62/directory-admin/api/auth/login"
+                        params = urlencode(
+                            {
+                                "client_id": "highschoolphysics",
+                                "post_logout_redirect_uri": post_logout_redirect_uri,
+                                **({"id_token_hint": id_token_hint} if id_token_hint else {}),
+                            }
                         )
+                        target = "%s/protocol/openid-connect/logout?%s" % (issuer, params)
                 auth.logout(token, user["id"] if user else None)
             self.send_response(HTTPStatus.SEE_OTHER)
             self.send_header("Location", target)
             self.send_header("Set-Cookie", "hsp_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
+            self.send_header("Set-Cookie", "hsp_id_token_hint=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")
             self.end_headers()
         finally:
             conn.close()
@@ -3880,12 +3897,13 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             repo = PhysicsRepository(conn)
             client_config = json.loads(provider["client_config_json"])
             client_secret = repo._provider_secret_store().decrypt(provider["secret_ciphertext"])
-            claims = exchange_oidc_code_for_claims(
+            claims, id_token_hint = exchange_oidc_code_for_claims(
                 client_config,
                 client_secret,
                 code,
                 state_row["code_verifier"],
                 state_row["redirect_uri"],
+                include_id_token_hint=True,
             )
             result = repo.complete_sso_callback(state, claims)
             session = AuthService(conn).session_for_user(
@@ -3903,6 +3921,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 "Set-Cookie",
                 "hsp_session=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" % session.token,
             )
+            if id_token_hint:
+                self.send_header(
+                    "Set-Cookie",
+                    "hsp_id_token_hint=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" % id_token_hint,
+                )
             self.end_headers()
         except (PermissionDenied, OidcExchangeError) as exc:
             self._send_error(HTTPStatus.UNAUTHORIZED, str(exc))
