@@ -105,21 +105,35 @@ def _put_source(upload_url, source_path, timeout):
 
 def _download_result(url, destination, timeout):
     _require_https_host(url, RESULT_HOSTS)
-    req = request.Request(url, headers={"Accept": "application/zip"})
     total = 0
     try:
-        with request.urlopen(req, timeout=timeout) as response, Path(destination).open("wb") as output:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_RESULT_ZIP_BYTES:
-                    raise AdapterError("invalid_adapter_output", "MinerU result archive is too large")
-                output.write(chunk)
+        import requests
+    except ImportError as exc:
+        raise AdapterError("dependency_missing", "requests is required for MinerU API results") from exc
+    try:
+        response = requests.get(
+            url,
+            headers={"Accept": "application/zip"},
+            timeout=timeout,
+            stream=True,
+            allow_redirects=False,
+        )
+        try:
+            if response.status_code != 200:
+                raise AdapterError("mineru_api_unavailable", "MinerU result download was rejected")
+            with Path(destination).open("wb") as output:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > MAX_RESULT_ZIP_BYTES:
+                        raise AdapterError("invalid_adapter_output", "MinerU result archive is too large")
+                    output.write(chunk)
+        finally:
+            response.close()
     except AdapterError:
         raise
-    except (error.HTTPError, error.URLError, TimeoutError, OSError) as exc:
+    except (requests.RequestException, TimeoutError, OSError) as exc:
         raise AdapterError("mineru_api_unavailable", "MinerU result could not be downloaded") from exc
     with Path(destination).open("rb") as archive:
         signature = archive.read(2)

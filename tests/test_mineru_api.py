@@ -8,6 +8,7 @@ from zipfile import ZipFile
 from highschoolphysics.document_adapters import AdapterError
 from highschoolphysics.document_adapters.mineru_api import (
     _extract_result,
+    _download_result,
     _require_https_host,
     convert_pdf,
 )
@@ -94,6 +95,24 @@ class MinerUApiTests(unittest.TestCase):
         self.assertEqual(put.call_args.kwargs["data"], b"synthetic pdf")
         self.assertFalse(put.call_args.kwargs["allow_redirects"])
         self.assertNotIn("headers", put.call_args.kwargs)
+
+    def test_result_download_streams_from_official_cdn_without_redirects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "result.zip"
+            response = mock.Mock(status_code=200)
+            response.iter_content.return_value = [b"PK", b"\x03\x04"]
+            with mock.patch("requests.get", return_value=response) as get:
+                _download_result(
+                    "https://cdn-mineru.openxlab.org.cn/result.zip",
+                    destination,
+                    10,
+                )
+            self.assertEqual(destination.read_bytes(), b"PK\x03\x04")
+
+        get.assert_called_once()
+        self.assertTrue(get.call_args.kwargs["stream"])
+        self.assertFalse(get.call_args.kwargs["allow_redirects"])
+        response.close.assert_called_once()
 
 
 if __name__ == "__main__":
