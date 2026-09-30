@@ -3,7 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 from unittest.mock import patch
 
 from highschoolphysics.db import connect
@@ -74,6 +74,55 @@ class HttpIntegrationTests(unittest.TestCase):
             )
         finally:
             conn.close()
+
+    def test_sso_logout_revokes_local_session_and_redirects_to_provider_logout(self):
+        conn = connect(self.server.db_path)
+        try:
+            PhysicsRepository(conn).save_oidc_provider_config(
+                actor_id="user-admin",
+                provider_name="Test OIDC",
+                issuer="https://idp.example.test/auth/realms/school",
+                client_id="physics-test-client",
+                client_secret="test-only-secret",
+                authorization_endpoint="https://idp.example.test/authorize",
+                token_endpoint="https://idp.example.test/token",
+                userinfo_endpoint="https://idp.example.test/userinfo",
+                enabled=True,
+            )
+            session = AuthService(conn).session_for_user("user-admin", "http-test-logout")
+        finally:
+            conn.close()
+
+        status, headers, _ = self.server.request(
+            "GET",
+            "/logout",
+            headers={
+                "Cookie": "hsp_session=%s; hsp_id_token_hint=header.payload.signature" % session.token,
+                "X-Forwarded-Proto": "https",
+                "X-Forwarded-Host": "physics.example.test",
+                "X-Forwarded-Prefix": "/physics",
+            },
+        )
+
+        self.assertEqual(status, 303)
+        logout_url = urlparse(headers["Location"])
+        self.assertEqual(
+            logout_url.path,
+            "/auth/realms/school/protocol/openid-connect/logout",
+        )
+        logout_query = parse_qs(logout_url.query)
+        self.assertEqual(logout_query["client_id"], ["physics-test-client"])
+        self.assertEqual(
+            logout_query["post_logout_redirect_uri"],
+            ["https://physics.example.test/directory-admin/api/auth/login"],
+        )
+        self.assertEqual(logout_query["id_token_hint"], ["header.payload.signature"])
+
+        status, headers, _ = self.server.request(
+            "GET", "/admin", headers={"Cookie": "hsp_session=%s" % session.token}
+        )
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "/login")
 
     def test_missing_required_field_returns_structured_400(self):
         _, cookie, _ = self.server.login("admin", "admin123")

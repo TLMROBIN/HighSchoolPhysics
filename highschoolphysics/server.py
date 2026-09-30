@@ -82,7 +82,7 @@ def render_layout(title, user, body, active="", question_math=False):
         }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
-            "<span>%s</span><strong>%s</strong><a href='/exams'>考试与作答</a><a href='/logout' onclick=\"return confirm('确定退出登录吗？')\">退出</a>"
+            "<span>%s</span><strong>%s</strong><a href='/exams'>考试与作答</a><a href=\"/logout\" onclick=\"return confirm('确定退出登录吗？')\">退出</a>"
             "</div>"
             % (escape(role_label), escape(user["display_name"]))
         )
@@ -3927,7 +3927,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                             post_logout_redirect_uri = "http://10.50.159.62/directory-admin/api/auth/login"
                         params = urlencode(
                             {
-                                "client_id": "highschoolphysics",
+                                "client_id": provider["client_config"]["client_id"],
                                 "post_logout_redirect_uri": post_logout_redirect_uri,
                                 **({"id_token_hint": id_token_hint} if id_token_hint else {}),
                             }

@@ -197,7 +197,8 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         # 标题仍然是「教师端 - 高中物理闭环系统」
         self.assertIn("教师端", text)
         # 退出按钮仍然在
-        self.assertIn("href='/logout'", text)
+        self.assertIn('href="/logout"', text)
+        self.assertIn("onclick=\"return confirm('确定退出登录吗？')\"", text)
 
     # -------------------- 辅助:直接验证 render_teacher_app 空状态 --------------------
 

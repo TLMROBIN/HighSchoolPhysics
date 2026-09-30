@@ -82,7 +82,7 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertIn('data-actor-id="', page)
         self.assertIn('href="/assets/document-import.css', page)
         self.assertIn("href='/exams'", page)
-        self.assertIn("href='/logout'", page)
+        self.assertIn('href="/logout"', page)
         self.assertIn("扫描版 PDF 在服务器上识别", page)
         self.assertIn("服务器模型不可用", page)
         self.assertNotIn("本机模型", page)
@@ -104,7 +104,7 @@ class DocumentHTTPTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertIn(b"href='/exams'", payload)
-        self.assertIn(b"href='/logout'", payload)
+        self.assertIn(b'href="/logout"', payload)
 
     def test_unauthenticated_documents_redirect_is_compatible_with_proxy_prefix(self):
         status, headers, _ = self.server.request(
