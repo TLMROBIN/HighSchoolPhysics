@@ -80,6 +80,21 @@ class MinerUApiTests(unittest.TestCase):
         with self.assertRaises(AdapterError):
             _require_https_host("https://attacker.example/file.zip", {"cdn-mineru.openxlab.org.cn"})
 
+    def test_signed_upload_uses_bare_put_without_content_type(self):
+        from highschoolphysics.document_adapters.mineru_api import _put_source
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source.pdf"
+            source.write_bytes(b"synthetic pdf")
+            response = mock.Mock(status_code=200)
+            with mock.patch("requests.put", return_value=response) as put:
+                _put_source("https://mineru.oss-cn-shanghai.aliyuncs.com/signed", source, 10)
+
+        put.assert_called_once()
+        self.assertEqual(put.call_args.kwargs["data"], b"synthetic pdf")
+        self.assertFalse(put.call_args.kwargs["allow_redirects"])
+        self.assertNotIn("headers", put.call_args.kwargs)
+
 
 if __name__ == "__main__":
     unittest.main()

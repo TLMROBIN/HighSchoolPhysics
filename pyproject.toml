@@ -11,6 +11,7 @@ ocr = [
 parsing = [
   "markitdown[docx,pdf]==0.1.6",
   "mineru[all]==3.4.0",
+  "requests>=2.31,<3",
   "python-docx==1.2.0",
   "mammoth==1.11.0",
   "markdown-it-py==4.2.0",
@@ -29,6 +30,7 @@ production = [
   "paddleocr==3.7.0",
   "markitdown[docx,pdf]==0.1.6",
   "mineru[all]==3.4.0",
+  "requests>=2.31,<3",
   "python-docx==1.2.0",
   "mammoth==1.11.0",
   "markdown-it-py==4.2.0",

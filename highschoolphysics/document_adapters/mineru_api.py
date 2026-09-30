@@ -80,19 +80,26 @@ def _require_https_host(url, allowed_hosts, code="invalid_adapter_output"):
 
 def _put_source(upload_url, source_path, timeout):
     _require_https_host(upload_url, UPLOAD_HOSTS)
-    req = request.Request(
-        upload_url,
-        data=Path(source_path).read_bytes(),
-        headers={"Content-Length": str(Path(source_path).stat().st_size)},
-        method="PUT",
-    )
     try:
-        with request.urlopen(req, timeout=timeout) as response:
-            if response.status not in (200, 201):
-                raise AdapterError("mineru_api_upload_failed", "MinerU file upload failed")
-    except error.HTTPError as exc:
-        raise AdapterError("mineru_api_upload_failed", "MinerU file upload failed") from exc
-    except (error.URLError, TimeoutError, OSError) as exc:
+        import requests
+    except ImportError as exc:
+        raise AdapterError("dependency_missing", "requests is required for MinerU API uploads") from exc
+    try:
+        # MinerU's signed OSS upload URL requires a bare PUT without a
+        # Content-Type header. urllib injects application/x-www-form-urlencoded
+        # for byte bodies, which invalidates the signature; requests mirrors
+        # the official client example and does not add that header for bytes.
+        response = requests.put(
+            upload_url,
+            data=Path(source_path).read_bytes(),
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        if response.status_code not in (200, 201):
+            raise AdapterError("mineru_api_upload_failed", "MinerU file upload failed")
+    except AdapterError:
+        raise
+    except (requests.RequestException, TimeoutError, OSError) as exc:
         raise AdapterError("mineru_api_unavailable", "MinerU file upload could not be completed") from exc
 
 

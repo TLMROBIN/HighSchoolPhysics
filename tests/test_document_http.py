@@ -81,7 +81,7 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertIn('src="/assets/document-import.js', page)
         self.assertIn('data-actor-id="', page)
         self.assertIn('href="/assets/document-import.css', page)
-        self.assertIn("href='/exams'", page)
+        self.assertIn('href="/exams"', page)
         self.assertIn('href="/logout"', page)
         self.assertIn("PDF 云端模式会将原文件发送至 MinerU", page)
         self.assertIn('value="mineru_api" selected', page)
@@ -103,7 +103,7 @@ class DocumentHTTPTests(unittest.TestCase):
             "GET", "/documents/review?task_id=%s" % task_id, headers={"Cookie": self.cookie, "X-Forwarded-Prefix": "/physics"}
         )
         self.assertEqual(status, 200)
-        self.assertIn(b"href='/exams'", payload)
+        self.assertIn(b'href="/exams"', payload)
         self.assertIn(b'href="/logout"', payload)
 
     def test_unauthenticated_documents_redirect_is_compatible_with_proxy_prefix(self):
