@@ -11,6 +11,7 @@ DEFAULT_DB_PATH = Path("data/highschoolphysics.sqlite3")
 BASE_SCHEMA_VERSION = 11
 SCHEMA_VERSION = 11
 DOCUMENT_INGESTION_SCHEMA_VERSION = 12
+TAGGING_QUEUE_SCHEMA_VERSION = 13
 
 
 def connect(path=DEFAULT_DB_PATH):
@@ -51,6 +52,18 @@ def _document_ingestion_schema_version(conn):
         return 0
     row = conn.execute(
         "select version from app_schema_migrations where feature='document_ingestion'"
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _tagging_queue_schema_version(conn):
+    exists = conn.execute(
+        "select 1 from sqlite_master where type='table' and name='app_schema_migrations'"
+    ).fetchone()
+    if exists is None:
+        return 0
+    row = conn.execute(
+        "select version from app_schema_migrations where feature='automatic_tagging_queue'"
     ).fetchone()
     return int(row[0]) if row else 0
 
@@ -155,6 +168,42 @@ def _migrate_document_ingestion_v12(conn):
         raise
 
 
+def _migrate_tagging_queue_v13(conn):
+    if _tagging_queue_schema_version(conn) >= TAGGING_QUEUE_SCHEMA_VERSION:
+        return
+    if _document_ingestion_schema_version(conn) < DOCUMENT_INGESTION_SCHEMA_VERSION:
+        raise RuntimeError("Automatic tagging queue requires document-ingestion schema v12")
+    if conn.in_transaction:
+        conn.commit()
+    migration_path = Path(__file__).with_name("migrations") / "v13_automatic_tagging_queue.sql"
+    script = migration_path.read_text(encoding="utf-8")
+    conn.execute("begin immediate")
+    try:
+        _execute_sqlite_script(conn, script)
+        foreign_key_errors = conn.execute("pragma foreign_key_check").fetchall()
+        if foreign_key_errors:
+            raise sqlite3.IntegrityError(
+                "Foreign key check failed during automatic tagging migration: %r"
+                % (foreign_key_errors[:5],)
+            )
+        integrity = conn.execute("pragma integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise sqlite3.DatabaseError(
+                "Integrity check failed during automatic tagging migration: %s" % integrity
+            )
+        conn.execute(
+            """insert into app_schema_migrations(feature,version)
+               values('automatic_tagging_queue',?)
+               on conflict(feature) do update set
+                 version=excluded.version,applied_at=current_timestamp""",
+            (TAGGING_QUEUE_SCHEMA_VERSION,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def initialize_database(conn):
     version = _schema_version(conn)
     if version > SCHEMA_VERSION:
@@ -166,6 +215,7 @@ def initialize_database(conn):
     if version < BASE_SCHEMA_VERSION:
         _initialize_legacy_schema(conn)
     _migrate_document_ingestion_v12(conn)
+    _migrate_tagging_queue_v13(conn)
 
 
 def _initialize_legacy_schema(conn):

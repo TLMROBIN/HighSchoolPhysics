@@ -112,6 +112,7 @@ class DocumentIngestionMigrationTests(unittest.TestCase):
             ).fetchone()[0],
             12,
         )
+        self.assertEqual(db._tagging_queue_schema_version(self.conn), 13)
         self.assertEqual(self.conn.execute("pragma integrity_check").fetchone()[0], "ok")
         self.assertEqual(self.conn.execute("pragma foreign_key_check").fetchall(), [])
 
@@ -131,6 +132,7 @@ class DocumentIngestionMigrationTests(unittest.TestCase):
             "historical_content_corrections",
             "import_item_publications",
             "content_operation_keys",
+            "question_tag_jobs",
         }
         table_names = {
             row[0]
@@ -143,6 +145,7 @@ class DocumentIngestionMigrationTests(unittest.TestCase):
         db.initialize_database(self.conn)
         self.assertEqual(self.conn.execute("pragma user_version").fetchone()[0], 11)
         self.assertEqual(db._document_ingestion_schema_version(self.conn), 12)
+        self.assertEqual(db._tagging_queue_schema_version(self.conn), 13)
         self.assertEqual(
             self.conn.execute(
                 "select count(*) from sqlite_master "

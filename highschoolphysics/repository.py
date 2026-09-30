@@ -13,7 +13,13 @@ from .auth import AuthService
 from .errors import InvalidRequest, PermissionDenied, ResourceNotFound, StateConflict
 from .exporting import build_wrong_book_html
 from .grading import grade_answer
-from .llm import generate_candidate_tags
+from .llm import (
+    LLMProviderError,
+    PROMPT_VERSION,
+    candidate_cache_key,
+    generate_candidate_tags,
+    generate_model_candidate_tags,
+)
 from .mastery import (
     blank_answer,
     classify_mastery,
@@ -2031,17 +2037,38 @@ class PhysicsRepository:
         return tags
 
     def generate_llm_candidates(self, actor_id, question_id):
+        self._require_question_bank_actor(actor_id)
         question = self.get_question(question_id)
         if question is None:
             raise ValueError("Question not found: %s" % question_id)
         ontology_id = self.first_active_ontology_id()
-        candidate = generate_candidate_tags(
-            question,
-            self.knowledge_nodes(),
-            self.ability_tags(),
-            self.literacy_tags(),
-            ontology_id,
-        )
+        knowledge_nodes = self.knowledge_nodes()
+        ability_tags = self.ability_tags()
+        literacy_tags = self.literacy_tags()
+        provider = self.conn.execute(
+            """select * from provider_configs where school_id=? and provider_kind='llm' and enabled=1
+               order by updated_at desc,created_at desc limit 1""",
+            (question["school_id"],),
+        ).fetchone()
+        if provider is not None:
+            cache_key = candidate_cache_key(question, ontology_id, PROMPT_VERSION, provider["model_name"] or "")
+            existing = self.conn.execute(
+                "select * from question_tag_candidates where question_id=? and cache_key=?",
+                (question_id, cache_key),
+            ).fetchone()
+            if existing:
+                return self._candidate_payload(existing)
+            candidate = self._generate_model_candidate(
+                actor_id, question, ontology_id, knowledge_nodes, ability_tags, literacy_tags, provider
+            )
+        else:
+            candidate = generate_candidate_tags(
+                question,
+                knowledge_nodes,
+                ability_tags,
+                literacy_tags,
+                ontology_id,
+            )
         existing = self.conn.execute(
             """
             select * from question_tag_candidates
@@ -2090,6 +2117,124 @@ class PhysicsRepository:
         return self._candidate_payload(
             self.conn.execute("select * from question_tag_candidates where id = ?", (candidate_id,)).fetchone()
         )
+
+    def _generate_model_candidate(self, actor_id, question, ontology_id, knowledge_nodes, ability_tags, literacy_tags, provider):
+        try:
+            api_key = self._provider_secret_store().decrypt(provider["secret_ciphertext"])
+        except Exception as exc:
+            raise LLMProviderError("secret_unavailable", "大模型 API Key 无法解密，请检查密钥配置") from exc
+        if not api_key:
+            raise LLMProviderError("missing_secret", "已启用的大模型配置没有 API Key")
+        rough_payload = json.dumps(
+            {
+                "question": {key: question.get(key) for key in ("question_type", "stem", "options", "analysis", "scenario")},
+                "knowledge": knowledge_nodes,
+                "ability": ability_tags,
+                "literacy": literacy_tags,
+            },
+            ensure_ascii=False,
+        )
+        estimated_input = max(1, (len(rough_payload) + 1000) // 2)
+        estimated_output = 1200
+        budget = self.provider_budget_status(
+            actor_id,
+            provider["id"],
+            input_units=estimated_input,
+            output_units=estimated_output,
+        )
+        if not budget["allowed"]:
+            self.record_provider_usage(
+                actor_id=actor_id,
+                provider_config_id=provider["id"],
+                request_type="question_tagging",
+                prompt_version="physics-tri-family-tags-v1",
+                input_units=estimated_input,
+                output_units=estimated_output,
+                outcome="blocked",
+                error_category=budget["reason"],
+                estimated_cost_cents=budget["estimated_cost_cents"],
+                detail={"question_id": question["id"]},
+            )
+            raise LLMProviderError("budget_blocked", "大模型标签调用被当前预算或每日限额拦截")
+        try:
+            candidate = generate_model_candidate_tags(
+                question,
+                knowledge_nodes,
+                ability_tags,
+                literacy_tags,
+                ontology_id,
+                {"api_endpoint": provider["api_endpoint"], "model_name": provider["model_name"]},
+                api_key,
+            )
+        except LLMProviderError as exc:
+            self.record_provider_usage(
+                actor_id=actor_id,
+                provider_config_id=provider["id"],
+                request_type="question_tagging",
+                prompt_version="physics-tri-family-tags-v1",
+                input_units=estimated_input,
+                output_units=0,
+                outcome="failed",
+                error_category=exc.code,
+                detail={"question_id": question["id"]},
+            )
+            raise
+        input_units = candidate.get("input_units") or estimated_input
+        output_units = candidate.get("output_units") or 0
+        self.record_provider_usage(
+            actor_id=actor_id,
+            provider_config_id=provider["id"],
+            request_type="question_tagging",
+            prompt_version=candidate["prompt_version"],
+            input_units=input_units,
+            output_units=output_units,
+            outcome="success",
+            detail={"question_id": question["id"]},
+        )
+        return candidate
+
+    def auto_tag_question(self, actor_id, question_id, confidence_threshold=0.7):
+        """Apply validated model tags after import; deterministic rules never auto-publish tags."""
+        question = self.get_question(question_id)
+        if question is None:
+            raise ResourceNotFound("Question not found: %s" % question_id)
+        self._require_question_bank_actor(actor_id)
+        provider = self.conn.execute(
+            "select 1 from provider_configs where school_id=? and provider_kind='llm' and enabled=1 limit 1",
+            (question["school_id"],),
+        ).fetchone()
+        if provider is None:
+            return {"question_id": question_id, "status": "skipped", "reason": "llm_provider_not_configured"}
+        candidate = self.generate_llm_candidates(actor_id, question_id)
+        if candidate.get("model_version") == "rules-only":
+            return {"question_id": question_id, "status": "skipped", "reason": "model_tags_unavailable"}
+        selections = {
+            family: [item for item in candidate.get(family, []) if float(item.get("confidence", 0)) >= confidence_threshold]
+            for family in ("knowledge_tags", "ability_tags", "literacy_tags")
+        }
+        if not any(selections.values()):
+            self.conn.execute(
+                "update question_tag_candidates set status='auto_empty',reviewed_at=current_timestamp where id=? and status='pending_review'",
+                (candidate["id"],),
+            )
+            self.audit(actor_id, "question_tags_auto_empty", "question", question_id, {"candidate_id": candidate["id"], "threshold": confidence_threshold})
+            self.conn.commit()
+            return {"question_id": question_id, "status": "no_confident_tags", "candidate_id": candidate["id"]}
+        self.confirm_question_tags(
+            actor_id=actor_id,
+            question_id=question_id,
+            candidate_id=candidate["id"],
+            knowledge_node_ids=[item["id"] for item in selections["knowledge_tags"]],
+            ability_tag_ids=[item["id"] for item in selections["ability_tags"]],
+            literacy_tag_ids=[item["id"] for item in selections["literacy_tags"]],
+            tag_source="llm_auto",
+        )
+        return {
+            "question_id": question_id,
+            "status": "tagged",
+            "candidate_id": candidate["id"],
+            "tag_counts": {family: len(items) for family, items in selections.items()},
+        }
 
     def list_pending_candidates(self):
         rows = self.conn.execute(
@@ -2159,6 +2304,9 @@ class PhysicsRepository:
         tag_id,
         ontology_id,
         candidate_id,
+        source="teacher_review",
+        confidence=1.0,
+        rationale="教师审核候选标签后确认",
     ):
         self.conn.execute(
             """
@@ -2175,11 +2323,11 @@ class PhysicsRepository:
                 tag_type,
                 tag_id,
                 ontology_id,
-                "teacher_review",
+                source,
                 actor_id,
                 candidate_id,
-                1.0,
-                "教师审核候选标签后确认",
+                float(confidence),
+                rationale,
             ),
         )
 
@@ -2191,6 +2339,7 @@ class PhysicsRepository:
         knowledge_node_ids=None,
         ability_tag_ids=None,
         literacy_tag_ids=None,
+        tag_source="teacher_review",
     ):
         knowledge_node_ids = knowledge_node_ids or []
         ability_tag_ids = ability_tag_ids or []
@@ -2198,6 +2347,8 @@ class PhysicsRepository:
         self._validate_tag_limit("knowledge", knowledge_node_ids)
         self._validate_tag_limit("ability", ability_tag_ids)
         self._validate_tag_limit("literacy", literacy_tag_ids)
+        if tag_source not in ("teacher_review", "llm_auto"):
+            raise ValueError("Unsupported question tag source")
 
         question = self.get_question(question_id)
         if question is None:
@@ -2223,16 +2374,31 @@ class PhysicsRepository:
         self._assert_active_tags(school_id, "literacy", literacy_tag_ids)
 
         ontology_id = self.first_active_ontology_id()
-        self.conn.execute(
-            "delete from question_tags where question_id = ? and source = 'teacher_review'",
-            (question_id,),
-        )
+        if tag_source == "teacher_review":
+            self.conn.execute(
+                "delete from question_tags where question_id = ? and source in ('teacher_review','llm_auto')",
+                (question_id,),
+            )
+        else:
+            self.conn.execute(
+                "delete from question_tags where question_id = ? and source = 'llm_auto'",
+                (question_id,),
+            )
+        candidate_tag_families = {}
+        if candidate is not None:
+            candidate_payload = self._candidate_payload(candidate)
+            candidate_tag_families = {
+                "knowledge": {item["id"]: item for item in candidate_payload["knowledge_tags"]},
+                "ability": {item["id"]: item for item in candidate_payload["ability_tags"]},
+                "literacy": {item["id"]: item for item in candidate_payload["literacy_tags"]},
+            }
         for tag_type, tag_ids in (
             ("knowledge", knowledge_node_ids),
             ("ability", ability_tag_ids),
             ("literacy", literacy_tag_ids),
         ):
             for tag_id in tag_ids:
+                candidate_tag = candidate_tag_families.get(tag_type, {}).get(tag_id, {})
                 self._insert_confirmed_question_tag(
                     actor_id,
                     school_id,
@@ -2241,17 +2407,21 @@ class PhysicsRepository:
                     tag_id,
                     ontology_id,
                     candidate_id,
+                    source=tag_source,
+                    confidence=candidate_tag.get("confidence", 1.0),
+                    rationale=candidate_tag.get("rationale", "教师审核候选标签后确认" if tag_source == "teacher_review" else "大模型按物理题意生成并通过标签体系校验"),
                 )
         if candidate is not None:
-            self.conn.execute(
-                """
-                update question_tag_candidates
-                set status = 'approved', reviewed_by = ?,
-                    reviewed_at = current_timestamp
-                where id = ?
-                """,
-                (actor_id, candidate_id),
-            )
+            if tag_source == "llm_auto":
+                self.conn.execute(
+                    "update question_tag_candidates set status='auto_approved',reviewed_by=NULL,reviewed_at=current_timestamp where id=?",
+                    (candidate_id,),
+                )
+            else:
+                self.conn.execute(
+                    "update question_tag_candidates set status='approved',reviewed_by=?,reviewed_at=current_timestamp where id=?",
+                    (actor_id, candidate_id),
+                )
         self.audit(
             actor_id,
             "question_tags_confirmed",
@@ -2262,20 +2432,23 @@ class PhysicsRepository:
                 "knowledge_node_ids": knowledge_node_ids,
                 "ability_tag_ids": ability_tag_ids,
                 "literacy_tag_ids": literacy_tag_ids,
+                "tag_source": tag_source,
             },
         )
         self.conn.commit()
         return self.get_question_tags(question_id)
 
-    def approve_candidate_tags(self, actor_id, candidate_id, knowledge_node_ids, ability_tag_ids):
+    def approve_candidate_tags(self, actor_id, candidate_id, knowledge_node_ids, ability_tag_ids, literacy_tag_ids=None):
         candidate = self.get_candidate(candidate_id)
+        if literacy_tag_ids is None:
+            literacy_tag_ids = [item["id"] for item in candidate["literacy_tags"][:3]]
         confirmed = self.confirm_question_tags(
             actor_id=actor_id,
             question_id=candidate["question_id"],
             candidate_id=candidate_id,
             knowledge_node_ids=knowledge_node_ids,
             ability_tag_ids=ability_tag_ids,
-            literacy_tag_ids=[],
+            literacy_tag_ids=literacy_tag_ids,
         )
         self.audit(
             actor_id,
@@ -2286,6 +2459,7 @@ class PhysicsRepository:
                 "candidate_id": candidate_id,
                 "knowledge_node_ids": knowledge_node_ids,
                 "ability_tag_ids": ability_tag_ids,
+                "literacy_tag_ids": literacy_tag_ids,
             },
         )
         self.conn.commit()

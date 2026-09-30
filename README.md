@@ -102,6 +102,8 @@ python3 -m highschoolphysics.server --host 127.0.0.1 --port 8765 --db data/schoo
 
 内置 `deterministic_text` 解析器支持按题号拆分纯文本题目，并把选项、答案、解析置信度和警告统一保存为 parsed item。`markitdown`、`mineru_local`、`mineru_api` 是可配置的外部适配模式；默认策略为 fail closed，缺少命令或适配失败时会记录失败原因。只有显式配置 `fallback_policy=deterministic_text` 时才回退到内置解析器。
 
+整卷 DOCX 导入会调用 MarkItDown 生成可编辑文本，再与 OOXML 原生段落、公式和图片锚点对齐；转换清单会记录 MarkItDown 版本、匹配块数和未对齐事项。DOCX 的图文结构、公式和来源定位继续由原生解析结果补全。发布后的题目在学校已启用 OpenAI-compatible LLM Provider 时进入持久化后台队列，模型按知识点、能力、核心素养三个标签族输出候选，并仅将置信度达到阈值且属于当前启用标签体系的结果自动应用；网络/模型失败会重试并记录状态。未配置 LLM Provider 时，规则候选只供人工参考，不会被伪装成模型标签或自动写入。
+
 题目标签确认现在覆盖三类正式标签：
 
 - 知识标签

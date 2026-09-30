@@ -2931,7 +2931,7 @@ def render_admin_app(user, dashboard):
         <div class="provider-ops-grid provider-ops-split">
           <section class="provider-config-section">
             <h3>大模型 API</h3>
-            <p class="explain">管理生成式模型的 Endpoint、模型名、密钥和 token 单价预算。</p>
+            <p class="explain">管理 Endpoint、模型名、密钥和 token 单价预算。配置并启用 OpenAI 兼容 API 后，新导入题目会自动生成并保存三类标签；未配置时只提供规则候选，不会把规则结果伪装成模型标签。</p>
             <form data-admin-form="llm-provider-config" class="provider-config-form">
               <label>Provider 名称<input name="provider_name" value="OpenAI Compatible" required></label>
               <label>模型名称<input name="model_name" value="gpt-4.1-mini" required></label>
@@ -3169,7 +3169,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         else ""
                     )
                     if learning.enabled(conn):
-                        self._send_html(render_layout("教师工作台", user, document_entry + learning_views.teacher(repo, user, parse_qs(parsed.query)), "teacher"))
+                        self._send_html(render_layout("教师工作台", user, learning_views.teacher(repo, user, parse_qs(parsed.query), document_import_enabled=document_ingestion_enabled()), "teacher", question_math=True))
                     else:
                         teacher_page = render_teacher_app(user, repo.teacher_dashboard(user["id"]))
                         teacher_page = teacher_page.replace("<main>", "<main>%s" % document_entry, 1)
@@ -3340,10 +3340,14 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 repo.approve_candidate_tags(
                     user["id"],
                     candidate_id,
-                    [item["id"] for item in candidate["knowledge_tags"][:1]],
-                    [item["id"] for item in candidate["ability_tags"][:2]],
+                    [item["id"] for item in candidate["knowledge_tags"][:3]],
+                    [item["id"] for item in candidate["ability_tags"][:3]],
+                    [item["id"] for item in candidate["literacy_tags"][:3]],
                 )
                 self._send_json({"ok": True})
+            elif path == "/api/teacher/auto-tag-question" and user["role"] in ("teacher", "admin"):
+                result = repo.auto_tag_question(user["id"], payload.get("question_id", ""))
+                self._send_json({"ok": True, "result": result})
             elif path == "/api/teacher/question" and user["role"] in ("teacher", "admin"):
                 result = repo.create_question(
                     actor_id=user["id"],

@@ -777,7 +777,13 @@
         request_key: randomKey(),
         items: selected.map((card) => ({ id: card.dataset.documentItem, expected_revision: Number(card.dataset.revision) })),
       });
-      setText(status, `批量入库完成：${(result.published || []).length} 道完整大题。`);
+      const tagging = result.automatic_tagging || [];
+      const tagged = tagging.filter((item) => item.status === "tagged").length;
+      const queued = tagging.filter((item) => ["queued", "running"].includes(item.status)).length;
+      const skipped = tagging.some((item) => item.reason === "llm_provider_not_configured");
+      const failed = tagging.some((item) => item.status === "failed");
+      const tagStatus = skipped ? "；未配置可用大模型，题目已入库但尚未自动标注" : failed ? "；部分自动标签调用失败，请在题库中重试" : queued ? `；${queued} 道已进入后台自动标注队列` : `；自动标签完成 ${tagged} 道`;
+      setText(status, `批量入库完成：${(result.published || []).length} 道完整大题${tagStatus}。`);
       window.location.reload();
     } catch (error) {
       setText(status, error.message || "草稿修改已保存；本次正式入库未部分写入。请检查复核事项后重试。");
@@ -788,6 +794,19 @@
 
   let taskTimer;
   const initialTaskStatus = review.dataset.taskStatus;
+  const tagStatusNode = review.querySelector("[data-auto-tagging-status]");
+  const refreshTaggingStatus = (task) => {
+    const jobs = task.automatic_tagging || [];
+    if (!tagStatusNode || !jobs.length) return false;
+    const pending = jobs.filter((job) => ["queued", "running"].includes(job.status)).length;
+    const failed = jobs.filter((job) => job.status === "failed").length;
+    const notConfigured = jobs.filter((job) => job.reason === "llm_provider_not_configured").length;
+    const complete = jobs.length - pending - failed - notConfigured;
+    const prefix = pending ? `${pending} 道处理中` : "后台标注已结束";
+    const suffix = notConfigured ? `；${notConfigured} 道未标注（未配置大模型）` : failed ? `；${failed} 道失败` : `；${complete} 道完成`;
+    setText(tagStatusNode, `自动标签：${prefix}${suffix}`);
+    return pending > 0;
+  };
   const pollTask = async () => {
     if (document.hidden) {
       clearTimeout(taskTimer);
@@ -796,7 +815,8 @@
     }
     try {
       const task = await request(`/api/documents/tasks/${encodeURIComponent(taskId)}`);
-      if (["queued", "running"].includes(task.status)) {
+      const taggingPending = refreshTaggingStatus(task);
+      if (["queued", "running"].includes(task.status) || taggingPending) {
         clearTimeout(taskTimer);
         taskTimer = window.setTimeout(pollTask, 5000);
       } else if (["queued", "running"].includes(initialTaskStatus)) {

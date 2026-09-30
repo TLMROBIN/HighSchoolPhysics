@@ -1,10 +1,242 @@
 """Accessible, outcome-only student and teacher workspaces."""
 from collections import defaultdict
+import hashlib
+import json
 from urllib.parse import quote
+from .document_models import ASSET_URI_RE
 from .repository import loads
 from .exam_views import esc, image_html
 from .learning import LABELS, progress, snapshot
 from .question_content import render_snapshot_content, render_snapshot_options
+from .question_rendering import render_question
+
+
+QUESTION_TYPE_LABELS = {
+    "single_choice": "单选",
+    "multiple_choice": "多选",
+    "fill": "填空",
+    "short_answer": "简答",
+    "structured": "解答题",
+    "experiment": "实验题",
+}
+
+
+def _question_document_asset_url(conn, rows, document, school_id):
+    question_ids = [row["id"] for row in rows]
+    placeholders = ",".join("?" for _ in question_ids)
+    assets = conn.execute(
+        "select id,question_id from exam_assets where school_id=? and student_id is null and question_id in (%s)"
+        % placeholders,
+        [school_id, *question_ids],
+    ).fetchall()
+    assets_by_question = defaultdict(set)
+    for asset in assets:
+        assets_by_question[asset["question_id"]].add(asset["id"])
+
+    markdown_fields = [document.get("stem_md", "")]
+    markdown_fields.extend(item.get("markdown", "") for item in document.get("options", []))
+    for child in document.get("children", []):
+        markdown_fields.append(child.get("stem_md", ""))
+        markdown_fields.extend(item.get("markdown", "") for item in child.get("options", []))
+    source_asset_ids = {
+        asset_id
+        for value in markdown_fields
+        for asset_id in ASSET_URI_RE.findall(value or "")
+    }
+    legacy_ids = {}
+    for row in rows:
+        for asset_id in source_asset_ids:
+            legacy_id = "docmedia-" + hashlib.sha256(
+                (row["id"] + ":" + asset_id).encode("utf-8")
+            ).hexdigest()[:32]
+            if legacy_id in assets_by_question[row["id"]]:
+                legacy_ids.setdefault(asset_id, legacy_id)
+
+    return lambda asset_id: (
+        "/exam-media?id=" + quote(legacy_ids[asset_id], safe="")
+        if asset_id in legacy_ids
+        else None
+    )
+
+
+def _question_tags_for_rows(repo, rows):
+    by_question = []
+    combined = {"knowledge": set(), "ability": set(), "literacy": set()}
+    for row in rows:
+        tags = repo.tags_for_question(row["id"])
+        by_question.append((row, tags))
+        for tag in tags:
+            if tag["tag_type"] in combined:
+                combined[tag["tag_type"]].add(tag["tag_id"])
+    return by_question, combined
+
+
+def _question_tag_pills(tags):
+    labels = {"knowledge": "知识点", "ability": "能力", "literacy": "素养"}
+    if not tags:
+        return '<span class="question-tag-empty">尚未标注</span>'
+    return "".join(
+        '<span class="pill %s">%s · %s</span>'
+        % (esc(tag["tag_type"]), labels.get(tag["tag_type"], "标签"), esc(tag["name"]))
+        for tag in tags
+    )
+
+
+def _legacy_question_preview(conn, row, school_id):
+    options = loads(row["options_json"], {})
+    if isinstance(options, list):
+        options = {chr(65 + index): value for index, value in enumerate(options)}
+    option_html = ""
+    if isinstance(options, dict) and options:
+        option_html = '<ol class="question-options">%s</ol>' % "".join(
+            '<li><span class="option-key">%s.</span> %s</li>'
+            % (esc(key), esc(value))
+            for key, value in options.items()
+        )
+    image_ids = conn.execute(
+        "select id from exam_assets where question_id=? and school_id=? and student_id is null order by rowid",
+        (row["id"], school_id),
+    ).fetchall()
+    return (
+        '<article class="question-content"><div class="question-stem">%s</div>%s%s</article>'
+        % (esc(row["stem"]), option_html, "".join(image_html(item["id"]) for item in image_ids))
+    )
+
+
+def _teacher_question_groups(repo, user):
+    c = repo.conn
+    rows = c.execute(
+        """select q.*,binding.group_id,binding.child_key,revision.document_json
+           from questions q
+           left join question_content_bindings binding on binding.question_id=q.id
+           left join question_content_groups content_group
+             on content_group.id=binding.group_id and content_group.school_id=q.school_id
+           left join question_content_revisions revision
+             on revision.id=content_group.current_revision_id and revision.group_id=content_group.id
+           where q.school_id=?
+           order by q.created_at desc,q.id""",
+        (user["school_id"],),
+    ).fetchall()
+    grouped = {}
+    for row in rows:
+        item = dict(row)
+        item["options"] = loads(item.get("options_json"), {})
+        item["media"] = loads(item.get("media_json"), [])
+        item["group_key"] = item.get("group_id") or item["id"]
+        grouped.setdefault(item["group_key"], []).append(item)
+
+    cards = []
+    for group_key, group_rows in grouped.items():
+        raw_document = group_rows[0].get("document_json")
+        try:
+            document = loads(raw_document, None) if raw_document else None
+        except (TypeError, ValueError):
+            document = None
+        if not isinstance(document, dict) or not isinstance(document.get("children", []), list):
+            document = None
+
+        if document and document.get("children"):
+            child_order = {child.get("key"): index for index, child in enumerate(document["children"])}
+            child_labels = {child.get("key"): child.get("label", "") for child in document["children"]}
+            group_rows.sort(key=lambda row: child_order.get(row.get("child_key"), len(child_order)))
+            for row in group_rows:
+                row["child_label"] = child_labels.get(row.get("child_key"), "")
+            expected_keys = set(child_order)
+            actual_keys = {row.get("child_key") for row in group_rows}
+            complete = expected_keys == actual_keys and len(group_rows) == len(expected_keys)
+        else:
+            complete = len(group_rows) == 1
+
+        by_question, tag_ids = _question_tags_for_rows(repo, group_rows)
+        question_ids = [row["id"] for row in group_rows]
+        supported = all(
+            row["question_type"] in ("single_choice", "multiple_choice", "fill")
+            for row in group_rows
+        )
+        tagged = all(
+            any(tag["tag_type"] == "knowledge" for tag in tags)
+            and any(tag["tag_type"] == "ability" for tag in tags)
+            for _, tags in by_question
+        )
+        selectable = complete and supported and tagged
+        number = (document or {}).get("number") or next(
+            (row.get("original_question_number") for row in group_rows if row.get("original_question_number")),
+            "",
+        )
+        title = ("第%s题" % number) if number else "未编号题目"
+        child_count = len((document or {}).get("children", [])) or len(group_rows)
+        type_ids = sorted({row["question_type"] for row in group_rows})
+        type_text = "、".join(QUESTION_TYPE_LABELS.get(kind, kind) for kind in type_ids)
+        all_text = " ".join(
+            [title]
+            + [row["stem"] for row in group_rows]
+            + [tag["name"] for _, tags in by_question for tag in tags]
+        )
+        if document:
+            preview = render_question(
+                document,
+                asset_url=_question_document_asset_url(c, group_rows, document, user["school_id"]),
+            )
+        else:
+            preview = "".join(_legacy_question_preview(c, row, user["school_id"]) for row in group_rows)
+
+        if not complete:
+            disabled_reason = "这道大题仍有小问未完整入库，暂不能加入试卷。"
+        elif not supported:
+            disabled_reason = "当前周测流程只支持单选、多选和填空题；这道题的题型尚未接入作答与复核流程。"
+        elif not tagged:
+            disabled_reason = "请先为本题每个小问确认知识点和能力标签。"
+        else:
+            disabled_reason = ""
+
+        labels = "".join(
+            '<li><strong>%s</strong><div class="question-tag-list">%s</div></li>'
+            % (
+                esc((row.get("child_label") or row.get("original_question_number") or "本题")),
+                _question_tag_pills(tags),
+            )
+            for row, tags in by_question
+        )
+        hidden_ids = "".join(
+            '<input type="hidden" name="questions" value="%s" disabled>' % esc(question_id)
+            for question_id in question_ids
+        )
+        cards.append(
+            '<article class="question-pick-card" data-question-card data-group-key="%s" '
+            'data-search="%s" data-knowledge-ids="%s" data-ability-ids="%s" '
+            'data-literacy-ids="%s" data-type-ids="%s" data-question-ids="%s" '
+            'data-title="%s" data-child-count="%s" data-selectable="%s">'
+            '<header class="question-pick-heading"><label class="question-pick-toggle-label">'
+            '<input type="checkbox" data-group-toggle aria-label="将%s整题加入试卷" %s %s>'
+            '<span>整题加入试卷</span></label><div><h3>%s</h3><p>%s · %s 个小问</p></div></header>'
+            '<div class="question-pick-preview" data-question-preview-body>%s</div>'
+            '<details class="question-tag-details"><summary>各小问标签</summary><ol class="question-tag-breakdown">%s</ol></details>'
+            '<p class="question-pick-disabled"%s>%s</p>%s</article>'
+            % (
+                esc(group_key),
+                esc(all_text.lower()),
+                esc(" ".join(sorted(tag_ids["knowledge"]))),
+                esc(" ".join(sorted(tag_ids["ability"]))),
+                esc(" ".join(sorted(tag_ids["literacy"]))),
+                esc(" ".join(type_ids)),
+                esc(json.dumps(question_ids, ensure_ascii=False)),
+                esc(title),
+                child_count,
+                "true" if selectable else "false",
+                esc(title),
+                "" if selectable else "disabled",
+                "" if selectable else "aria-describedby=\"pick-note-%s\"" % esc(group_key),
+                esc(title),
+                esc(type_text or "未分类"),
+                child_count,
+                preview,
+                labels,
+                "" if selectable else ' id="pick-note-%s"' % esc(group_key),
+                esc(disabled_reason),
+                '<div class="question-pick-hidden-ids" hidden>%s</div>' % hidden_ids,
+            )
+        )
+    return cards
 
 
 def form(action, body):
@@ -52,7 +284,7 @@ def fill_question_context(s):
     if question_type != 'fill': return ''
     return '<p class="fill-question-context"><strong>完整填空题：</strong>本题按空拆分统计；下方原题图展示完整大题题干、图示和全部空，本条记录对应其中当前错空。</p>'
 def footer(): return '<script src="assets/learning.js?v=1" defer></script>'
-def base(user): return '<section class="panel learning"><h1>错题与学习记录</h1><nav>'+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
+def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def student(repo,user,params,base_path=""):
     c=repo.conn;uid=user['id'];body=[base(user)]
@@ -107,19 +339,93 @@ def metrics(repo,uid):
     graph.append('</svg></div></details>')
     return ''.join(graph)+'<p>原测与每次独立验证均计入尝试；看过解析后的学习练习单独保留，不计入正确率。</p><table><tr><th>关联标签</th><th>不同题数</th><th>作答次数</th><th>正确率</th></tr>'+''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%.1f%%</td></tr>'%('<a href="app?tag='+quote(k[1])+'#wrong">'+esc(k[1])+'</a>',len(g['q']),g['attempts'],100*g['correct']/g['attempts']) for k,g in groups.items())+'</table>'
 
-def teacher(repo,user,params):
-    c=repo.conn;body=[base(user),'<h2>教师工作台</h2><p><a href="#create">① 录题与创建周测</a> · <a href="#review">② 待确认作答</a> · <a href="exams">③ 周测统计</a> · <a href="#progress">④ 复习进度</a></p>']
+def teacher(repo,user,params,document_import_enabled=False):
+    c=repo.conn
+    body=[
+        base(user,"教师工作台"),
+        '<header class="teacher-workbench-heading"><p class="eyebrow">备课与周测</p><h2>题目入库、筛选与组卷</h2><p>先把完整题目放入题库，再按知识点、能力和素养筛选组卷。</p></header>',
+        '<nav class="teacher-workbench-nav" aria-label="工作台导航"><a href="#create">题目入库</a><a href="#assembly">筛选组卷</a><a href="#review">待确认作答</a><a href="exams">周测统计</a><a href="#progress">复习进度</a></nav>',
+    ]
     assessments=repo.assessment_overview(user['id'])
-    body.append('<h2>选择班级与周测</h2><ul>'+''.join('<li><a href="exams?id=%s">%s · %s</a></li>'%(quote(a['id']),esc(a['class_name']),esc(a['title'])) for a in assessments)+'</ul>')
-    body.append('<h2 id="create">录入选择题、填空题</h2>')
-    nodes=c.execute('select id,name from knowledge_nodes order by name').fetchall();abilities=c.execute('select id,name from ability_tags order by name').fetchall()
-    body.append(form('question','<label>题目<textarea name="stem" required></textarea></label><label>题型'+select('question_type',[('single_choice','单选'),('multiple_choice','多选'),('fill','填空')])+'</label><label>选项（每行一个，依次 A、B、C、D；填空题留空）<textarea name="options"></textarea></label><label>标准答案<input name="answer" required></label><label>解析<textarea name="analysis"></textarea></label><label>原题图（可选）<input type="file" class="question-image" accept="image/*"></label><label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label><button>保存题目与标签</button>'))
+    assessment_items=''.join(
+        '<li><a href="exams?id=%s">%s · %s</a></li>' %
+        (quote(a['id']),esc(a['class_name']),esc(a['title']))
+        for a in assessments
+    )
+    body.append(
+        '<section class="teacher-assessments"><h2>已有周测</h2>%s</section>' %
+        ('<ul class="teacher-assessment-list">%s</ul>' % assessment_items if assessment_items else '<p class="teacher-empty-note">目前还没有已创建的周测。</p>')
+    )
+
+    nodes=c.execute('select id,name from knowledge_nodes where school_id=? and enabled=1 and deleted_at is null order by level,name',(user['school_id'],)).fetchall()
+    abilities=c.execute('select id,name from ability_tags where school_id=? and enabled=1 and deleted_at is null order by name',(user['school_id'],)).fetchall()
+    literacy=c.execute('select id,name from literacy_tags where school_id=? and enabled=1 and deleted_at is null order by level,name',(user['school_id'],)).fetchall()
     classes=c.execute('select id,name from class_groups where school_id=? order by name',(user['school_id'],)).fetchall()
-    if user['role']=='teacher': classes=[r for r in classes if c.execute('select 1 from teacher_classes where teacher_id=? and class_id=?',(user['id'],r[0])).fetchone()]
+    if user['role']=='teacher':
+        classes=[r for r in classes if c.execute('select 1 from teacher_classes where teacher_id=? and class_id=?',(user['id'],r[0])).fetchone()]
+
+    body.append('<section id="create" class="teacher-intake-section"><h2>题目入库</h2><p class="section-intro">按整份试卷导入，或手动录入一道题。导入后的题目会先进入复核，再纳入题库。</p><div class="teacher-intake-grid">')
+    if document_import_enabled:
+        body.append(
+            '<article class="teacher-intake-card teacher-import-card"><p class="eyebrow">整卷导入</p>'
+            '<h3>导入整份试卷</h3><p>上传 DOCX 或 PDF，查看原卷、解析题目和图片，确认后再批量入库。</p>'
+            '<a class="button-link" href="/documents">选择试卷文件</a></article>'
+        )
+    body.append(
+        '<article class="teacher-intake-card"><p class="eyebrow">单题录入</p><h3>手动录入一道题</h3>'
+        + form('question',
+            '<label>完整题干<textarea name="stem" rows="4" required></textarea></label>'
+            '<label>题型'+select('question_type',[('single_choice','单选'),('multiple_choice','多选'),('fill','填空')])+'</label>'
+            '<label>选项（每行一项；填空题留空）<textarea name="options" rows="3"></textarea></label>'
+            '<label>标准答案<input name="answer" required></label>'
+            '<label>解析（可选）<textarea name="analysis" rows="3"></textarea></label>'
+            '<label>原题图片（可选）<input type="file" class="question-image" accept="image/*"></label>'
+            '<label>知识点'+select('knowledge',nodes)+'</label>'
+            '<label>能力'+select('ability',abilities)+'</label>'
+            '<button class="button-primary">保存单题</button>'
+        )
+        + '</article></div></section>'
+    )
+
+    question_cards=_teacher_question_groups(repo,user)
+    def filter_select(name,label,rows):
+        return '<label>%s<select data-question-filter="%s"><option value="">全部</option>%s</select></label>' % (
+            label,name,''.join('<option value="%s">%s</option>'%(esc(r['id']),esc(r['name'])) for r in rows)
+        )
+    type_options=[(key,value) for key,value in QUESTION_TYPE_LABELS.items()]
+    filter_select_html=(
+        '<label>题目搜索<input type="search" data-question-filter="search" placeholder="题干、题号或标签"></label>'
+        + filter_select('knowledge','知识点',nodes)
+        + filter_select('ability','能力',abilities)
+        + filter_select('literacy','核心素养',literacy)
+        + '<label>题型<select data-question-filter="type"><option value="">全部题型</option>%s</select></label>' %
+        ''.join('<option value="%s">%s</option>'%(esc(key),esc(value)) for key,value in type_options)
+        + '<div class="question-filter-actions"><span data-question-filter-count aria-live="polite">显示 %s 道大题</span><button type="button" class="secondary" data-question-filter-reset>清除筛选</button></div>' % len(question_cards)
+    )
+    card_list=''.join(question_cards) or '<p class="teacher-empty-note">题库中还没有可展示的题目。先导入整卷或手动录入。</p>'
+    body.append(
+        '<section id="assembly" class="teacher-assembly-section"><div class="section-heading"><div><h2>筛选组卷</h2>'
+        '<p class="section-intro">每张卡片显示完整题干、全部小问和选项。选择大题时会把它的所有小问一起加入。</p></div>'
+        '<span class="question-library-count">题库 %s 道大题</span></div>' % len(question_cards)
+        + '<form class="learning-form teacher-paper-builder" data-action="assessment">'
+        + '<div class="question-filter-bar" data-question-filters>%s</div>' % filter_select_html
+        + '<div class="teacher-assembly-layout"><div class="teacher-question-results" data-question-results>%s</div>' % card_list
+        + '<aside class="teacher-paper-sidebar"><div class="paper-sidebar-heading"><h3>本次试卷</h3>'
+        '<span data-paper-selection-count aria-live="polite">尚未选择题目</span></div>'
+        '<ol class="paper-basket" data-paper-basket><li class="paper-basket-empty">选择左侧整题后会显示在这里。</li></ol>'
+        '<details class="paper-preview-details"><summary>展开整卷预览</summary><div data-paper-preview><p>添加题目后显示预览。</p></div></details>'
+        '<button type="button" class="secondary" data-clear-paper-selection>清空已选题目</button>'
+        '<div class="paper-create-fields"><label>周测名称<input name="title" maxlength="160" placeholder="例如：高三物理周测 3" required></label>'
+        '<label>班级'+select('class_id',classes)+'</label><label>日期<input type="date" name="date"></label>'
+        '<button class="button-primary" type="submit">创建周测</button></div>'
+        '<div class="paper-builder-status" role="status"></div></aside></div></form></section>'
+    )
+
+    body.append('<details class="teacher-settings-details"><summary>每日练习设置与批量标签确认</summary>')
+    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>'))
     questions=c.execute("select id,stem from questions where school_id=? and question_type in ('single_choice','multiple_choice','fill') order by created_at desc",(user['school_id'],)).fetchall()
-    body.append('<h2>每组练习题数</h2>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存</button>'))
-    body.append('<details><summary>批量确认题库标签</summary>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label>'+''.join('<label><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:65])) for q in questions)+'<button>为所选题确认标签</button>')+'</details>')
-    body.append('<h2>组卷并创建周测</h2>'+form('assessment','<label>名称<input name="title" required></label><label>班级'+select('class_id',classes)+'</label><label>日期<input type="date" name="date"></label><fieldset><legend>选择题目（按列表顺序编号）</legend>'+''.join('<label style="display:block"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'</fieldset><button>创建周测</button>'))
+    body.append('<h3>批量确认题库标签</h3>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label>'+''.join('<label class="bulk-question-choice"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'<button>为所选题确认标签</button>'))
+    body.append('</details>')
     allowed={a['id'] for a in assessments}
     pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.outcome='pending' order by a.submitted_at").fetchall()
     body.append('<h2 id="review">待确认的重做</h2>')

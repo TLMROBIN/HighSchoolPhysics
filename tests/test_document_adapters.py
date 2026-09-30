@@ -163,6 +163,22 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(result["document"]["blocks"][0]["issues"][0]["severity"], "review")
             self.assertEqual(result["document"]["blocks"][0]["issues"][0]["code"], "formula_requires_review")
 
+    def test_docx_records_markitdown_as_the_text_conversion_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            docx_path = Path(directory) / "paper.docx"
+            make_docx(docx_path)
+            store = DocumentStore(Path(directory) / "documents")
+            with mock.patch(
+                "highschoolphysics.document_adapters.docx_native._run_markitdown",
+                return_value=("第1题：先看图，再计算", "0.1.6", "used"),
+            ) as convert_text:
+                result = convert_docx(docx_path, store, "school-1", "doc-markitdown", "conv-markitdown", "c" * 64)
+
+            convert_text.assert_called_once_with(docx_path)
+            self.assertEqual(result["adapter_name"], "markitdown+docx-native")
+            self.assertEqual(result["manifest"]["markitdown"]["status"], "used")
+            self.assertEqual(result["manifest"]["markitdown"]["version"], "0.1.6")
+
     def test_docx_rejects_unknown_image_relationship_as_blocking(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "broken.docx"
@@ -183,13 +199,14 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertNotIn("-12345", result["markdown"])
             self.assertNotIn("67890", result["markdown"])
             codes = [issue["code"] for issue in result["manifest"]["issues"]]
-            self.assertEqual(codes, ["word_shape_requires_visual_review"])
+            self.assertIn("word_shape_requires_visual_review", codes)
+            self.assertIn("markitdown_empty_output", codes)
             issue = result["manifest"]["issues"][0]
             self.assertEqual(issue["details"]["shape_id"], "6")
             self.assertEqual(issue["details"]["shape_name"], "矩形 6")
             self.assertEqual(issue["details"]["geometry"], "rect")
             self.assertEqual(issue["details"]["extent_emu"], {"cx": "6330950", "cy": "3599180"})
-            self.assertEqual(result["manifest"]["adapter_version"], "1.3.0")
+            self.assertEqual(result["manifest"]["adapter_version"], "1.4.0")
 
     def test_docx_counts_each_embedded_ole_object_once(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -21,6 +21,7 @@ from highschoolphysics.document_ingestion import (
     store_upload_part,
     confirm_candidates,
     task_cancel,
+    _split_child_answer_markdown,
 )
 from highschoolphysics.document_restructure import assign_source_spans, reorder_candidates, restructure_candidates
 from highschoolphysics import document_worker
@@ -45,6 +46,10 @@ class DocumentWorkerFlowTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmpdir.cleanup()
+
+    def test_attached_rubric_answer_is_split_by_small_question_label(self):
+        sections = _split_child_answer_markdown("（1）由牛顿第二定律得 a=2m/s²。\n\n(2)代入数据得 v=4m/s。")
+        self.assertEqual(sections, {"1": "由牛顿第二定律得 a=2m/s²。", "2": "代入数据得 v=4m/s。"})
 
     def _create_task(self, parser_mode="mineru_local"):
         data = b"%PDF-1.7\nworker test fixture\n"
@@ -410,6 +415,94 @@ class DocumentWorkerFlowTests(unittest.TestCase):
             self.assertNotIn("后续题库版本", rendered)
             self.assertEqual(outcome_for_snapshot(conn, snapshot, self.actor["school_id"], "A"), "pending")
             self.assertEqual(outcome_for_snapshot(conn, snapshot, self.actor["school_id"], ""), "blank")
+        finally:
+            conn.close()
+
+    def test_publishing_import_queues_model_tags_when_provider_is_enabled(self):
+        task_id = self._create_task()
+        run_once(self.db_path, self.root / "documents", converter=self._converter)
+        conn = connect(self.db_path)
+        try:
+            repository = PhysicsRepository(conn)
+            repository.save_provider_config(
+                actor_id="user-admin",
+                provider_kind="llm",
+                provider_name="Queue test provider",
+                model_name="unit-model",
+                secret="private-test-key",
+                api_endpoint="https://llm.example.test/v1",
+                enabled=True,
+                daily_call_limit=10,
+            )
+            item = get_task_items(conn, self.actor, task_id)[0]
+            result = confirm_candidates(
+                conn,
+                self.actor,
+                task_id,
+                {
+                    "request_key": "queue-tags-on-import-001",
+                    "items": [{"id": item["id"], "expected_revision": item["review_revision"]}],
+                },
+            )
+            question_id = result["published"][0]["question_ids"][0]
+            self.assertEqual(result["automatic_tagging"][0]["status"], "queued")
+            job = conn.execute(
+                "select question_id,status,question_version from question_tag_jobs where question_id=?",
+                (question_id,),
+            ).fetchone()
+            self.assertEqual((job["question_id"], job["status"]), (question_id, "queued"))
+            self.assertEqual(job["question_version"], repository.get_question(question_id)["version"])
+        finally:
+            conn.close()
+
+    def test_publication_can_bind_full_document_content_to_an_existing_question_id(self):
+        task_id = self._create_task()
+        run_once(self.db_path, self.root / "documents", converter=self._converter)
+        conn = connect(self.db_path)
+        try:
+            items = get_task_items(conn, self.actor, task_id)
+            self.assertEqual(items[0]["document"]["children"], [])
+            repo = PhysicsRepository(conn)
+            existing = repo.create_question(
+                actor_id=self.actor["id"],
+                stem="第1题（旧题占位）",
+                options={},
+                answer={"answer": "A"},
+                analysis="原有评分记录",
+                question_type="single_choice",
+                source="旧系统导入",
+                grade="高三",
+                chapter="力学",
+                difficulty="基础",
+            )
+            before_count = conn.execute("select count(*) from questions").fetchone()[0]
+            result = confirm_candidates(
+                conn,
+                self.actor,
+                task_id,
+                {
+                    "request_key": "reuse-existing-question-001",
+                    "items": [{
+                        "id": items[0]["id"],
+                        "expected_revision": items[0]["review_revision"],
+                        "reuse_question_ids": {"": existing["id"]},
+                    }],
+                },
+            )
+
+            self.assertEqual(conn.execute("select count(*) from questions").fetchone()[0], before_count)
+            self.assertEqual(result["published"][0]["question_ids"], [existing["id"]])
+            self.assertEqual(result["published"][0]["reused_question_ids"], [existing["id"]])
+            saved = repo.get_question(existing["id"])
+            self.assertIn("物体由静止开始运动", saved["stem"])
+            self.assertEqual(saved["answer"], {"answer": "A"})
+            self.assertEqual(saved["analysis"], "原有评分记录")
+            binding = conn.execute(
+                "select group_id,child_key from question_content_bindings where question_id=?",
+                (existing["id"],),
+            ).fetchone()
+            self.assertEqual(binding["child_key"], "")
+            self.assertTrue(conn.execute("select 1 from question_content_groups where id=?", (binding["group_id"],)).fetchone())
         finally:
             conn.close()
 

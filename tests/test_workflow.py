@@ -71,7 +71,7 @@ class WorkflowTests(unittest.TestCase):
                 ("knowledge", "kn-pep2019-r1-c04-s03"),
                 ("ability", "ab-context-modeling"),
                 ("ability", "ab-equation-building"),
-            },
+            } | {("literacy", item["id"]) for item in candidate["literacy_tags"][:3]},
         )
         audit_count = self.conn.execute(
             "select count(*) as count from audit_events where action = ?",

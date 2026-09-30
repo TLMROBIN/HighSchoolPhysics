@@ -6,6 +6,7 @@ from pathlib import Path
 import posixpath
 import re
 import base64
+import difflib
 import json
 import os
 import signal
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
 
@@ -35,6 +37,130 @@ MAX_OLE_OBJECTS = 512
 MAX_OLE_OBJECT_BYTES = 5 * 1024 * 1024
 MAX_OLE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_MTEF_OUTPUT_BYTES = 8 * 1024 * 1024
+DOCX_ADAPTER_VERSION = "1.4.0"
+
+
+def _run_markitdown(source_path):
+    """Extract the Word document's Markdown text before OOXML enrichment."""
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+        from markitdown import MarkItDown
+    except ImportError:
+        return None, "", "missing_dependency"
+    try:
+        package_version = version("markitdown")
+    except PackageNotFoundError:
+        package_version = "unknown"
+    try:
+        converted = MarkItDown().convert(str(source_path))
+    except Exception:
+        return None, package_version, "conversion_failed"
+    markdown = getattr(converted, "text_content", "") or ""
+    if not markdown.strip():
+        return None, package_version, "empty_output"
+    return markdown.replace("\r\n", "\n").replace("\r", "\n"), package_version, "used"
+
+
+def _visible_text(markdown):
+    text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", markdown or "", flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"[`*_>#~]", " ", text)
+    text = unicodedata.normalize("NFKC", text)
+    return re.sub(r"[^\w\u3400-\u9fff]+", "", text).casefold()
+
+
+def _has_native_rich_content(block):
+    markdown = block.get("markdown", "")
+    return bool(block.get("asset_ids")) or "asset:" in markdown or "$$" in markdown or bool(re.search(r"\\(?:[A-Za-z]+|[()\[\]])", markdown))
+
+
+def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
+    """Use MarkItDown text as the editable text layer and keep OOXML rich anchors."""
+    chunks = [part.strip() for part in re.split(r"\n\s*\n+", markitdown_markdown) if part.strip()]
+    output = []
+    issues = []
+    cursor = 0
+    matched = 0
+    replaced = 0
+    unmatched = 0
+    native_joined = _visible_text("\n".join(block.get("markdown", "") for block in native_blocks))
+
+    for chunk_index, chunk in enumerate(chunks, 1):
+        visible = _visible_text(chunk)
+        if len(visible) < 4:
+            continue
+        best_index = None
+        best_ratio = 0.0
+        search_end = min(len(native_blocks), cursor + 40)
+        for native_index in range(cursor, search_end):
+            native_text = _visible_text(native_blocks[native_index].get("markdown", ""))
+            if not native_text:
+                continue
+            ratio = difflib.SequenceMatcher(None, visible, native_text, autojunk=False).ratio()
+            if visible in native_text or native_text in visible:
+                ratio = max(ratio, min(len(visible), len(native_text)) / max(len(visible), len(native_text)))
+            if ratio > best_ratio:
+                best_index, best_ratio = native_index, ratio
+
+        if best_index is not None and best_ratio >= 0.72:
+            output.extend(dict(block) for block in native_blocks[cursor:best_index])
+            block = dict(native_blocks[best_index])
+            locator = dict(block.get("source_locator") or {})
+            locator["markitdown_block_index"] = chunk_index
+            block["source_locator"] = locator
+            matched += 1
+            if not _has_native_rich_content(block):
+                image_free = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", chunk, flags=re.DOTALL).strip()
+                if image_free:
+                    block["markdown"] = image_free
+                    replaced += 1
+                elif visible:
+                    issue = {
+                        "code": "markitdown_image_unmapped",
+                        "severity": "review",
+                        "field": block["id"],
+                        "message": "MarkItDown detected an image that has no matching editable Word image anchor",
+                    }
+                    block.setdefault("issues", []).append(issue)
+                    issues.append(issue)
+            output.append(block)
+            cursor = best_index + 1
+            continue
+
+        if visible not in native_joined:
+            clean = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", chunk, flags=re.DOTALL).strip()
+            if clean:
+                block_id = "md%06d" % chunk_index
+                issue = {
+                    "code": "markitdown_text_unmapped",
+                    "severity": "review",
+                    "field": block_id,
+                    "message": "MarkItDown extracted Word text that could not be aligned to an OOXML paragraph",
+                }
+                block_type = "table" if clean.startswith("|") and "|" in clean[1:] else "heading" if clean.startswith("#") else "paragraph"
+                output.append({
+                    "id": block_id,
+                    "type": block_type,
+                    "page": None,
+                    "column": None,
+                    "order": len(output) + 1,
+                    "bbox": None,
+                    "markdown": clean,
+                    "asset_ids": [],
+                    "source_locator": {"kind": "word_markitdown", "part": "document.md", "markdown_block_index": chunk_index},
+                    "issues": [issue],
+                })
+                issues.append(issue)
+                unmatched += 1
+
+    output.extend(dict(block) for block in native_blocks[cursor:])
+    return output, {
+        "version": "",
+        "text_block_count": len(chunks),
+        "matched_block_count": matched,
+        "replaced_text_block_count": replaced,
+        "unmapped_text_block_count": unmatched,
+    }, issues
 
 
 class DocxAdapterError(AdapterError):
@@ -626,9 +752,13 @@ def convert_docx(source_path, store, school_id, document_id, conversion_id, sour
     source_path = Path(source_path)
     if cancel_event is not None and cancel_event.is_set():
         raise DocxAdapterError("cancelled", "Word conversion was cancelled")
+    markitdown_markdown = None
+    markitdown_version = ""
+    markitdown_status = "unavailable"
     try:
         with zipfile.ZipFile(source_path) as archive:
             _validate_docx_archive(archive)
+            markitdown_markdown, markitdown_version, markitdown_status = _run_markitdown(source_path)
             root = _xml_part(archive, "word/document.xml")
             if root is None:
                 raise DocxAdapterError("invalid_container", "The Word document body is missing")
@@ -747,6 +877,29 @@ def convert_docx(source_path, store, school_id, document_id, conversion_id, sour
     except (OSError, zipfile.BadZipFile, RuntimeError, ValueError) as exc:
         raise DocxAdapterError("invalid_container", "The Word document could not be read safely") from exc
 
+    markitdown_info = {
+        "status": markitdown_status,
+        "version": markitdown_version,
+        "text_chars": len(markitdown_markdown or ""),
+        "text_block_count": 0,
+        "matched_block_count": 0,
+        "replaced_text_block_count": 0,
+        "unmapped_text_block_count": 0,
+    }
+    if markitdown_markdown is not None:
+        blocks, reconciled, markitdown_issues = _reconcile_markitdown_blocks(blocks, markitdown_markdown)
+        markitdown_info.update(reconciled)
+        markitdown_info["version"] = markitdown_version
+        all_issues.extend(markitdown_issues)
+    elif markitdown_status in ("missing_dependency", "conversion_failed", "empty_output"):
+        issue = {
+            "code": "markitdown_%s" % markitdown_status,
+            "severity": "review",
+            "field": "source",
+            "message": "MarkItDown could not produce editable text; the OOXML parser output requires source review",
+        }
+        all_issues.append(issue)
+        markitdown_info["issues"] = [issue]
     document = {
         "schema_version": 1,
         "document_id": document_id,
@@ -761,8 +914,9 @@ def convert_docx(source_path, store, school_id, document_id, conversion_id, sour
     markdown = "\n\n".join(block["markdown"] for block in blocks)
     manifest = {
         "schema_version": 1,
-        "adapter": "docx-native",
-        "adapter_version": "1.3.0",
+        "adapter": "markitdown+docx-native" if markitdown_markdown is not None else "docx-native",
+        "adapter_version": DOCX_ADAPTER_VERSION,
+        "markitdown": markitdown_info,
         "source_sha256": source_sha256,
         "block_count": len(blocks),
         "formula_count": formula_counter[0],
@@ -776,8 +930,8 @@ def convert_docx(source_path, store, school_id, document_id, conversion_id, sour
         "issues": all_issues,
     }
     return {
-        "adapter_name": "docx-native",
-        "adapter_version": "1.3.0",
+        "adapter_name": "markitdown+docx-native" if markitdown_markdown is not None else "docx-native",
+        "adapter_version": DOCX_ADAPTER_VERSION,
         "document": document,
         "markdown": markdown,
         "assets": assets,

@@ -27,8 +27,10 @@ LOGGER = logging.getLogger("highschoolphysics.document_worker")
 
 
 LEASE_SECONDS = 60
+TAG_JOB_LEASE_SECONDS = 180
 HEARTBEAT_SECONDS = 10
 MAX_ATTEMPTS = 3
+TAG_JOB_MAX_ATTEMPTS = 3
 MAX_CONVERSION_SECONDS = 20 * 60
 SAFE_FAILURES = {
     "unsupported_format": "Only .docx, .doc, and .pdf are supported.",
@@ -473,10 +475,136 @@ def process_task(task, db_path=DEFAULT_DB_PATH, document_root=None, converter=No
 
 def run_once(db_path=DEFAULT_DB_PATH, document_root=None, converter=None):
     recover_expired_tasks(db_path)
+    recover_expired_tag_jobs(db_path)
     task = claim_next_task(db_path)
-    if task is None:
+    if task is not None:
+        return process_task(task, db_path=db_path, document_root=document_root, converter=converter)
+    job = claim_next_tag_job(db_path)
+    if job is None:
         return None
-    return process_task(task, db_path=db_path, document_root=document_root, converter=converter)
+    return process_tag_job(job, db_path=db_path)
+
+
+def recover_expired_tag_jobs(db_path=DEFAULT_DB_PATH):
+    conn = connect(db_path)
+    try:
+        now = _now()
+        conn.execute("begin immediate")
+        rows = conn.execute(
+            "select id,attempts,lease_token from question_tag_jobs where status='running' and coalesce(lease_until,'')<?",
+            (now,),
+        ).fetchall()
+        recovered = 0
+        for row in rows:
+            if row["attempts"] >= TAG_JOB_MAX_ATTEMPTS:
+                changed = conn.execute(
+                    """update question_tag_jobs set status='failed',error_code='worker_lease_expired',
+                         lease_token=null,lease_until=null,updated_at=?
+                       where id=? and status='running' and lease_token=? and coalesce(lease_until,'')<?""",
+                    (now, row["id"], row["lease_token"], now),
+                )
+            else:
+                delay = 15 * (2 ** max(0, row["attempts"] - 1))
+                changed = conn.execute(
+                    """update question_tag_jobs set status='queued',available_at=?,lease_token=null,
+                         lease_until=null,error_code='worker_lease_expired',updated_at=?
+                       where id=? and status='running' and lease_token=? and coalesce(lease_until,'')<?""",
+                    (_later(delay), now, row["id"], row["lease_token"], now),
+                )
+            recovered += bool(changed.rowcount)
+        conn.commit()
+        return recovered
+    finally:
+        conn.close()
+
+
+def claim_next_tag_job(db_path=DEFAULT_DB_PATH):
+    conn = connect(db_path)
+    try:
+        conn.execute("begin immediate")
+        row = conn.execute(
+            """select id,school_id,question_id,requested_by,question_version,attempts
+               from question_tag_jobs where status='queued' and available_at<=?
+               order by created_at,id limit 1""",
+            (_now(),),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        token = uuid.uuid4().hex
+        changed = conn.execute(
+            """update question_tag_jobs set status='running',attempts=attempts+1,
+                 lease_token=?,lease_until=?,updated_at=? where id=? and status='queued'""",
+            (token, _later(TAG_JOB_LEASE_SECONDS), _now(), row["id"]),
+        ).rowcount
+        if not changed:
+            conn.rollback()
+            return None
+        conn.commit()
+        result = dict(row)
+        result.update({"lease_token": token, "attempt": row["attempts"] + 1})
+        return result
+    finally:
+        conn.close()
+
+
+def process_tag_job(job, db_path=DEFAULT_DB_PATH):
+    from .llm import LLMProviderError
+    from .repository import PhysicsRepository
+
+    conn = connect(db_path)
+    try:
+        result = PhysicsRepository(conn).auto_tag_question(job["requested_by"], job["question_id"])
+        state = "completed"
+        error_code = ""
+        result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
+    except LLMProviderError as exc:
+        result = {"question_id": job["question_id"], "status": "failed", "reason": exc.code}
+        error_code = exc.code
+        if job["attempt"] < TAG_JOB_MAX_ATTEMPTS:
+            state = "queued"
+            result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
+            delay = 15 * (2 ** max(0, job["attempt"] - 1))
+            conn.execute(
+                """update question_tag_jobs set status=?,available_at=?,lease_token=null,lease_until=null,
+                     error_code=?,result_json=?,updated_at=? where id=? and status='running' and lease_token=?""",
+                (state, _later(delay), error_code, result_json, _now(), job["id"], job["lease_token"]),
+            )
+            conn.commit()
+            conn.close()
+            LOGGER.info("question_tag_job_retrying job_id=%s code=%s attempt=%s", job["id"], error_code, job["attempt"])
+            return {"tag_job_id": job["id"], "status": state, "error_code": error_code}
+        state = "failed"
+        result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
+    except Exception as exc:
+        error_code = "automatic_tag_failed"
+        result = {"question_id": job["question_id"], "status": "failed", "reason": error_code}
+        if job["attempt"] < TAG_JOB_MAX_ATTEMPTS:
+            delay = 15 * (2 ** max(0, job["attempt"] - 1))
+            conn.execute(
+                """update question_tag_jobs set status='queued',available_at=?,lease_token=null,lease_until=null,
+                     error_code=?,result_json=?,updated_at=? where id=? and status='running' and lease_token=?""",
+                (_later(delay), error_code, json.dumps(result, ensure_ascii=False), _now(), job["id"], job["lease_token"]),
+            )
+            conn.commit()
+            conn.close()
+            LOGGER.error("question_tag_job_retrying job_id=%s exception=%s attempt=%s", job["id"], type(exc).__name__, job["attempt"])
+            return {"tag_job_id": job["id"], "status": "queued", "error_code": error_code}
+        state = "failed"
+        result_json = json.dumps(result, ensure_ascii=False)
+        LOGGER.error("question_tag_job_failed job_id=%s exception=%s", job["id"], type(exc).__name__)
+    try:
+        candidate_id = (result.get("candidate_id") or None) if isinstance(result, dict) else None
+        conn.execute(
+            """update question_tag_jobs set status=?,lease_token=null,lease_until=null,
+                 candidate_id=?,result_json=?,error_code=?,updated_at=?
+               where id=? and status='running' and lease_token=?""",
+            (state, candidate_id, result_json, error_code, _now(), job["id"], job["lease_token"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"tag_job_id": job["id"], "question_id": job["question_id"], "status": state, "result": result, "error_code": error_code}
 
 
 def run_forever(db_path=DEFAULT_DB_PATH, document_root=None, poll_seconds=5):

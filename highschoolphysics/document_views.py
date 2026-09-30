@@ -291,10 +291,18 @@ def document_review_page(task, items, source_assets=()):
         if any(not item.get("published_revision_id") for item in items)
         else ""
     )
+    tag_jobs = task.get("automatic_tagging", [])
+    tag_pending = sum(1 for job in tag_jobs if job.get("status") in ("queued", "running"))
+    tag_failed = sum(1 for job in tag_jobs if job.get("status") == "failed")
+    tag_done = sum(1 for job in tag_jobs if job.get("status") in ("tagged", "no_confident_tags", "skipped"))
+    tag_status = (
+        "自动标签：%d 道处理中，%d 道已完成，%d 道失败" % (tag_pending, tag_done, tag_failed)
+        if tag_jobs else ""
+    )
     return """<section class="document-review-page" data-document-review data-task-id="%s" data-task-status="%s" data-candidate-count="%s">
   <header class="review-heading"><div><a href="/documents">← 返回导入任务</a><p class="eyebrow">%s · %s</p><h1>整卷复核</h1><p>候选完整大题 %s 道；请核对题干、公式、选项、小问和图片，再勾选要入库的题。</p></div><a class="button-secondary" href="/api/documents/tasks/%s/source">下载原文件</a></header>
   %s
-  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><button type="button" data-confirm-items>批量入库选中题目</button><span data-batch-status aria-live="polite"></span>%s%s</div>%s%s<div class="question-card-list">%s</div></section></div>
+  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><button type="button" data-confirm-items>批量入库选中题目</button><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s%s<div class="question-card-list">%s</div></section></div>
 </section>
 """ % (
         _e(task["id"]),
@@ -306,6 +314,7 @@ def document_review_page(task, items, source_assets=()):
         _e(task["id"]),
         answer_attachment,
         source_panel,
+        _e(tag_status),
         ('<a class="button-secondary" href="/api/documents/tasks/%s/export.zip">下载已入库整卷包</a> · <a class="button-secondary" href="/api/documents/tasks/%s/export.zip?include_solution=1">含答案整卷包</a>' % (_e(task["id"]), _e(task["id"]))) if task.get("published_count") else "",
         review_export_link,
         _source_mapping_controls(items),

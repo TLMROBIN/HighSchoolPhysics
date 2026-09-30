@@ -585,6 +585,52 @@ def get_task(conn, actor, task_id):
     }
     result["item_count"] = conn.execute("select count(*) from parsed_question_items where parse_task_id=? and disposition='active'", (task_id,)).fetchone()[0]
     result["published_count"] = conn.execute("select count(*) from import_item_publications pub join parsed_question_items item on item.id=pub.parsed_item_id where item.parse_task_id=?", (task_id,)).fetchone()[0]
+    tag_jobs = conn.execute(
+        """select job.id as job_id,job.question_id,job.status as job_status,
+                  job.candidate_id,job.result_json,job.error_code
+           from question_tag_jobs job join questions q on q.id=job.question_id
+           where q.parser_task_id=? and job.school_id=? and job.source='document_import'
+           order by job.created_at,job.id""",
+        (task_id, actor["school_id"]),
+    ).fetchall()
+    result["automatic_tagging"] = []
+    for job in tag_jobs:
+        job_result = loads(job["result_json"], {})
+        outcome = job_result.get("status") if isinstance(job_result, dict) else None
+        result["automatic_tagging"].append({
+            "job_id": job["job_id"],
+            "question_id": job["question_id"],
+            "status": job["job_status"] if job["job_status"] in ("queued", "running", "failed") else (outcome or "completed"),
+            "job_status": job["job_status"],
+            "candidate_id": job["candidate_id"],
+            "reason": job_result.get("reason", job["error_code"]) if isinstance(job_result, dict) else job["error_code"],
+        })
+    tagged_question_ids = {job["question_id"] for job in result["automatic_tagging"]}
+    publications = conn.execute(
+        """select publication.question_ids_json
+           from import_item_publications publication
+           join parsed_question_items item on item.id=publication.parsed_item_id
+           where item.parse_task_id=? and item.school_id=?""",
+        (task_id, actor["school_id"]),
+    ).fetchall()
+    published_question_ids = []
+    for publication in publications:
+        try:
+            published_question_ids.extend(json.loads(publication["question_ids_json"] or "[]"))
+        except (TypeError, json.JSONDecodeError):
+            continue
+    provider_enabled = conn.execute(
+        "select 1 from provider_configs where school_id=? and provider_kind='llm' and enabled=1 limit 1",
+        (actor["school_id"],),
+    ).fetchone() is not None
+    for question_id in published_question_ids:
+        if question_id in tagged_question_ids:
+            continue
+        result["automatic_tagging"].append({
+            "question_id": question_id,
+            "status": "not_queued" if provider_enabled else "skipped",
+            "reason": "automatic_tagging_not_queued" if provider_enabled else "llm_provider_not_configured",
+        })
     return result
 
 
@@ -810,6 +856,19 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
                 raise IngestionError("answer_asset_unavailable", "答案资源不属于当前原卷", 422)
         document["answer_md"] = proposal["answer_markdown"]
         document["answer_state"] = "needs_review"
+        child_answer_sections = _split_child_answer_markdown(proposal["answer_markdown"])
+        if document.get("children"):
+            for child in document["children"]:
+                part_label = _normalize_part_label(child.get("label"))
+                answer_part = child_answer_sections.get(part_label)
+                if answer_part:
+                    child["answer_md"] = answer_part
+                    child["answer_state"] = "needs_review"
+                    child["source_spans"] = list(child.get("source_spans", [])) + proposal["source_spans"]
+            if not child_answer_sections and len(document["children"]) == 1:
+                document["children"][0]["answer_md"] = proposal["answer_markdown"]
+                document["children"][0]["answer_state"] = "needs_review"
+                document["children"][0]["source_spans"] = list(document["children"][0].get("source_spans", [])) + proposal["source_spans"]
         document["asset_refs"] = sorted(set(document.get("asset_refs", [])) | set(proposal["asset_refs"]))
         document["source_spans"] = list(document.get("source_spans", [])) + proposal["source_spans"]
         answer_issue = {"code": "attached_answer_requires_review", "severity": "review", "field": "answer_md", "message": "独立答案文件已匹配；请对照原文件核验答案与解析"}
@@ -1058,6 +1117,23 @@ def _question_rows(document, parent_stem):
     return rows
 
 
+def _normalize_part_label(value):
+    return re.sub(r"[^0-9一二三四五六七八九十]", "", str(value or ""))
+
+
+def _split_child_answer_markdown(markdown):
+    pattern = re.compile(r"(?m)^[ \t]*[（(](?P<label>\d{1,2}|[一二三四五六七八九十])[）)][ \t]*")
+    matches = list(pattern.finditer(markdown or ""))
+    sections = {}
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown)
+        label = _normalize_part_label(match.group("label"))
+        body = (markdown or "")[match.end():end].strip()
+        if label and body:
+            sections[label] = body
+    return sections
+
+
 class _LegacyTextParser(HTMLParser):
     """Flatten safe Markdown HTML into readable text for the v11 reader."""
 
@@ -1130,6 +1206,7 @@ def confirm_candidates(conn, actor, task_id, payload):
     if not isinstance(selected, list) or not selected:
         raise IngestionError("empty_publication", "Select at least one question to publish")
     seen = set()
+    seen_reuse_ids = set()
     clean_items = []
     for entry in selected:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not isinstance(entry.get("expected_revision"), int) or isinstance(entry.get("expected_revision"), bool) or entry.get("expected_revision") < 1:
@@ -1137,7 +1214,22 @@ def confirm_candidates(conn, actor, task_id, payload):
         if entry["id"] in seen:
             raise IngestionError("invalid_publication", "A question was selected more than once")
         seen.add(entry["id"])
-        clean_items.append({"id": entry["id"], "expected_revision": entry["expected_revision"]})
+        reuse_question_ids = entry.get("reuse_question_ids", {})
+        if not isinstance(reuse_question_ids, dict) or any(
+            not isinstance(child_key, str)
+            or not isinstance(question_id, str)
+            or not question_id
+            for child_key, question_id in reuse_question_ids.items()
+        ):
+            raise IngestionError("invalid_publication", "Existing-question mappings must be a child-key to question-id object")
+        if any(question_id in seen_reuse_ids for question_id in reuse_question_ids.values()):
+            raise IngestionError("invalid_publication", "An existing question cannot be reused twice in one import")
+        seen_reuse_ids.update(reuse_question_ids.values())
+        clean_items.append({
+            "id": entry["id"],
+            "expected_revision": entry["expected_revision"],
+            "reuse_question_ids": reuse_question_ids,
+        })
     request_hash = hashlib.sha256(canonical_json({"task_id": task_id, "items": clean_items}).encode()).hexdigest()
     cached = _operation_result(conn, actor, "confirm_candidates", request_key, request_hash)
     if cached is not None:
@@ -1176,6 +1268,12 @@ def confirm_candidates(conn, actor, task_id, payload):
             if unresolved:
                 conn.rollback()
                 raise IngestionError("review_required", "Resolve or explicitly review all open items before publishing", 422, {"issue_count": len(unresolved)})
+            content_rows = _question_rows(document, document["stem_md"])
+            reuse_question_ids = entry["reuse_question_ids"]
+            valid_child_keys = {row["child_key"] for row in content_rows}
+            if not set(reuse_question_ids).issubset(valid_child_keys):
+                conn.rollback()
+                raise IngestionError("invalid_publication", "An existing-question mapping refers to a missing child item", 422)
             # Inserting a new content group and all compatible answer rows happens in the same transaction.
             group_id = "content-" + uuid.uuid4().hex
             revision_id = "revision-" + uuid.uuid4().hex
@@ -1209,47 +1307,90 @@ def confirm_candidates(conn, actor, task_id, payload):
                 conn.execute("insert or ignore into content_asset_refs(revision_id,asset_id,field_path) values(?,?,?)", (revision_id, asset_id, "document"))
             original_paper = conn.execute("select source_school,source_publisher,exam_type from original_papers where id=? and school_id=?", (task["original_paper_id"], actor["school_id"])).fetchone()
             paper_metadata = dict(original_paper) if original_paper else {"source_school": "", "source_publisher": "", "exam_type": ""}
-            for content_row in _question_rows(document, document["stem_md"]):
-                question_id = "q-" + uuid.uuid4().hex[:16]
+            reused_question_ids = []
+            for content_row in content_rows:
+                question_id = reuse_question_ids.get(content_row["child_key"])
+                reuse_existing = question_id is not None
+                if not reuse_existing:
+                    question_id = "q-" + uuid.uuid4().hex[:16]
                 options_json = {
                     option["key"]: _legacy_question_text(option["markdown"])
                     for option in content_row["options"]
                 }
                 media_ids = _legacy_visible_asset_ids(content_row)
                 question_type = content_row["kind"] if content_row["kind"] in ("single_choice", "multiple_choice", "fill", "short_answer", "structured", "experiment") else "short_answer"
-                conn.execute(
-                    """insert into questions(
-                         id,school_id,stem,options_json,answer_json,analysis,question_type,source,grade,chapter,difficulty,media_json,scenario,quality_status,notes,version,original_paper_id,import_batch_id,parser_task_id,original_page,original_question_number,source_school,source_publisher,exam_type,source_confidence,review_status)
-                       values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        question_id,
-                        actor["school_id"],
-                        _legacy_question_text(content_row["stem"]),
-                        json.dumps(options_json, ensure_ascii=False),
-                        "{}",
-                        _legacy_question_text(content_row["analysis_md"]),
-                        question_type,
-                        task["file_name"],
-                        "待分类",
-                        "待分类",
-                        "待标注",
-                        json.dumps(media_ids),
-                        "",
-                        "draft",
-                        "Document ingestion; answer/grading needs separate verification",
-                        1,
-                        task["original_paper_id"],
-                        task["import_batch_id"],
-                        task_id,
-                        item["page_number"],
-                        document["number"],
-                        paper_metadata["source_school"],
-                        paper_metadata["source_publisher"],
-                        paper_metadata["exam_type"],
-                        0.0,
-                        "confirmed",
-                    ),
+                question_values = (
+                    _legacy_question_text(content_row["stem"]),
+                    json.dumps(options_json, ensure_ascii=False),
+                    question_type,
+                    task["file_name"],
+                    json.dumps(media_ids),
+                    task["original_paper_id"],
+                    task["import_batch_id"],
+                    task_id,
+                    item["page_number"],
+                    document["number"],
+                    paper_metadata["source_school"],
+                    paper_metadata["source_publisher"],
+                    paper_metadata["exam_type"],
                 )
+                if reuse_existing:
+                    existing = conn.execute(
+                        """select q.id from questions q left join question_content_bindings binding on binding.question_id=q.id
+                           where q.id=? and q.school_id=? and binding.question_id is null""",
+                        (question_id, actor["school_id"]),
+                    ).fetchone()
+                    if existing is None:
+                        conn.rollback()
+                        raise IngestionError("existing_question_unavailable", "Existing question is not available for this school's first full-content binding", 409)
+                    conn.execute(
+                        """update questions set stem=?,options_json=?,
+                             analysis=case when ?<>'' then ? else analysis end,
+                             question_type=?,source=?,media_json=?,original_paper_id=?,import_batch_id=?,parser_task_id=?,
+                             original_page=?,original_question_number=?,source_school=?,source_publisher=?,exam_type=?,
+                             source_confidence=1.0,review_status='confirmed',version=version+1
+                           where id=? and school_id=?""",
+                        (
+                            question_values[0], question_values[1],
+                            _legacy_question_text(content_row["analysis_md"]), _legacy_question_text(content_row["analysis_md"]),
+                            *question_values[2:], question_id, actor["school_id"],
+                        ),
+                    )
+                    reused_question_ids.append(question_id)
+                else:
+                    conn.execute(
+                        """insert into questions(
+                             id,school_id,stem,options_json,answer_json,analysis,question_type,source,grade,chapter,difficulty,media_json,scenario,quality_status,notes,version,original_paper_id,import_batch_id,parser_task_id,original_page,original_question_number,source_school,source_publisher,exam_type,source_confidence,review_status)
+                           values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            question_id,
+                            actor["school_id"],
+                            question_values[0],
+                            question_values[1],
+                            "{}",
+                            _legacy_question_text(content_row["analysis_md"]),
+                            question_type,
+                            task["file_name"],
+                            "待分类",
+                            "待分类",
+                            "待标注",
+                            question_values[4],
+                            "",
+                            "draft",
+                            "Document ingestion; answer/grading needs separate verification",
+                            1,
+                            task["original_paper_id"],
+                            task["import_batch_id"],
+                            task_id,
+                            item["page_number"],
+                            document["number"],
+                            paper_metadata["source_school"],
+                            paper_metadata["source_publisher"],
+                            paper_metadata["exam_type"],
+                            0.0,
+                            "confirmed",
+                        ),
+                    )
                 legacy_store = _store_for_connection(conn)
                 for asset_id in media_ids:
                     asset = conn.execute(
@@ -1286,7 +1427,7 @@ def confirm_candidates(conn, actor, task_id, payload):
                 (created_questions[0] if created_questions else None, actor["id"], _now(), item["id"]),
             )
             _audit(conn, actor, "document_question_published", "question_content_group", group_id, {"candidate_id": item["id"], "revision_id": revision_id, "question_ids": created_questions, "answer_state": document["answer_state"]})
-            results.append({"item_id": item["id"], "group_id": group_id, "revision_id": revision_id, "question_ids": created_questions, "already_published": False})
+            results.append({"item_id": item["id"], "group_id": group_id, "revision_id": revision_id, "question_ids": created_questions, "reused_question_ids": reused_question_ids, "already_published": False})
         conn.execute(
             """update question_import_batches set
                  saved_count=(select count(*) from import_item_publications p join parsed_question_items i on i.id=p.parsed_item_id where i.import_batch_id=question_import_batches.id),
@@ -1295,7 +1436,46 @@ def confirm_candidates(conn, actor, task_id, payload):
                where id=?""",
             (task["import_batch_id"],),
         )
-        result = {"task_id": task_id, "published": results}
+        provider = conn.execute(
+            """select 1 from provider_configs
+               where school_id=? and provider_kind='llm' and enabled=1 limit 1""",
+            (actor["school_id"],),
+        ).fetchone()
+        automatic_tagging = []
+        for published in results:
+            for question_id in published["question_ids"]:
+                if provider is None:
+                    automatic_tagging.append({
+                        "question_id": question_id,
+                        "status": "skipped",
+                        "reason": "llm_provider_not_configured",
+                    })
+                    continue
+                question = conn.execute(
+                    "select version from questions where id=? and school_id=?",
+                    (question_id, actor["school_id"]),
+                ).fetchone()
+                if question is None:
+                    continue
+                job_id = "tagjob-" + uuid.uuid4().hex
+                conn.execute(
+                    """insert or ignore into question_tag_jobs(
+                         id,school_id,question_id,requested_by,question_version,
+                         source,status,available_at,updated_at
+                       ) values(?,?,?,?,?,'document_import','queued',?,?)""",
+                    (job_id, actor["school_id"], question_id, actor["id"], question["version"], _now(), _now()),
+                )
+                job = conn.execute(
+                    """select id,status from question_tag_jobs
+                       where question_id=? and question_version=? and source='document_import'""",
+                    (question_id, question["version"]),
+                ).fetchone()
+                automatic_tagging.append({
+                    "question_id": question_id,
+                    "job_id": job["id"] if job else job_id,
+                    "status": job["status"] if job else "queued",
+                })
+        result = {"task_id": task_id, "published": results, "automatic_tagging": automatic_tagging}
         conn.execute(
             "insert into content_operation_keys(school_id,actor_id,operation,request_key,request_hash,result_json) values(?,?,?,?,?,?)",
             (actor["school_id"], actor["id"], "confirm_candidates", request_key, request_hash, json.dumps(result, ensure_ascii=False)),
