@@ -499,13 +499,23 @@ class PhysicsRepository:
             }
             snapshot_id = "snap-" + uuid.uuid4().hex[:12]
             content_binding = self.conn.execute(
-                """select binding.group_id,binding.child_key,group_row.current_revision_id
+                """select binding.group_id,binding.child_key,group_row.current_revision_id,
+                          revision.document_json
                    from question_content_bindings binding
                    join question_content_groups group_row on group_row.id=binding.group_id
                    join question_content_revisions revision on revision.id=group_row.current_revision_id
                    where binding.question_id=? and group_row.school_id=? and revision.review_state='verified'""",
                 (row["question_id"], actor["school_id"]),
             ).fetchone()
+            content_document = loads(content_binding["document_json"], {}) if content_binding else {}
+            content_child = next(
+                (
+                    child
+                    for child in content_document.get("children", [])
+                    if child.get("key") == content_binding["child_key"]
+                ),
+                {},
+            ) if content_binding else {}
             snapshots.append(
                 {
                     "id": snapshot_id,
@@ -523,6 +533,9 @@ class PhysicsRepository:
                     "question_version": row["version"],
                     "content_revision_id": content_binding["current_revision_id"] if content_binding else None,
                     "content_child_key": content_binding["child_key"] if content_binding else "",
+                    "content_group_id": content_binding["group_id"] if content_binding else "",
+                    "content_group_number": content_document.get("number", ""),
+                    "content_child_label": content_child.get("label", ""),
                 }
             )
             full_score += row["points"]

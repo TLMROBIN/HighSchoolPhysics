@@ -4,7 +4,8 @@ from datetime import date
 from highschoolphysics.db import connect,initialize_database,seed_demo_data
 from highschoolphysics.repository import PhysicsRepository
 from highschoolphysics import learning,learning_views
-from highschoolphysics.errors import StateConflict,PermissionDenied
+from highschoolphysics.errors import StateConflict,PermissionDenied,InvalidRequest
+from highschoolphysics.document_models import canonical_sha256
 
 class LearningTests(unittest.TestCase):
  def setUp(self):
@@ -56,6 +57,7 @@ class LearningTests(unittest.TestCase):
   self.assertEqual(learning.check({'type':'multiple_choice','answer':['B','D']},'D B'),'correct')
   self.assertEqual(learning.check({'type':'multiple_choice','answer':['B','D']},'B'),'wrong')
   self.assertEqual(learning.check({'type':'fill','answer':'匀加速'},'相同时间速度变化相同'),'pending')
+  self.assertEqual(learning.check({'type':'experiment','answer':'读数正确'},'读数为2.0 cm'),'pending')
   self.assertEqual(learning.check({'type':'fill','answer':'2'},''),'blank')
  def test_views_hide_solution_and_other_student(self):
   user=dict(self.c.execute("select * from users where id='stu-1001'").fetchone())
@@ -68,7 +70,7 @@ class LearningTests(unittest.TestCase):
   self.assertIn('完整填空题',learning_views.fill_question_context({'question_type':'fill'}))
   self.assertEqual('',learning_views.fill_question_context({'question_type':'single_choice'}))
  def test_create_import_preview_publish_without_scores(self):
-  p={'stem':'一个新的多选题','question_type':'multiple_choice','answer':'BD','options':'甲\n乙\n丙\n丁','knowledge':'kn-pep2019-r1-c04-s03','ability':'ab-model-construction'}
+  p={'stem':'一个新的多选题','question_type':'multiple_choice','answer':'BD','options':'甲\n乙\n丙\n丁','knowledge':'kn-pep2019-r1-c04-s03','ability':'ab-model-construction','literacy':self.repo.literacy_tags()[0]['id']}
   learning.api(self.repo,self.admin,'question',p)
   q=self.c.execute('select id from questions where stem=?',(p['stem'],)).fetchone()[0]
   a=learning.api(self.repo,self.admin,'assessment',dict(title='无分数周测',class_id='class-physics-1',questions=[q]))['url'].split('=')[1]
@@ -81,6 +83,47 @@ class LearningTests(unittest.TestCase):
   self.assertEqual(self.c.execute('select count(*) from wrong_questions where assessment_id=?',(a,)).fetchone()[0],len(students))
   self.assertIsNone(self.c.execute('select score from student_responses where assessment_id=?',(a,)).fetchone()[0])
   with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True))
+ def test_experiment_group_is_selected_and_rendered_as_one_complete_question(self):
+  question_ids=[]
+  for label,stem,answer in [('1','记录小车运动位置','由纸带读取位置'),('2','求小车加速度','根据位移数据计算')]:
+   question=self.repo.create_question(self.admin['id'],stem,{}, {'answer':answer},'', 'experiment','实验题入库','高三','','medium')
+   self.repo.confirm_question_tags(
+    self.admin['id'],question['id'],
+    knowledge_node_ids=['kn-pep2019-r1-c04-s03'],
+    ability_tag_ids=['ab-model-construction'],
+    literacy_tag_ids=[self.repo.literacy_tags()[0]['id']],
+   )
+   question_ids.append(question['id'])
+  document={
+   'schema_version':1,'number':'5','kind':'experiment','stem_md':'研究小车的匀变速直线运动。',
+   'options':[],'answer_md':'','analysis_md':'','answer_state':'verified','grading_rule':None,
+   'children':[
+    {'key':'part-1','label':'1','kind':'experiment','stem_md':'记录小车运动位置','answer_md':'由纸带读取位置','analysis_md':'','answer_state':'verified','options':[],'source_spans':[]},
+    {'key':'part-2','label':'2','kind':'experiment','stem_md':'求小车加速度','answer_md':'根据位移数据计算','analysis_md':'','answer_state':'verified','options':[],'source_spans':[]},
+   ],'source_spans':[],'asset_refs':[],'issues':[],
+  }
+  group_id='content-test-complete-experiment';revision_id='revision-test-complete-experiment'
+  self.c.execute('insert into question_content_groups(id,school_id,original_paper_id,source_item_id,current_revision_id,created_by) values(?,?,?,?,NULL,?)',(group_id,self.admin['school_id'],None,None,self.admin['id']))
+  self.c.execute('insert into question_content_revisions(id,group_id,revision_no,schema_version,document_json,content_sha256,review_state,answer_state,created_by,change_reason) values(?,?,1,1,?,?,?,?,?,?)',(revision_id,group_id,json.dumps(document,ensure_ascii=False,sort_keys=True),canonical_sha256(document),'verified','verified',self.admin['id'],'unit fixture'))
+  self.c.execute('update question_content_groups set current_revision_id=? where id=?',(revision_id,group_id))
+  for question_id,child_key in zip(question_ids,['part-1','part-2']):
+   self.c.execute('insert into question_content_bindings(question_id,group_id,child_key) values(?,?,?)',(question_id,group_id,child_key))
+  self.c.commit()
+  with self.assertRaisesRegex(InvalidRequest,'整道大题'):
+   learning.api(self.repo,self.admin,'assessment',dict(title='实验题小问保护',class_id='class-physics-1',questions=[question_ids[0]]))
+  assessment_url=learning.api(self.repo,self.admin,'assessment',dict(title='完整实验题',class_id='class-physics-1',questions=question_ids))['url']
+  assessment_id=assessment_url.split('=')[1]
+  snapshot=self.c.execute('select * from question_version_snapshots where assessment_id=? order by position limit 1',(assessment_id,)).fetchone()
+  self.assertEqual(learning.outcome_for_snapshot(self.c,snapshot,self.admin['school_id'],'读数为2.0 cm'),'pending')
+  exam_html=learning_views.exams(self.repo,self.admin,assessment_id)
+  self.assertEqual(exam_html.count('研究小车的匀变速直线运动。'),1)
+  self.assertIn('第5题 · 2个小问',exam_html)
+  self.assertIn('小问 1 · 作答序号 1',exam_html)
+  self.assertIn('小问 2 · 作答序号 2',exam_html)
+  teacher_html=learning_views.teacher(self.repo,self.admin,{})
+  self.assertIn('data-selectable="true"',teacher_html)
+  template=json.loads(self.c.execute('select template_json from answer_card_templates where id=(select answer_card_template_id from assessment_sessions where id=?)',(assessment_id,)).fetchone()[0])
+  self.assertEqual([region['locator'] for region in template['regions']],['第5题（1）','第5题（2）'])
  def test_http_active_mode_blocks_grades_and_serves_outcomes(self):
   import tempfile,sqlite3
   from pathlib import Path

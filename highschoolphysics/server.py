@@ -4586,8 +4586,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         include_solution = (query.get("solution") or [""])[0].lower() in ("1", "true", "yes")
         if include_solution and user["role"] not in ("teacher", "admin"):
             raise PermissionDenied("Only teachers can view answer and analysis assets")
+        whole_group = (query.get("group") or [""])[0].lower() in ("1", "true", "yes")
         allowed_asset_ids = visible_question_asset_ids(
-            json.loads(asset["document_json"]), asset["child_key"] or None, include_solution
+            json.loads(asset["document_json"]),
+            None if whole_group else asset["child_key"] or None,
+            include_solution,
         )
         if match.group(1) not in allowed_asset_ids:
             from .errors import ResourceNotFound

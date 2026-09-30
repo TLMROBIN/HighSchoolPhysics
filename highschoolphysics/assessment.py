@@ -25,7 +25,16 @@ def generate_answer_card_template(template_id, title, snapshots):
                 "position": snapshot["position"],
                 "points": snapshot["points"],
                 "kind": _region_kind(snapshot.get("question_type", "")),
-                "locator": "第%s题" % snapshot["position"],
+                "locator": (
+                    "第%s题（%s）"
+                    % (snapshot["content_group_number"], snapshot["content_child_label"])
+                    if snapshot.get("content_group_number") and snapshot.get("content_child_label")
+                    else "第%s题" % (snapshot.get("content_group_number") or snapshot["position"])
+                ),
+                "group_id": snapshot.get("content_group_id", ""),
+                "group_number": snapshot.get("content_group_number", ""),
+                "child_key": snapshot.get("content_child_key", ""),
+                "child_label": snapshot.get("content_child_label", ""),
             }
         )
     return {

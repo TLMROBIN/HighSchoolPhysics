@@ -7,7 +7,7 @@ from .document_models import ASSET_URI_RE
 from .repository import loads
 from .exam_views import esc, image_html
 from .learning import LABELS, progress, snapshot
-from .question_content import render_snapshot_content, render_snapshot_options
+from .question_content import render_snapshot_content, render_snapshot_options, render_snapshot_solution, snapshot_content
 from .question_rendering import render_question
 
 
@@ -106,7 +106,8 @@ def _legacy_question_preview(conn, row, school_id):
 def _teacher_question_groups(repo, user):
     c = repo.conn
     rows = c.execute(
-        """select q.*,binding.group_id,binding.child_key,revision.document_json
+        """select q.*,binding.group_id,binding.child_key,revision.document_json,
+                  revision.review_state as content_review_state
            from questions q
            left join question_content_bindings binding on binding.question_id=q.id
            left join question_content_groups content_group
@@ -149,16 +150,14 @@ def _teacher_question_groups(repo, user):
 
         by_question, tag_ids = _question_tags_for_rows(repo, group_rows)
         question_ids = [row["id"] for row in group_rows]
-        supported = all(
-            row["question_type"] in ("single_choice", "multiple_choice", "fill")
-            for row in group_rows
-        )
         tagged = all(
             any(tag["tag_type"] == "knowledge" for tag in tags)
             and any(tag["tag_type"] == "ability" for tag in tags)
+            and any(tag["tag_type"] == "literacy" for tag in tags)
             for _, tags in by_question
         )
-        selectable = complete and supported and tagged
+        content_verified = not document or group_rows[0].get("content_review_state") == "verified"
+        selectable = complete and content_verified and tagged
         number = (document or {}).get("number") or next(
             (row.get("original_question_number") for row in group_rows if row.get("original_question_number")),
             "",
@@ -182,10 +181,10 @@ def _teacher_question_groups(repo, user):
 
         if not complete:
             disabled_reason = "这道大题仍有小问未完整入库，暂不能加入试卷。"
-        elif not supported:
-            disabled_reason = "当前周测流程只支持单选、多选和填空题；这道题的题型尚未接入作答与复核流程。"
+        elif not content_verified:
+            disabled_reason = "原题结构尚未完成复核，暂不能加入试卷。"
         elif not tagged:
-            disabled_reason = "请先为本题每个小问确认知识点和能力标签。"
+            disabled_reason = "请先为本题每个小问确认知识点、能力和素养标签。"
         else:
             disabled_reason = ""
 
@@ -244,10 +243,20 @@ def form(action, body):
 
 def hidden(k,v): return '<input type="hidden" name="%s" value="%s">'%(esc(k),esc(v))
 def select(name, rows): return '<select name="%s" required><option value="">请选择</option>%s</select>'%(name,''.join('<option value="%s">%s</option>'%(esc(k),esc(v)) for k,v in rows))
-def tags(s): return '<p>'+''.join('<span class="pill">%s：%s</span> '%('知识点' if t['tag_type']=='knowledge' else '能力',esc(t['name'])) for t in loads(s['tag_snapshot_json'],[]) if t['tag_type'] in ('knowledge','ability'))+'</p>'
+def tags(s):
+    labels = {'knowledge': '知识点', 'ability': '能力', 'literacy': '素养'}
+    return '<p>'+''.join('<span class="pill">%s：%s</span> '%(labels[t['tag_type']],esc(t['name'])) for t in loads(s['tag_snapshot_json'],[]) if t['tag_type'] in labels)+'</p>'
 def images(c,q): return ''.join(image_html(r[0]) for r in c.execute('select id from exam_assets where question_id=?',(q,)))
-def question_fragment(c, snapshot_row, user, base_path="", include_solution=False, include_options=True):
-    rendered = render_snapshot_content(c, snapshot_row["id"], user["school_id"], base_path, include_solution, include_options)
+def question_fragment(c, snapshot_row, user, base_path="", include_solution=False, include_options=True, whole_group=False):
+    rendered = render_snapshot_content(
+        c,
+        snapshot_row["id"],
+        user["school_id"],
+        base_path,
+        include_solution,
+        include_options,
+        whole_group,
+    )
     if rendered is not None:
         return rendered
     old = '<div class="legacy-question-content"><p>%s</p>%s</div>' % (esc(snapshot_row["stem"]), images(c, snapshot_row["question_id"]))
@@ -282,7 +291,14 @@ def fill_question_context(s):
     except (KeyError, IndexError):
         return ''
     if question_type != 'fill': return ''
-    return '<p class="fill-question-context"><strong>完整填空题：</strong>本题按空拆分统计；下方原题图展示完整大题题干、图示和全部空，本条记录对应其中当前错空。</p>'
+    return '<p class="fill-question-context"><strong>完整填空题：</strong>本题按空拆分统计；下方原题展示完整大题题干、图示和全部空，本条记录对应其中当前错空。</p>'
+
+def question_part_context(c, snapshot_row, school_id):
+    content = snapshot_content(c, snapshot_row["id"], school_id)
+    if not content or not content.get("child_label"):
+        return ''
+    label = esc(content["child_label"])
+    return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
 def footer(): return '<script src="assets/learning.js?v=1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
@@ -304,7 +320,7 @@ def student(repo,user,params,base_path=""):
             from .errors import PermissionDenied
             raise PermissionDenied('尚未发布')
         s=snapshot(c,w);p=progress(c,w)
-        body.append('<article><h2>作答练习</h2><p>%s · 验证 %s/3 · 下次日期 %s</p>%s%s%s'%(p['status'],p['count'],p['due'],question_fragment(c,s,user,base_path,include_options=False),fill_question_context(s),tags(s)))
+        body.append('<article><h2>作答练习</h2><p>%s · 验证 %s/3 · 下次日期 %s</p>%s%s%s%s'%(p['status'],p['count'],p['due'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,include_options=False,whole_group=True),fill_question_context(s),tags(s)))
         controls=answer_controls(c,s,user,base_path)
         body.append(form('submit',hidden('wrong_id',wid)+'<label>练习方式<select name="purpose"><option value="'+('verify' if p['available'] else 'learn')+'">'+('独立验证' if p['available'] else '学习练习')+'</option><option value="'+('learn' if p['available'] else 'verify')+'">'+('学习练习' if p['available'] else '提前独立作答（不提前增加验证进度）')+'</option></select></label>'+controls+'<button>提交作答</button>'))
         body.append('<button type="button" class="learning-solution" data-id="%s">查看答案与解析，切换为学习练习</button><div class="solution-output" role="status"></div></article>'%esc(wid))
@@ -314,7 +330,7 @@ def student(repo,user,params,base_path=""):
         tag=(params.get('tag') or [''])[0]
         if tag and not any(t['name']==tag for t in loads(s['tag_snapshot_json'],[])):continue
         r=c.execute('select initial_answer from student_responses where id=?',(w['response_id'],)).fetchone()
-        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的选项或填空；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_fragment(c,s,user,base_path),fill_question_context(s),tags(s),esc(r[0]) or '空白',p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
+        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),esc(r[0]) or '空白',p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
     body.append('<h2>最近的练习记录</h2><p>已复核仅表示结果已确认；本题是否巩固仍以三次间隔验证为准。</p><table><tr><th>提交时间</th><th>作答</th><th>用途</th><th>结果 / 教师反馈</th></tr>')
     for a in c.execute('select * from redo_attempts where student_id=? order by submitted_at desc limit 20',(uid,)):
         body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s</td></tr>'%(esc(a['submitted_at']),esc(a['answer']) or '空白','独立验证' if a['purpose']=='verify' else '学习练习' if a['purpose']=='learn' else '历史记录',LABELS[a['outcome']],esc(a['feedback'])))
@@ -382,6 +398,7 @@ def teacher(repo,user,params,document_import_enabled=False):
             '<label>原题图片（可选）<input type="file" class="question-image" accept="image/*"></label>'
             '<label>知识点'+select('knowledge',nodes)+'</label>'
             '<label>能力'+select('ability',abilities)+'</label>'
+            '<label>素养'+select('literacy',literacy)+'</label>'
             '<button class="button-primary">保存单题</button>'
         )
         + '</article></div></section>'
@@ -423,8 +440,8 @@ def teacher(repo,user,params,document_import_enabled=False):
 
     body.append('<details class="teacher-settings-details"><summary>每日练习设置与批量标签确认</summary>')
     body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>'))
-    questions=c.execute("select id,stem from questions where school_id=? and question_type in ('single_choice','multiple_choice','fill') order by created_at desc",(user['school_id'],)).fetchall()
-    body.append('<h3>批量确认题库标签</h3>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label>'+''.join('<label class="bulk-question-choice"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'<button>为所选题确认标签</button>'))
+    questions=c.execute("select id,stem from questions where school_id=? and question_type in ('single_choice','multiple_choice','fill','short_answer','structured','experiment') order by created_at desc",(user['school_id'],)).fetchall()
+    body.append('<h3>批量确认题库标签</h3>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label><label>素养'+select('literacy',literacy)+'</label>'+''.join('<label class="bulk-question-choice"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'<button>为所选题确认三类标签</button>'))
     body.append('</details>')
     allowed={a['id'] for a in assessments}
     pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.outcome='pending' order by a.submitted_at").fetchall()
@@ -450,14 +467,30 @@ def exams(repo,user,aid=None,base_path=""):
         from .errors import PermissionDenied
         raise PermissionDenied('尚未发布')
     body.append('<h2>%s</h2>'%esc(a['title']))
-    qs=c.execute('select s.*,q.original_question_number from question_version_snapshots s join questions q on q.id=s.question_id where assessment_id=? order by position',(aid,)).fetchall()
+    qs=c.execute('''select s.*,q.original_question_number,
+                           binding.revision_id as content_revision_id,
+                           binding.child_key as content_child_key,
+                           revision.group_id as content_group_id
+                    from question_version_snapshots s
+                    join questions q on q.id=s.question_id
+                    left join snapshot_content_bindings binding on binding.snapshot_id=s.id
+                    left join question_content_revisions revision on revision.id=binding.revision_id
+                    where s.assessment_id=? order by s.position''',(aid,)).fetchall()
+    question_groups=[]
+    groups_by_key={}
+    for question in qs:
+        group_key=question['content_group_id'] or ('snapshot:'+question['id'])
+        if group_key not in groups_by_key:
+            groups_by_key[group_key]=[]
+            question_groups.append(groups_by_key[group_key])
+        groups_by_key[group_key].append(question)
     participants=c.execute('select p.*,u.display_name from assessment_participants p join users u on u.id=p.student_id where assessment_id=?',(aid,)).fetchall()
     rs=[dict(r) for r in c.execute('select r.*,u.display_name from student_responses r join users u on u.id=r.student_id where assessment_id=?',(aid,)) if staff or r['student_id']==user['id']]
     if staff and a['grading_status']!='published':
         body.append('<h3>核对学生范围</h3>')
         for p in participants:
             body.append(form('participant',hidden('assessment_id',aid)+hidden('student_id',p['student_id'])+'<span>%s · 当前：%s</span>'%(esc(p['display_name']),esc(p['status']))+select('status',[('present','纳入'),('absent','缺考'),('not_included','不纳入')])+'<button>更新</button>'))
-        body.append('<h3>录入 / 导入作答</h3><p>CSV 列名：学生,题号,作答,结果。学生可填姓名、学号或账号；题号用本页顺序号。结果填正确、错误、空白、待确认，留空时选择题自动核对、填空不匹配交教师确认。逗号答案请用英文双引号包围。</p>')
+        body.append('<h3>录入 / 导入作答</h3><p>CSV 列名：学生,题号,作答,结果。学生可填姓名、学号或账号；题号用下方每个评分小问的顺序号。结果填正确、错误、空白、待确认；实验题和解答题的作答需教师确认。留空时选择题自动核对、填空不匹配交教师确认。逗号答案请用英文双引号包围。</p>')
         body.append(form('answers',hidden('assessment_id',aid)+'<input type="file" class="answers-file" accept=".csv,text/csv"><textarea name="csv" rows="8" placeholder="学生,题号,作答,结果&#10;张三,1,A,"></textarea><button>预览表格</button><button type="button" class="confirm-answers" hidden>确认保存</button>'))
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
@@ -465,26 +498,40 @@ def exams(repo,user,aid=None,base_path=""):
         body.append(form('publish',hidden('assessment_id',aid)+'<button>核对完成，发布到错题本</button>'))
     groups=defaultdict(lambda:dict(total=0,wrong=0,blank=0,students=set(),affected=set()))
     included={p['student_id'] for p in participants if p['status']=='present'}
-    for q in qs:
-        rows=[r for r in rs if r['question_id']==q['question_id'] and r['student_id'] in included]
-        body.append('<article><h3>原题 %s（录入序号 %s）</h3>%s%s%s'%(esc(q['original_question_number'] or q['position']),q['position'],question_fragment(c,q,user,base_path),fill_question_context(q),tags(q)))
-        if staff:
-            solution = render_snapshot_content(c, q['id'], user['school_id'], base_path, include_solution=True)
-            if solution is None:
-                solution = '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
-            body.append('<details><summary>查看标准答案与解析</summary>%s</details>' % solution)
-        body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>结果</th><th>原图</th></tr>')
-        for r in rows:
-            media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
-            body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',LABELS[r['outcome']],'<a target="_blank" href="exam-media?id=%s">答题卡</a>'%quote(media) if media else ''))
-            if r['outcome']=='pending': continue
-            seen=set()
-            for t in loads(q['tag_snapshot_json'],[]):
-                key=(t['tag_type'],t['tag_id'])
-                if key in seen or t['tag_type'] not in ('knowledge','ability'): continue
-                seen.add(key);g=groups[t['name']];g['total']+=1;g['wrong']+=r['outcome']=='wrong';g['blank']+=r['outcome']=='blank';g['students'].add(r['student_id'])
-                if r['outcome']!='correct':g['affected'].add(r['student_id'])
-        body.append('</table></article>')
+    for question_group in question_groups:
+        first=question_group[0]
+        first_content=snapshot_content(c,first['id'],user['school_id'])
+        document=first_content['document'] if first_content else {}
+        question_number=(document or {}).get('number') or first['original_question_number'] or first['position']
+        group_preview=question_fragment(c,first,user,base_path,whole_group=True)
+        body.append('<article class="assessment-question-group"><h3>第%s题 · %s个小问</h3>%s'%(
+            esc(question_number),len(question_group),group_preview
+        ))
+        for q in question_group:
+            content=snapshot_content(c,q['id'],user['school_id'])
+            child_label=content.get('child_label','') if content else ''
+            part_title=('小问 '+child_label) if child_label else ('整题作答' if len(question_group)==1 else '作答单元 '+str(q['position']))
+            rows=[r for r in rs if r['question_id']==q['question_id'] and r['student_id'] in included]
+            body.append('<section class="assessment-subquestion"><h4>%s · 作答序号 %s</h4>%s%s%s'%(
+                esc(part_title),q['position'],fill_question_context(q),tags(q),
+                '<details><summary>本小问标准答案与解析</summary>%s</details>' % (
+                    render_snapshot_solution(c,q['id'],user['school_id'],base_path)
+                    or '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
+                ) if staff else ''
+            ))
+            body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>结果</th><th>原图</th></tr>')
+            for r in rows:
+                media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
+                body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',LABELS[r['outcome']],'<a target="_blank" href="exam-media?id=%s">答题卡</a>'%quote(media) if media else ''))
+                if r['outcome']=='pending': continue
+                seen=set()
+                for t in loads(q['tag_snapshot_json'],[]):
+                    key=(t['tag_type'],t['tag_id'])
+                    if key in seen or t['tag_type'] not in ('knowledge','ability','literacy'): continue
+                    seen.add(key);g=groups[t['name']];g['total']+=1;g['wrong']+=r['outcome']=='wrong';g['blank']+=r['outcome']=='blank';g['students'].add(r['student_id'])
+                    if r['outcome']!='correct':g['affected'].add(r['student_id'])
+            body.append('</table></section>')
+        body.append('</article>')
     if staff:
         body.append('<h2>标签统计（首次作答）</h2><p>错误率＝非空错误 / 已确认非空作答；空白率＝空白 / 已确认作答；受影响学生＝至少一次错误或空白 / 该标签已有确认作答的学生。缺失和待确认不进入分母。</p><table><tr><th>标签</th><th>错误率</th><th>空白率</th><th>受影响学生</th></tr>')
         for name,g in groups.items():
@@ -500,8 +547,8 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     out=['<section class="panel learning"><h1>错题学习单</h1><p>首次作答与复习记录分开保存。请先尝试回想，再参考答案。</p>']
     for w in rows:
         s=snapshot(c,w)
-        content = question_fragment(c,s,user,base_path,include_solution=True)
-        out.append('<article><h2>%s</h2>%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(loads(s['grading_rule_json'],{}).get('answer'))))
+        content = question_fragment(c,s,user,base_path,include_solution=True,whole_group=True)
+        out.append('<article><h2>%s</h2>%s%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),question_part_context(c,s,user['school_id']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(loads(s['grading_rule_json'],{}).get('answer'))))
         if user['role']=='student':
             from .learning import now
             c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(user['id'],w['question_id'],now()))

@@ -2624,6 +2624,11 @@ select {
 .learning nav a { color:var(--teal,#08766f);text-decoration:none; }
 .learning nav a:hover { text-decoration:underline; }
 .learning article,.learning details,.learning aside { border:1px solid var(--border,#dce3eb);border-radius:12px;padding:18px;margin:14px 0;background:var(--surface,#fff); }
+.learning .assessment-question-group { border-color:var(--line,#d8dee8);background:var(--wash,#f4f7f9); }
+.learning .assessment-question-group > h3 { margin-top:0; }
+.learning .assessment-subquestion { margin:16px 0 0;padding-top:12px;border-top:1px solid var(--line,#d8dee8); }
+.learning .assessment-subquestion > h4 { margin:0 0 10px;color:var(--teal,#08766f); }
+.learning .question-part-context { padding:10px 12px;border-left:3px solid var(--teal,#08766f);background:var(--teal-soft,#dff3ef); }
 .learning aside { background:#eef6ff;color:#162b45; }
 .learning summary { cursor:pointer;min-height:44px;line-height:1.7; }
 .learning-form { display:grid;gap:12px;margin:16px 0; }

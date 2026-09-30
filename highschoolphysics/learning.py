@@ -95,7 +95,7 @@ def migrate(conn):
 
 def check(rule, answer):
     if not str(answer).strip(): return 'blank'
-    if rule.get('type') not in ('single_choice','multiple_choice','fill'): raise InvalidRequest('目前只支持选择题和填空题')
+    if rule.get('type') not in ('single_choice','multiple_choice','fill'): return 'pending'
     if rule.get('type') in ('single_choice','multiple_choice') and not re.fullmatch(r'[A-Fa-f,，、;；\s]+',str(answer)): return 'pending'
     if grade_answer(dict(rule,points=1),answer)['correct']: return 'correct'
     return 'pending' if rule.get('type')=='fill' else 'wrong'
@@ -162,6 +162,66 @@ def staff_assessment(repo,user,aid):
     if a['school_id']!=user['school_id']: raise PermissionDenied('不可跨学校操作')
     return a
 
+
+def _validate_complete_question_selection(repo, question_ids, school_id):
+    supported_types = {'single_choice', 'multiple_choice', 'fill', 'short_answer', 'structured', 'experiment'}
+    if len(question_ids) != len(set(question_ids)):
+        raise InvalidRequest('题目列表包含重复小问')
+    selected_by_group = {}
+    for question_id in question_ids:
+        question = repo.get_question(question_id)
+        if question is None or question['school_id'] != school_id:
+            raise InvalidRequest('题目不在本次范围')
+        if question['question_type'] not in supported_types:
+            raise InvalidRequest('暂不支持该题型，请先完成题型规范化')
+        tags = repo.tags_for_question(question_id)
+        if not all(any(tag['tag_type'] == kind for tag in tags) for kind in ('knowledge', 'ability', 'literacy')):
+            raise InvalidRequest('请先为每道题确认知识点、能力和素养标签')
+        binding = repo.conn.execute(
+            """select binding.group_id,binding.child_key,revision.document_json,revision.review_state
+               from question_content_bindings binding
+               join question_content_groups content_group on content_group.id=binding.group_id
+               join question_content_revisions revision on revision.id=content_group.current_revision_id
+               where binding.question_id=? and content_group.school_id=?""",
+            (question_id, school_id),
+        ).fetchone()
+        if not binding:
+            continue
+        if binding['review_state'] != 'verified':
+            raise InvalidRequest('原题结构尚未完成复核，暂不能加入试卷')
+        document = loads(binding['document_json'], {})
+        children = document.get('children', []) if isinstance(document, dict) else []
+        if not children:
+            continue
+        group_id = binding['group_id']
+        selected_by_group.setdefault(group_id, []).append((question_id, binding['child_key']))
+
+    for group_id, selected in selected_by_group.items():
+        binding_rows = repo.conn.execute(
+            """select binding.question_id,binding.child_key,revision.document_json
+               from question_content_bindings binding
+               join question_content_groups content_group on content_group.id=binding.group_id
+               join question_content_revisions revision on revision.id=content_group.current_revision_id
+               where binding.group_id=? and content_group.school_id=? and revision.review_state='verified'""",
+            (group_id, school_id),
+        ).fetchall()
+        document = loads(binding_rows[0]['document_json'], {}) if binding_rows else {}
+        expected_keys = [child.get('key') for child in document.get('children', [])]
+        expected_by_key = {row['child_key']: row['question_id'] for row in binding_rows}
+        if (
+            not expected_keys
+            or len(binding_rows) != len(expected_keys)
+            or set(expected_by_key) != set(expected_keys)
+            or {question_id for question_id, _ in selected} != set(expected_by_key.values())
+        ):
+            raise InvalidRequest('请把整道大题及其全部小问一起加入试卷')
+        expected_ids = [expected_by_key[key] for key in expected_keys]
+        positions = [question_ids.index(question_id) for question_id in expected_ids]
+        if positions != list(range(positions[0], positions[0] + len(positions))):
+            raise InvalidRequest('同一道大题的小问必须相邻排列')
+        if [question_ids[position] for position in positions] != expected_ids:
+            raise InvalidRequest('请按原题顺序排列大题中的小问')
+
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     if action=='submit': return submit(repo,actor,p)
@@ -206,7 +266,16 @@ def api(repo,user,action,p,base_path=""):
         if not ids: raise InvalidRequest('请先选择题目')
         for qid in ids:
             if repo.get_question(qid)['school_id']!=user['school_id']: raise PermissionDenied('不可跨学校操作')
-        for qid in ids: repo.confirm_question_tags(actor,qid,knowledge_node_ids=[p['knowledge']],ability_tag_ids=[p['ability']])
+        if not p.get('knowledge') or not p.get('ability') or not p.get('literacy'):
+            raise InvalidRequest('请同时选择知识点、能力和素养标签')
+        for qid in ids:
+            repo.confirm_question_tags(
+                actor,
+                qid,
+                knowledge_node_ids=[p['knowledge']],
+                ability_tag_ids=[p['ability']],
+                literacy_tag_ids=[p['literacy']],
+            )
         return {'message':'题库标签已确认；已发布周测的标签快照保持原样'}
     if action=='review':
         outcome=p.get('outcome')
@@ -220,9 +289,9 @@ def api(repo,user,action,p,base_path=""):
         kind=p.get('question_type')
         if kind not in ('single_choice','multiple_choice','fill'): raise InvalidRequest('只支持选择题、填空题')
         options={chr(65+i):x.strip() for i,x in enumerate(p.get('options','').splitlines()) if x.strip()}
-        if not p.get('knowledge') or not p.get('ability') or not p.get('stem','').strip() or not p.get('answer','').strip(): raise InvalidRequest('请填写题干、答案并明确选择标签')
+        if not p.get('knowledge') or not p.get('ability') or not p.get('literacy') or not p.get('stem','').strip() or not p.get('answer','').strip(): raise InvalidRequest('请填写题干、答案并明确选择知识点、能力和素养标签')
         q=repo.create_question(actor,p['stem'],options,{'answer':p['answer'],'match':'exact'},p.get('analysis',''),kind,'教师录入','高三','', 'medium')
-        repo.confirm_question_tags(actor,q['id'],knowledge_node_ids=[p['knowledge']],ability_tag_ids=[p['ability']])
+        repo.confirm_question_tags(actor,q['id'],knowledge_node_ids=[p['knowledge']],ability_tag_ids=[p['ability']],literacy_tag_ids=[p['literacy']])
         if p.get('image'):
             import base64
             raw=base64.b64decode(p['image'],validate=True)
@@ -236,11 +305,7 @@ def api(repo,user,action,p,base_path=""):
         repo._require_assessment_class_actor(actor,group['id'])
         ids=p.get('questions',[]);ids=[ids] if isinstance(ids,str) else ids
         if not ids: raise InvalidRequest('请至少选择一道题')
-        for qid in ids:
-            q=repo.get_question(qid)
-            if q['school_id']!=user['school_id'] or q['question_type'] not in ('single_choice','multiple_choice','fill'): raise InvalidRequest('题目不在本次范围')
-            tags=repo.tags_for_question(qid)
-            if not all(any(t['tag_type']==kind for t in tags) for kind in ('knowledge','ability')): raise InvalidRequest('请先为每道题确认知识点和能力标签')
+        _validate_complete_question_selection(repo, ids, user['school_id'])
         if not c.execute("select 1 from knowledge_ontology_versions where status='active'").fetchone(): raise InvalidRequest('请管理员先在系统管理中发布知识体系，再创建周测')
         paper=repo.assemble_paper(actor,p['title'],'教师录入',[dict(question_id=q,points=0) for q in ids])
         a=repo.create_assessment_from_paper(actor,paper['paper']['id'],group['id'],p['title'],'','高三',p.get('date',''))

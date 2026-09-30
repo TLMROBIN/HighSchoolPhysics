@@ -259,10 +259,14 @@ def snapshot_content(conn, snapshot_id, school_id=None):
         if child is None:
             return None
         answer_state = child.get("answer_state", "missing")
+        child_label = child.get("label", "")
+    else:
+        child_label = ""
     return {
         "revision_id": row["revision_id"],
         "school_id": row["school_id"],
         "child_key": child_key,
+        "child_label": child_label,
         "answer_state": answer_state,
         "review_state": row["review_state"],
         "document": document,
@@ -288,13 +292,13 @@ def visible_question_asset_ids(document, child_key=None, include_solution=False)
     return {asset_id for field in fields for asset_id in ASSET_URI_RE.findall(field or "")}
 
 
-def _snapshot_asset_url(snapshot_id, base_path="", include_solution=False):
+def _snapshot_asset_url(snapshot_id, base_path="", include_solution=False, whole_group=False):
     prefix = base_path.rstrip("/")
     return lambda asset_id: "%s/api/question-assets/%s?snapshot_id=%s" % (
         prefix,
         quote(asset_id, safe=""),
         quote(snapshot_id, safe=""),
-    ) + ("&solution=1" if include_solution else "")
+    ) + ("&solution=1" if include_solution else "") + ("&group=1" if whole_group else "")
 
 
 def render_snapshot_options(conn, snapshot_id, school_id, base_path=""):
@@ -319,7 +323,15 @@ def render_snapshot_options(conn, snapshot_id, school_id, base_path=""):
     ]
 
 
-def render_snapshot_content(conn, snapshot_id, school_id, base_path="", include_solution=False, include_options=True):
+def render_snapshot_content(
+    conn,
+    snapshot_id,
+    school_id,
+    base_path="",
+    include_solution=False,
+    include_options=True,
+    whole_group=False,
+):
     content = snapshot_content(conn, snapshot_id, school_id)
     if content is None:
         return None
@@ -327,8 +339,31 @@ def render_snapshot_content(conn, snapshot_id, school_id, base_path="", include_
 
     return render_question(
         content["document"],
-        asset_url=_snapshot_asset_url(snapshot_id, base_path, include_solution),
+        asset_url=_snapshot_asset_url(snapshot_id, base_path, include_solution, whole_group),
         include_solution=include_solution,
-        child_key=content["child_key"] or None,
+        child_key=None if whole_group else content["child_key"] or None,
         include_options=include_options,
     )
+
+
+def render_snapshot_solution(conn, snapshot_id, school_id, base_path=""):
+    """Render only this scoring unit's answer and analysis, without repeating its stem."""
+    content = snapshot_content(conn, snapshot_id, school_id)
+    if content is None:
+        return None
+    from .question_rendering import render_markdown
+
+    document = content["document"]
+    asset_url = _snapshot_asset_url(snapshot_id, base_path, include_solution=True)
+    if content["child_key"]:
+        selected = next(
+            (child for child in document.get("children", []) if child.get("key") == content["child_key"]),
+            None,
+        )
+        if selected is None:
+            return None
+        fields = (selected.get("answer_md", ""), selected.get("analysis_md", ""))
+    else:
+        fields = (document.get("answer_md", ""), document.get("analysis_md", ""))
+    rendered = "".join(render_markdown(field, asset_url) for field in fields if field)
+    return '<section class="question-solution"><h3>参考答案与解析</h3>%s</section>' % rendered if rendered else ""
