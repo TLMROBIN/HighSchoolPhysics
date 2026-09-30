@@ -16,6 +16,10 @@
   padding-inline-start: 2rem;
 }
 
+.question-children {
+  list-style: none;
+}
+
 .question-options {
   list-style: none;
 }

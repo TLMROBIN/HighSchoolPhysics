@@ -49,14 +49,14 @@
     const card=byKey.get(key);if(!card)return;
     const childCount=Number(card.dataset.childCount||1);questionCount+=childCount;
     const item=document.createElement('li');item.className='paper-basket-item';
-    const title=document.createElement('span');title.textContent=`${index+1}. ${card.dataset.title} · ${childCount} 个小问`;item.append(title);
+    const title=document.createElement('span');title.textContent=`${card.dataset.title} · ${childCount} 个小问`;item.append(title);
     const controls=document.createElement('div');controls.className='paper-basket-controls';
     [['up','上移',index===0],['down','下移',index===order.length-1],['remove','移除',false]].forEach(([action,label,disabled])=>{
      const button=document.createElement('button');button.type='button';button.dataset.basketAction=action;button.dataset.groupKey=key;button.textContent=label;button.disabled=disabled;controls.append(button);
     });
     item.append(controls);basket.append(item);
     const section=document.createElement('section');section.className='paper-preview-question';
-    const heading=document.createElement('h4');heading.textContent=`第 ${index+1} 题 · ${card.dataset.title}`;section.append(heading);
+    const heading=document.createElement('h4');heading.textContent=`试卷第 ${index+1} 题 · ${card.dataset.title}`;section.append(heading);
     const content=card.querySelector('[data-question-preview-body]');if(content)section.append(content.cloneNode(true));
     preview.append(section);
    });

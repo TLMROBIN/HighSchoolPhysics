@@ -43,8 +43,8 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20260922-exam-import"
-QUESTION_ASSET_VERSION = "20260929-mobile-katex-scroll"
+ASSET_VERSION = "20261001-whole-question-assembly"
+QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
 DOCUMENT_ASSET_VERSION = "20260930-http-sha256-upload-fallback"
 
 
