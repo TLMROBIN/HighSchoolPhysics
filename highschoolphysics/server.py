@@ -4063,9 +4063,21 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         base_path = self._base_path()
         if base_path:
             content = re.sub(r"<body(?=[ >])", '<body data-base-path="%s"' % html.escape(base_path, quote=True), content, count=1, flags=re.IGNORECASE)
+
+            def strip_proxy_prefix(match):
+                value = match.group(3)
+                if value == base_path:
+                    value = "/"
+                elif value.startswith(base_path + "/"):
+                    value = value[len(base_path) :]
+                return "%s=%s%s%s" % (match.group(1), match.group(2), value, match.group(2))
+
+            # Production nginx adds /physics to root-relative href/src/action
+            # attributes. Normalize links from views that already received the
+            # forwarded prefix so the public path is only prefixed once.
             content = re.sub(
-                r"\b(href|src|action)=(['\"])/(?!/)",
-                lambda match: '%s=%s%s/' % (match.group(1), match.group(2), base_path),
+                r"\b(href|src|action)=([\"'])(/(?!/)[^\"']*)\2",
+                strip_proxy_prefix,
                 content,
                 flags=re.IGNORECASE,
             )
@@ -4096,10 +4108,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         self._send_html(render_layout(str(status), None, "<section class='empty-state'>%s</section>" % escape(message)), status)
 
     def _redirect(self, target):
-        if target.startswith("/") and not target.startswith("//"):
-            prefix = self._base_path()
-            if prefix and not (target == prefix or target.startswith(prefix + "/")):
-                target = prefix + target
+        # The production reverse proxy owns the public /physics prefix through
+        # proxy_redirect. Keep internal Location values rooted at the app so
+        # nginx adds that prefix exactly once. X-Forwarded-Prefix is still used
+        # to build the SSO callback URI and the page's data-base-path.
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", target)
         self.end_headers()

@@ -70,7 +70,7 @@ class DocumentHTTPTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         page = payload.decode("utf-8")
-        self.assertIn('href="/physics/documents"', page)
+        self.assertIn('href="/documents"', page)
         self.assertIn('data-base-path="/physics"', page)
 
         status, _, payload = self.server.request(
@@ -78,11 +78,11 @@ class DocumentHTTPTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         page = payload.decode("utf-8")
-        self.assertIn('src="/physics/assets/document-import.js', page)
+        self.assertIn('src="/assets/document-import.js', page)
         self.assertIn('data-actor-id="', page)
-        self.assertIn('href="/physics/assets/document-import.css', page)
-        self.assertIn("href='/physics/exams'", page)
-        self.assertIn("href='/physics/logout'", page)
+        self.assertIn('href="/assets/document-import.css', page)
+        self.assertIn("href='/exams'", page)
+        self.assertIn("href='/logout'", page)
         self.assertIn("扫描版 PDF 在服务器上识别", page)
         self.assertIn("服务器模型不可用", page)
         self.assertNotIn("本机模型", page)
@@ -103,8 +103,16 @@ class DocumentHTTPTests(unittest.TestCase):
             "GET", "/documents/review?task_id=%s" % task_id, headers={"Cookie": self.cookie, "X-Forwarded-Prefix": "/physics"}
         )
         self.assertEqual(status, 200)
-        self.assertIn(b"href='/physics/exams'", payload)
-        self.assertIn(b"href='/physics/logout'", payload)
+        self.assertIn(b"href='/exams'", payload)
+        self.assertIn(b"href='/logout'", payload)
+
+    def test_unauthenticated_documents_redirect_is_compatible_with_proxy_prefix(self):
+        status, headers, _ = self.server.request(
+            "GET", "/documents", headers={"X-Forwarded-Prefix": "/physics"}
+        )
+        self.assertEqual(status, 303)
+        # Production nginx's proxy_redirect turns this into /physics/login.
+        self.assertEqual(headers["Location"], "/login")
 
     def test_public_asset_bundle_serves_through_prefixed_reverse_proxy(self):
         assets = (
