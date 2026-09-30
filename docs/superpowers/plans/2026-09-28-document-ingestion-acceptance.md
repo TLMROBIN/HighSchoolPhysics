@@ -8,15 +8,15 @@
 
 | 批次信息 | 实际填写 |
 | --- | --- |
-| 本地 / GitHub / 远端 HEAD | 本机 `main`、`origin/main`、GitHub `main` 与生产 checkout 均核对为 `a5ab6670dce154ce8bd6c58e3bd41df278754320`；工作树仍有未提交实施改动；严格门禁针对该基线通过，不代表 dirty 代码已发布 |
-| schema 版本 / 迁移前备份 | 生产 live SQLite 核心 `user_version=11`、`integrity_check=ok`，未发现 `app_schema_migrations`（功能迁移未应用）；独立生产在线备份副本迁移并重开后核心仍为 11、功能账本为 12；生产 live 未迁移 |
-| HTTP / worker 实际运行版本 | 生产 checkout 为 `a5ab6670`、服务/root HTTP 正常；但 app PID 115814 在该提交时间 16:43:32 前的 16:42:52 已启动，17:24:11 auto-update fetch 成功后日志仍称 app 已运行且 PID 未变，故进程实际加载提交未证明。当前 dirty 功能实现未部署，新导入/渲染资源为 404 |
-| Python / 转换器 / 模型 / 数学渲染器版本 | 测试虚拟环境 Python 3.12；生产包有 MinerU 3.4.0/PaddleOCR 3.7.0/MarkItDown 0.1.6/Playwright 1.60.0/Authlib 1.7.2；生产应用服务缺 MinerU 模型配置。另在独立临时 `/tmp` 配置/模型缓存中实际完成 PDF C OCR，未改生产服务配置；本机浏览器使用项目 KaTeX 资产 |
-| 测试环境及入口 URL | 隔离 SQLite + 本机 Chrome；生产未认证入口 `/physics/login` 为 200，基础 CSS/JS 为 200，新导入/渲染 CSS 为 404；生产 SSO 登录请求当前返回 303 到既有 IdP，未提交凭据 |
-| 操作账号角色（不含凭据） | 隔离数据库中的教师角色 session；不代表生产 SSO 登录 |
+| 本地 / GitHub / 远端 HEAD | 本机 `main`、`origin/main`、GitHub `main` 与生产 checkout 均为 `15ff029356c7fc63bb0d4444ce271a2323d928c7`；严格远端门禁通过。工作树仅有未跟踪的 `output/`、`tmp/` 证据/临时文件，不属于发布提交 |
+| schema 版本 / 迁移前备份 | 生产核心 `user_version=11`，文档功能账本 `document_ingestion=12`；迁移后 64 张既有表指纹全一致、`integrity_check=ok`、外键错误 0。迁移前在线备份 `/home/yub/Documents/trae_projects/HighSchoolPhysics/data/backups/school.sqlite3-before-document-ingestion-20260930T041059Z.sqlite3`，SHA-256 `27b4e7c79644873d9b408adcf5467d47d8a759ba4d051a1efd9fa4b8ff0fda00` |
+| HTTP / worker 实际运行版本 | app PID `463917`、document worker PID `463934` 均 active；运行 checkout 与本机/GitHub 一致为 `15ff0293`。严格 release gate 与未认证真实浏览器入口复验通过；没有登录生产教师账号 |
+| Python / 转换器 / 模型 / 数学渲染器版本 | 生产 runtime readiness：MinerU `3.4.0`、PaddleOCR `3.7.0`、MarkItDown `0.1.6`、Playwright `1.60.0`、Authlib `1.7.2` 均可导入；本地 MinerU pipeline 为 `missing_configuration`，MinerU API `disabled`。KaTeX 新资源在生产 HTTP 200；程序和依赖就绪不代表 PDF 已识别 |
+| 测试环境及入口 URL | `http://10.50.159.62/physics/login`；生产 Chromium 未认证打开 `/physics/documents` 收到 303 并最终到登录页 200。登录 CSS/JS 正确从 `/physics/assets/...` 加载，新导入/渲染资产全 200，浏览器无请求失败 |
+| 操作账号角色（不含凭据） | 本轮生产浏览器只读验收为未认证上下文；真实教师 SSO 尚未登录。隔离测试另使用教师角色 session |
 | 真实样本路径与 SHA-256 | Word A：`高三第一次周测.docx`，`3eb8cccd7bafb1fe2cb9bc7730a95785b199bafa8cd0c3d85d319c17a514f6c6`；Word B：`2027届高三物理周测2.docx`，`19ceac89048f0d6c42e23ae34c9672b45996d0605d2694102bac98adf7986b47`；PDF C：`【物理试卷】2027届高三供题训练.pdf`，`2570576fe207be04b7aec2ee2034d9d0694ee4e4e300e39d8a74dc22ec8ba968`，已做隔离真实 OCR/拆题/浏览器复核但语义未签字；传统 DOC 未验 |
-| 全量测试报告 / release gate 日志 | 2026-09-30 最新项目虚拟环境本地 gate 330 项测试通过（63.731 秒，1 skipped），compileall、`app.js`/`document-import.js`/`question-rendering.js` Node 语法检查、runtime readiness 与 `git diff --check` 通过；HTTP smoke 未启用。日志 `m1-wk04-wk05-server-copy-local-gate-venv-20260930.log`。严格远端 gate exit 0，refs、服务、HTTP 与 runtime readiness 通过，但本机/远端/GitHub 都是基线 `a5ab6670`，不验证 dirty 代码或线上进程加载版本；日志 `remote-strict-release-check-wk04-wk05-20260930.log`。另一次系统 `python3` 尝试因缺少 `cryptography` 等项目依赖而在 148 项后失败，保留于 `m1-wk04-wk05-server-copy-local-gate-20260930.log`；通过结果使用 `/tmp/hsp-doc-test-env/bin/python` |
-| 已知限制与未通过项 | 生产 live 核心 `user_version=11`，未应用功能迁移；新导入/渲染资源为 404。PDF C 有 31 个公式事项、5 个图位和全题语义待核对；Word A/B 尚需逐题复核；原生 DOC 样本缺失，DOCX 派生格式控制未运行 OCR；PDF C 整卷真实发布/导出、生产教师 SSO、旧题生产映射和新代码部署均未完成。原卷页跳转仅在隔离 Chrome 对 PDF C 第 12 题验证到第 5/6 页，其他来源映射仍待逐题核查。旧版回退阅读兼容通过隔离合成副本验证；旧版仅以文本公式及题图标记/题图呈现，不保留新 renderer 的精确内联图文版式 |
+| 全量测试报告 / release gate 日志 | 代理前缀修复后本机 release gate 332 项通过（1 skipped），compileall、Node、runtime readiness、`git diff --check` 通过；证据 `output/document-ingestion-evidence-20260929/local-release-check-proxy-fix-20260930.log`。严格远端 gate 对齐 GitHub/远端/本机 SHA，app/worker、HTTP、schema、integrity 与 runtime 检查通过；证据 `output/document-ingestion-evidence-20260929/remote-strict-release-check-proxy-fix-20260930.log`。Chromium 路由及资源证据 `output/document-ingestion-evidence-20260929/production-browser-check-proxy-fix-20260930.json` 和截图 |
+| 已知限制与未通过项 | PDF 扫描识别暂不可用：MinerU 已安装，但生产 worker 指定的 `/home/yub/mineru.json` 及 pipeline 模型权重尚未配置；DOCX 流程尚待真实教师账号实用验收。PDF C 仍有 31 个公式事项、5 个图位和全题语义待核对；Word A/B 逐题复核待做；原生 DOC 按用户指示暂缓。PDF C 整卷生产入库/离线导出、真实 SSO 工作流、旧题生产映射及可撤销修复仍未验；不宣称 M0—M7 整体完成 |
 
 ## 1.1 本轮执行记录（2026-09-29）
 
@@ -42,7 +42,7 @@
 - Chrome 本地打开离线抽样核对页，7 个公式均由项目 KaTeX 显示，7 张源预览均加载；该页面用于比对证据，不是题目正文。自动 KaTeX 严格解析覆盖全部 268 条，但没有替代教师的物理语义签字。
 - 最终本机发布检查通过：280 个单元与集成测试通过（54.160 秒），compileall、Node 语法检查、runtime readiness 和 `git diff --check` 通过。证据 `local-release-check-mtef-final.log`。严格远端门禁再次退出 255：生产 SSH 握手返回 `Connection reset by peer`，详见 `remote-release-check-mtef-final.log`。没有部署；生产 schema、worker、SSO 和新功能运行态仍未知。
 
-阶段状态（截至 2026-09-29 最新证据）：M0 部分完成，Word A/B 和 PDF C 均生成真实可编辑候选并完成局部浏览器展示；PDF C 原卷对照发现 Q1、Q4、Q14 公式 OCR 错误，适配器现将含数学定界符的 OCR block 标成待复核，issue 从 16 增至 31。真实 PDF C 隔离教师任务页面能显示原 PDF 与 15 个可编辑候选；Chrome 点击 Q12 来源链接后查看器显示第 5/6 页。选中 Q1 批量入库被未解决的公式事项阻止，0 个候选发布。全题 OCR 语义仍须教师核验；Word A/B 逐题语义和答案区映射待复核。新增 DOCX 派生 MS Word 97 `.doc` 格式控制：LibreOffice adapter 实际转 23 页 PDF，文本提取检测到题号 1–15，Chrome 显示页 1/23；不是原生 DOC 样本，也未运行 OCR。M1 核心版本兼容为 `user_version=11` + 功能账本 `document_ingestion=12`；生产精确备份副本迁移/重开后 64 张旧表、10,339 行保持一致，生产 live 仅为核心 v11 且未应用功能迁移。M2 共用渲染器、合成 ZIP、Word B Q1 已发布题包通过；现另验证 PDF C 15 道未审核候选的教师校对稿 ZIP、相对图片和哈希、浏览器下载前自动保存。该校对稿明确不等于已审核/已发布的正式整卷题包，正式发布包仍待 M4 逐题审签与整卷发布。M3 当前适配器完成 Word A/B 和 PDF C 实际转换；worker 子进程 SIGKILL 后租约恢复、generation fencing 与孤立转换目录回收已在隔离环境通过；生产 systemd/应用服务重启、限额、真正 legacy DOC 识别和整卷内容验收未完成。M4 合成批量事务/幂等与 Word B Q1 隔离发布通过；真实 PDF C 整卷仍未批量入库，尚无逐题映射签字。M5 保持结果制和既有 SSO 代码路径，迁移副本保留身份/作答/标签/答题卡/练习数据；真实教师 SSO 和部署版全视图回归未验。M6 合成预览/映射/幂等/撤销通过；历史题生产映射和撤销未做。M7 严格门禁通过提交基线 `a5ab6670` 的 ref、进程存活、HTTP 和 runtime 检查；但 PID 115814 启动于该提交前，且后续 auto-update 未重启进程，实际加载版本未证明。实现代码未提交/部署，生产新导入与渲染资源仍为 404，真实教师登录流程未验。所有 M 阶段不得整体标记完成。
+阶段状态（截至 2026-09-30 当前）：M7 代码已发布到 `15ff029356c7fc63bb0d4444ce271a2323d928c7`，本机/GitHub/生产 checkout 对齐；严格远端 gate 通过，真实未认证 Chromium 已验证导题路由正确回到登录页、静态资源可加载。生产核心 schema 保持 v11，新增文档功能账本为 12，64 张旧表指纹不变。M0 仍待真实教师逐题语义/公式/图位核验；M1 迁移与数据保留副本/生产表指纹检查通过；M2/M3 的隔离渲染、导出与 worker 故障边界通过，但生产真实文件链路未验；M4 PDF C 整卷入库/导出待教师审签；M5 真实教师 SSO 与使用流程待验；M6 生产历史题映射、正式修复与撤销待验；MinerU 生产模型未配置，PDF OCR 暂不可用。M0—M6 不整体通过，M7 仅代码部署和未认证入口子项通过。
 
 证据目录：`output/document-ingestion-evidence-20260929/`。当前自动化与发布门禁：`local-release-check-math-heading-final.log`（288 项通过）和 `remote-release-check-math-heading-final.log`（SSH 阻塞）；早期全量测试记录 `full-test-run-273.log` 与 `full-test-run-273.json` 保留作历史迭代证据；本地运行依赖：`runtime-readiness-local.json`；当前真实 Word A/B 静态浏览器证据见 `m0-real-word-current-browser-check.json`、`m0-word-a-current-browser-first-screen.png`、`m0-word-b-current-browser-first-screen.png`、`m0-word-b-current-browser-q12-preview.png`；合成工作流截图仍包括 `m4-candidate-reorder-browser.json`、`m4-source-image-browser.json`、`m4-split-merge-browser.json`、`m4-batch-publish-synthetic.png`。
 
@@ -179,7 +179,7 @@
 | RD-01 | 题库、教师考试、学生错题、练习选项、解析、学习单 | 使用同一 renderer，格式及图一致 | 待验收 |
 | RD-02 | 已建测评后编辑题库新版本 | 历史题干、评分规则和图片仍是绑定版本 | 通过（合成快照）— 新修订不改变已有测评绑定版本；tests.test_document_worker |
 | RD-03 | 原始 HTML、脚本 URL、恶意数学宏、任意图片路径 | 不执行脚本、不请求任意资源，给出合法内容 | 通过（测试）— 原始 HTML、危险链接和不受控图片引用按安全渲染器规则处理；tests.test_document_models |
-| RD-04 | /physics/ 与直连路径、数学字体 | 两种路径均无 404/字体错载/图片断链 | 失败（生产新功能未发布）— 最新生产只读 HTTP 为 login 200、当前 app.css/js 200，但新 document-import.css 与 question-rendering.css 仍 404；生产运行的是未含新代码的基线。当前实现本地真实 PDF C 产品 renderer 在浏览器中 KaTeX 102 个无错误、图片 23/23 加载。生产路径/字体验收仍未达标。证据 `current-production-readonly-http.json`、`m0-pdf-c-current-browser-review.json` |
+| RD-04 | /physics/ 与直连路径、数学字体 | 两种路径均无 404/字体错载/图片断链 | 部分通过（生产公开入口）— 15ff0293 部署后真实 Chromium 访问导题入口正确 303 到 `/physics/login`；登录 CSS/JS 与 document-import、question-rendering、KaTeX 资源均 200，浏览器请求失败 0。生产教师登录后的题目图文渲染仍待本人实际使用复核。证据 `production-browser-check-proxy-fix-20260930.json`、`remote-strict-release-check-proxy-fix-20260930.log` |
 | EX-01 | 导出含图/公式单题 ZIP 后离线打开 | 相对路径完整，正文/图片哈希与版本一致 | 通过（合成单题 + 一道真实样本题）— Word B Q1 的实际任务包解压后含可编辑题干、A-D 选项、相对图片链接；离线资源存在且 SHA-256 匹配 manifest，无 API URL/占位文本。synthetic-offline-question.json/.zip、m0-word-b-current-app-e2e.json、m0-word-b-real-sample-task-export.zip |
 | EX-02 | 导出某个填空小问 | 包含父题公共条件和必要图片，当前小问清楚 | 通过（合成小问）— 子题导出含父题公共条件；tests.test_question_export |
 | EX-03 | 整卷 ZIP，多个同名图片 | 题序正确，无覆盖，paper.md 与分题文件引用均可解析 | 通过（合成整卷）— 多题次序、共享同名资源和相对路径经测试；tests.test_question_export |
@@ -201,10 +201,10 @@
 | OP-01 | 备份恢复副本 | SQLite 完整，原件/资源齐全，引用校验通过 | 待验收 |
 | OP-02 | 发布维护期间处理 auto-update timer | 无半更新启动，结束后恢复原状态 | 待验收 |
 | OP-03 | 更新后检查 HTTP 与 worker | 均运行目标提交，任务恢复及页面正常 | 待验收 |
-| OP-04 | 严格远端 release gate | 全通过，保存实际日志，不用本地结果代替 | 阻塞（基线门禁通过，功能发布/运行版本未验）— 2026-09-30 最新 `REQUIRE_REMOTE_HEAD_MATCH=1` exit 0，确认 refs、现存服务、root、公开登录 HTTP 与生产 runtime readiness 通过；本机、origin、GitHub 和生产均为基线 `a5ab6670dce154ce8bd6c58e3bd41df278754320`，当前改动仍未提交，不能证明服务加载新代码或导入资产已发布。证据 `remote-strict-release-check-wk04-wk05-20260930.log`。
-| OP-05 | 真实教师上传到离线导出全链路 | 实际远端文件、页面、ZIP 有对应证据 | 阻塞 — SSO 当前可重定向到 IdP，但未输入凭据；文档导入/渲染 CSS 仍为 404，新代码未部署，生产教师与真实远端 ZIP 流程尚未实测 |
+| OP-04 | 严格远端 release gate | 全通过，保存实际日志，不用本地结果代替 | 通过（部署/未认证入口子项）— 2026-09-30 `REQUIRE_REMOTE_HEAD_MATCH=1` 通过；本机/GitHub/远端均为 `15ff029356c7fc63bb0d4444ce271a2323d928c7`，app 和 worker active，schema/runtime/HTTP 通过。另用真实 Chromium 验了 `/physics/documents` 登录重定向及静态资源。真实教师 SSO、文件转换和发布验收不属于此 gate。证据 `remote-strict-release-check-proxy-fix-20260930.log`、`production-browser-check-proxy-fix-20260930.json` |
+| OP-05 | 真实教师上传到离线导出全链路 | 实际远端文件、页面、ZIP 有对应证据 | 待教师实用验收 — 正式代码已上线，但没有代入真实教师凭据、生产上传或发布；MinerU pipeline 模型尚缺配置，扫描 PDF 识别当前不可用。待教师 SSO、真实文件草稿、Markdown/图文预览及离线 ZIP 全链路反馈后逐项验收 |
 | OP-06 | v12 兼容回退演练 | 旧功能及已发布新内容仍可读，schema 未降级 | 通过（隔离合成副本）— 基线应用在已发布新题副本实启；旧学生练习页与旧图片路由均返回 200，核心 schema 未降级，功能迁移账本和已发布新内容保留。未在生产 live 回退。证据 `m1-op06-baseline-published-content-rehearsal.json` |
-| SSO-01 | 生产统一登录链路 | 登录资源可加载，SSO 端点跳转 IdP 并完成现有教师会话认证 | 部分通过 — 最新未认证 GET 显示 login 与基础 CSS/JS 均 200，`/physics/sso/login` 返回 303 到既有 `/auth/realms/school-platform/...` IdP 路径；未输入凭据，真实教师 session 与登录后工作流未验。测试结果 `current-production-readonly-http.json`；本地假 IdP 回归 `tests.test_document_http.DocumentHTTPTests.test_sso_login_redirect_keeps_proxy_prefix_in_callback_uri` |
+| SSO-01 | 生产统一登录链路 | 登录资源可加载，SSO 端点跳转 IdP 并完成现有教师会话认证 | 部分通过（未认证入口）— `/physics/login` 返回 200 并正确加载资源；导题页未认证访问按预期重定向到该页；未输入凭据或完成 IdP callback，真实教师 session 和导题授权仍待用户实用验收。定向路径回归 `tests.test_document_http.test_sso_login_redirect_keeps_proxy_prefix_in_callback_uri`；线上证据 `production-browser-check-proxy-fix-20260930.json` |
 
 ## 7. 完成判定
 
@@ -466,3 +466,14 @@ schema 与兼容回退版本：
 - Chrome 实际打开该 HTML：15 个题目卡片、23 张题图全部加载，108 个 KaTeX 节点、0 个排版错误，两个题型说明作为独立区块显示。截图和逐项核对摘要见同目录 `browser-render-qa.json` 与 `browser-*-review.png`。这证明本轮修改已渲染且资源齐全，不等于全部内容语义签审或正式题库发布。
 - 用户要求 M4 PDF C 整卷入库/离线导出、M5 生产教师 SSO、M6 历史题真实映射/可撤销修复和 M7 新代码生产加载版本验收等到系统正式上线后再验收；本轮均不标为通过，也没有做生产迁移、写库、发布或重启。MinerU 安装/模型配置与生产进程、SSO 核查边界见 `output/document-ingestion-evidence-20260929/document-ingestion-go-live-gates-20260930.md`。
 - 本轮以项目 QA 虚拟环境执行 `PYTHON_BIN=/tmp/hsp-doc-test-env/bin/python VERIFY_TARGET=local bash scripts/hsp_release_check.sh`：330 项测试通过、1 项跳过，compileall、Node 语法与 `git diff --check` 通过；HTTP smoke 未启用。日志 `output/document-ingestion-evidence-20260929/local-release-check-after-corrections-20260930.log`。本机精简 QA 环境未安装 MinerU/MarkItDown/Playwright/Authlib；该 readiness 缺项不替代也不否定之前隔离生产环境的真实 PDF C OCR 记录，更不证明生产模型配置可用。
+
+### M7 正式发布、生产入口复验与 MinerU 配置状态（2026-09-30）
+
+- 两个提交已推送至 GitHub `main`；最终部署 SHA 为 `15ff029356c7fc63bb0d4444ce271a2323d928c7`。第二次提交修复了生产 Nginx `proxy_redirect`/`sub_filter` 与应用同时添加 `/physics` 前缀导致的重复路径。生产 SSH 用户没有免密 sudo，故未改动 Nginx 系统配置；应用已按当前代理契约输出根路径，由代理统一添加公开前缀。
+- 部署后真实 Chromium 未认证打开 `http://10.50.159.62/physics/documents`：303 后到 `/physics/login` 并返回 200；登录页 CSS/JS 使用正确 `/physics/assets/...` 路径。document-import、question-rendering、KaTeX 等 7 个目标资源状态均为 200，浏览器请求失败数为 0。证据 `production-browser-check-proxy-fix-20260930.json`、`production-login-browser-proxy-fix-20260930.png`。未提交生产 SSO 凭据，也未登录真实教师会话。
+- `REQUIRE_REMOTE_HEAD_MATCH=1 bash scripts/hsp_release_check.sh` 通过：本机、origin、GitHub 与生产 SHA 一致；app 与 worker active；生产核心 schema v11、文档账本 v12、DB integrity 及外键检查通过；新资源 HTTP 200。证据 `remote-strict-release-check-proxy-fix-20260930.log`。本机 release check 332 tests 通过、1 skipped，证据 `local-release-check-proxy-fix-20260930.log`。
+- 发布前已对生产 SQLite 做在线备份，路径 `/home/yub/Documents/trae_projects/HighSchoolPhysics/data/backups/school.sqlite3-before-document-ingestion-20260930T041059Z.sqlite3`、SHA-256 `27b4e7c79644873d9b408adcf5467d47d8a759ba4d051a1efd9fa4b8ff0fda00`。部署迁移后，64 张既有表的 schema/data 指纹逐表均一致，`integrity_check=ok`、外键错误 0；没有发布题目或改写学生记录。机器快照 `production-live-predeploy-snapshot-20260930.json`、`production-live-postdeploy-data-integrity-20260930.json`。
+- 当前教师可从 `http://10.50.159.62/physics/login` 进入既有统一平台登录；登录后打开教师工作台的“整份试卷导入”。可先上传文件副本，查看转换、拆题、Markdown 正文及预览，不要在未审签的 PDF C 上批量入库。DOCX 可以进入真实教师试用；扫描 PDF OCR 需先配 MinerU 模型，当前会因缺配置而失败关闭。
+- MinerU 配置边界：生产已安装 MinerU 3.4.0，但不是独立 `mineru-api` 服务；document worker 是本地 systemd 服务，调用 `mineru` CLI 的 `pipeline` backend。unit 已设置 `HSP_MINERU_TOOLS_CONFIG_JSON=/home/yub/mineru.json`、`MINERU_MODEL_SOURCE=local`、`HSP_MINERU_THREADS=1`。在服务器服务用户 `yub` 下先检查空间 `df -h /home/yub`，再用 3.x 官方 CLI 下载 pipeline 模型：`mineru-models-download -s modelscope -m pipeline`。下载器会写入 `~/mineru.json`；需确认其 `models-dir.pipeline` 为绝对模型根目录且存在 `models/Layout/PP-DocLayoutV2`、`models/MFR/unimernet_hf_small_2503`、`models/OCR/paddleocr_torch`、表格模型及 `models/MFR/pp_formulanet_plus_m`。worker 环境固定 `MINERU_MODEL_SOURCE=local`，避免任务执行时联网取模型。随后以相同 worker 环境运行 runtime check，期望 `mineru-local=configured`；重启 document worker 后，还必须用真实 PDF 经过产品上传/worker/Markdown/图文预览检查，才算识别成功。
+- 该服务器为 2 vCPU/15 GiB，CPU pipeline 可用但要评估处理时间和磁盘增长；当前未下载模型，避免未经确认触发大体积联网下载。若改走独立 GPU MinerU API，当前 document-ingestion adapter 尚未连接 API provider；仅在管理设置里填 API 地址不能使本导题 worker 改走远端。
+- 未认证入口修复与部署已通过；M4 PDF C 整卷正式发布/离线导出、M5 生产教师 SSO 工作流、M6 历史题真实映射及可撤销修复仍依用户此前约定等待正式上线后验收。原生 `.doc` 按用户意见暂缓。整体不宣称完成。
