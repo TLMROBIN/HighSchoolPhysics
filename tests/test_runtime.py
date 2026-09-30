@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -175,6 +176,39 @@ class RuntimeCliTests(unittest.TestCase):
             [item["capability_id"] for item in payload["capabilities"]],
             list(CAPABILITY_IDS),
         )
+
+    def test_runtime_check_cli_reads_enabled_mineru_api_provider_from_database(self):
+        with tempfile.TemporaryDirectory(prefix="hsp-runtime-provider-") as directory:
+            db_path = Path(directory) / "school.sqlite3"
+            with sqlite3.connect(db_path) as conn:
+                conn.execute(
+                    """create table provider_configs(
+                         provider_kind text,provider_name text,model_name text,enabled integer,
+                         api_endpoint text,secret_ciphertext text,last_test_status text,
+                         updated_at text,created_at text
+                       )"""
+                )
+                conn.execute(
+                    """insert into provider_configs values(
+                         'mineru_api','Production MinerU','vlm',1,
+                         'https://mineru.example.test','encrypted-test-value','ready','2026-09-30','2026-09-29'
+                       )"""
+                )
+            completed = subprocess.run(
+                [sys.executable, "-m", "highschoolphysics.runtime_check", "--json", "--db", str(db_path)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            mineru_api = next(
+                item for item in json.loads(completed.stdout)["capabilities"]
+                if item["capability_id"] == "mineru-api"
+            )
+            self.assertEqual(mineru_api["status"], "ready")
+            self.assertIn("successful saved connection test", mineru_api["detail"])
+            self.assertEqual(mineru_api["version"], "vlm")
 
 
 if __name__ == "__main__":

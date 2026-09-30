@@ -35,6 +35,8 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("document-import.css", script)
         self.assertIn("question-rendering.js", script)
         self.assertIn("app_schema_migrations", script)
+        self.assertIn("automatic_tagging_queue", script)
+        self.assertIn("--db data/school.sqlite3", script)
         self.assertIn("pragma foreign_key_check", script)
 
     def test_remote_release_check_verifies_public_physics_login_entry(self):
