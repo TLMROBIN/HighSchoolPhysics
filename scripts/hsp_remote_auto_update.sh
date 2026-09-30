@@ -12,6 +12,7 @@ SERVER_DB="${SERVER_DB:-data/school.sqlite3}"
 SERVER_LOG="${SERVER_LOG:-data/server-auto-update.log}"
 PID_FILE="${PID_FILE:-data/server.pid}"
 APP_SERVICE="${APP_SERVICE:-highschoolphysics-app.service}"
+DOCUMENT_WORKER_SERVICE="${DOCUMENT_WORKER_SERVICE:-highschoolphysics-document-worker.service}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8765/}"
 
 log() {
@@ -25,6 +26,43 @@ fail() {
 
 managed_service_available() {
   command -v systemctl >/dev/null && systemctl --user cat "$APP_SERVICE" >/dev/null 2>&1
+}
+
+document_worker_service_available() {
+  command -v systemctl >/dev/null && systemctl --user cat "$DOCUMENT_WORKER_SERVICE" >/dev/null 2>&1
+}
+
+stop_document_worker() {
+  if document_worker_service_available && systemctl --user is-active --quiet "$DOCUMENT_WORKER_SERVICE"; then
+    log "stopping document worker before checkout update"
+    systemctl --user stop "$DOCUMENT_WORKER_SERVICE"
+  fi
+}
+
+sync_document_worker() {
+  local unit_source unit_target unit_changed=0
+  unit_source="$PROJECT_DIR/scripts/systemd/$DOCUMENT_WORKER_SERVICE"
+  unit_target="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$DOCUMENT_WORKER_SERVICE"
+  [[ -f "$unit_source" ]] || fail "document worker unit is missing from the updated checkout"
+  mkdir -p "$(dirname "$unit_target")"
+  if ! cmp -s "$unit_source" "$unit_target"; then
+    install -m 0644 "$unit_source" "$unit_target"
+    unit_changed=1
+    systemctl --user daemon-reload
+  fi
+
+  systemctl --user enable "$DOCUMENT_WORKER_SERVICE" >/dev/null
+  if [[ "$unit_changed" == "1" || "$1" == "1" ]]; then
+    if document_worker_service_available && systemctl --user is-active --quiet "$DOCUMENT_WORKER_SERVICE"; then
+      systemctl --user restart "$DOCUMENT_WORKER_SERVICE"
+    else
+      systemctl --user start "$DOCUMENT_WORKER_SERVICE"
+    fi
+  elif ! systemctl --user is-active --quiet "$DOCUMENT_WORKER_SERVICE"; then
+    systemctl --user start "$DOCUMENT_WORKER_SERVICE"
+  fi
+  systemctl --user is-active --quiet "$DOCUMENT_WORKER_SERVICE" || fail "document worker did not become active"
+  log "document worker is active"
 }
 
 server_pids() {
@@ -105,6 +143,7 @@ main() {
   log "fetched HEAD=${after}"
 
   if [[ "$before" != "$after" ]]; then
+    stop_document_worker
     log "updating checkout to ${after}"
     git reset --hard FETCH_HEAD
   else
@@ -123,6 +162,9 @@ main() {
   fi
 
   wait_for_health
+  if command -v systemctl >/dev/null && systemctl --user cat "$APP_SERVICE" >/dev/null 2>&1; then
+    sync_document_worker "$([[ "$before" != "$after" ]] && printf '1' || printf '0')"
+  fi
   log "auto-update complete"
 }
 

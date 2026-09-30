@@ -8,7 +8,9 @@ from .taxonomy import DEFAULT_ONTOLOGY_ID, install_default_taxonomy
 
 
 DEFAULT_DB_PATH = Path("data/highschoolphysics.sqlite3")
+BASE_SCHEMA_VERSION = 11
 SCHEMA_VERSION = 11
+DOCUMENT_INGESTION_SCHEMA_VERSION = 12
 
 
 def connect(path=DEFAULT_DB_PATH):
@@ -37,7 +39,136 @@ def _ensure_column(conn, table, definition):
         conn.execute("alter table %s add column %s" % (table, definition))
 
 
+def _schema_version(conn):
+    return int(conn.execute("pragma user_version").fetchone()[0])
+
+
+def _document_ingestion_schema_version(conn):
+    exists = conn.execute(
+        "select 1 from sqlite_master where type='table' and name='app_schema_migrations'"
+    ).fetchone()
+    if exists is None:
+        return 0
+    row = conn.execute(
+        "select version from app_schema_migrations where feature='document_ingestion'"
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _execute_sqlite_script(conn, script):
+    """Execute complete SQL statements without sqlite3.executescript's commits."""
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if not sqlite3.complete_statement(pending):
+            continue
+        executable_lines = [
+            line.strip()
+            for line in pending.splitlines()
+            if line.strip() and not line.lstrip().startswith("--")
+        ]
+        if executable_lines:
+            conn.execute(pending)
+        pending = ""
+    if pending.strip():
+        raise ValueError("Incomplete SQL statement in schema migration")
+
+
+def _migrate_document_ingestion_v12(conn):
+    if _document_ingestion_schema_version(conn) >= DOCUMENT_INGESTION_SCHEMA_VERSION:
+        return
+    if _schema_version(conn) != BASE_SCHEMA_VERSION:
+        raise RuntimeError(
+            "Document ingestion migration requires schema version %d"
+            % BASE_SCHEMA_VERSION
+        )
+    if conn.in_transaction:
+        conn.commit()
+
+    migration_path = Path(__file__).with_name("migrations") / "v12_document_ingestion.sql"
+    script = migration_path.read_text(encoding="utf-8")
+    additions = {
+        "document_parse_tasks": [
+            "input_document_id text references document_files(id)",
+            "phase text not null default ''",
+            "progress_json text not null default '{}'",
+            "generation integer not null default 1",
+            "attempts integer not null default 0",
+            "lease_token text",
+            "lease_until text",
+            "heartbeat_at text",
+            "cancel_requested integer not null default 0",
+            "error_code text not null default ''",
+            "available_at text",
+            "updated_at text",
+            "conversion_id text references document_conversions(id)",
+            "created_by text references users(id)",
+        ],
+        "parsed_question_items": [
+            "conversion_id text references document_conversions(id)",
+            "document_json text",
+            "review_revision integer not null default 1",
+            "issues_json text not null default '[]'",
+            "disposition text not null default 'active'",
+            "updated_by text references users(id)",
+            "updated_at text",
+        ],
+    }
+
+    conn.execute("begin immediate")
+    try:
+        _execute_sqlite_script(conn, script)
+        for table, definitions in additions.items():
+            for definition in definitions:
+                _ensure_column(conn, table, definition)
+        conn.execute(
+            "create index if not exists idx_document_parse_tasks_queue "
+            "on document_parse_tasks(status, available_at, lease_until)"
+        )
+        conn.execute(
+            "create index if not exists idx_parsed_question_items_conversion "
+            "on parsed_question_items(conversion_id, disposition, item_index)"
+        )
+
+        foreign_key_errors = conn.execute("pragma foreign_key_check").fetchall()
+        if foreign_key_errors:
+            raise sqlite3.IntegrityError(
+                "Foreign key check failed during schema v12 migration: %r"
+                % (foreign_key_errors[:5],)
+            )
+        integrity = conn.execute("pragma integrity_check").fetchone()[0]
+        if integrity != "ok":
+            raise sqlite3.DatabaseError(
+                "Integrity check failed during schema v12 migration: %s" % integrity
+            )
+
+        conn.execute(
+            """insert into app_schema_migrations(feature,version)
+               values('document_ingestion',?)
+               on conflict(feature) do update set
+                 version=excluded.version,applied_at=current_timestamp""",
+            (DOCUMENT_INGESTION_SCHEMA_VERSION,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def initialize_database(conn):
+    version = _schema_version(conn)
+    if version > SCHEMA_VERSION:
+        raise RuntimeError(
+            "Database schema version %d is newer than supported version %d"
+            % (version, SCHEMA_VERSION)
+        )
+
+    if version < BASE_SCHEMA_VERSION:
+        _initialize_legacy_schema(conn)
+    _migrate_document_ingestion_v12(conn)
+
+
+def _initialize_legacy_schema(conn):
     conn.executescript(
         """
         create table if not exists schools (
@@ -1072,7 +1203,10 @@ def initialize_database(conn):
         );
         create index if not exists exam_asset_question on exam_assets(question_id);
     """)
-    conn.execute("pragma user_version = %d" % SCHEMA_VERSION)
+    conn.execute(
+        "pragma user_version = %d"
+        % max(_schema_version(conn), BASE_SCHEMA_VERSION)
+    )
     conn.commit()
 
 

@@ -1,0 +1,48 @@
+.question-content {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.question-content-image {
+  display: block;
+  max-width: min(100%, 48rem);
+  max-height: 32rem;
+  object-fit: contain;
+  margin: 0.75rem auto;
+}
+
+.question-options,
+.question-children {
+  padding-inline-start: 2rem;
+}
+
+.question-options {
+  list-style: none;
+}
+
+.question-options > li,
+.question-children > li {
+  padding: 0.2rem 0 0.55rem;
+}
+
+@media (max-width: 560px) {
+  .question-content .katex,
+  .question-content .katex-display {
+    display: inline-block;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+.question-solution {
+  border-top: 1px solid #d8e0eb;
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+
+.question-image-unavailable,
+.blocked-content-link {
+  color: #8d3f15;
+  background: #fff2db;
+}

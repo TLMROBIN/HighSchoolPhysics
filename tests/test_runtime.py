@@ -1,11 +1,13 @@
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 from highschoolphysics.runtime import (
+    CAPABILITY_DEFINITIONS,
     CAPABILITY_IDS,
     check_runtime_capabilities,
     check_single_capability,
@@ -61,6 +63,46 @@ class RuntimeCapabilityTests(unittest.TestCase):
             self.assertIn("label", item)
             self.assertIn("detail", item)
             self.assertIn("version", item)
+
+    def test_mineru_is_not_ready_until_its_supported_pipeline_models_are_present(self):
+        definition = next(
+            item for item in CAPABILITY_DEFINITIONS if item["id"] == "mineru-local"
+        )
+        with tempfile.TemporaryDirectory(prefix="hsp-mineru-readiness-") as directory:
+            home = Path(directory)
+            config_path = home / "mineru.json"
+            model_root = home / "pipeline-models"
+            with patch.dict("os.environ", {}, clear=True), \
+                    patch("highschoolphysics.runtime.Path.home", return_value=home), \
+                    patch("highschoolphysics.runtime._package_version", return_value="3.4.0"), \
+                    patch("highschoolphysics.runtime.import_module"), \
+                    patch("highschoolphysics.runtime.shutil.which", return_value="/usr/bin/mineru"):
+                missing = check_single_capability(definition)
+                self.assertEqual(missing["status"], "missing_configuration")
+
+                config_path.write_text("{not-json", encoding="utf-8")
+                invalid = check_single_capability(definition)
+                self.assertEqual(invalid["status"], "invalid_configuration")
+
+                config_path.write_text(
+                    json.dumps({"models-dir": {"pipeline": str(model_root)}}),
+                    encoding="utf-8",
+                )
+                model_root.mkdir()
+                absent = check_single_capability(definition)
+                self.assertEqual(absent["status"], "missing_models")
+
+                for relative_path, expected_type in definition["required_pipeline_models"]:
+                    target = model_root / relative_path
+                    if expected_type == "file":
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(b"fixture model marker")
+                    else:
+                        target.mkdir(parents=True, exist_ok=True)
+
+                configured = check_single_capability(definition)
+                self.assertEqual(configured["status"], "configured")
+                self.assertIn("does not prove OCR quality", configured["detail"])
 
     def test_python_minimum_is_reported_as_degraded(self):
         result = check_single_capability(

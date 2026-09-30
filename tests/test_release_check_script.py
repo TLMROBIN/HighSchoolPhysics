@@ -7,7 +7,10 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         script = Path("scripts/hsp_release_check.sh").read_text(encoding="utf-8")
 
         self.assertIn("compileall -q highschoolphysics tools tests", script)
-        self.assertIn("node --check highschoolphysics/assets/app.js", script)
+        self.assertIn('node --check "$asset"', script)
+        self.assertIn("highschoolphysics/assets/app.js", script)
+        self.assertIn("highschoolphysics/assets/document-import.js", script)
+        self.assertIn("highschoolphysics/assets/question-rendering.js", script)
         self.assertIn("unittest discover -s tests -v", script)
         self.assertIn("highschoolphysics.runtime_check --json", script)
         self.assertIn("git diff --check", script)
@@ -28,6 +31,11 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("REQUIRE_UPSTREAM_PARITY", script)
         self.assertIn("RUN_HTTP_SMOKE", script)
         self.assertIn("HSP_BASE_URL", script)
+        self.assertIn("highschoolphysics-document-worker.service", script)
+        self.assertIn("document-import.css", script)
+        self.assertIn("question-rendering.js", script)
+        self.assertIn("app_schema_migrations", script)
+        self.assertIn("pragma foreign_key_check", script)
 
     def test_remote_release_check_verifies_public_physics_login_entry(self):
         script = Path("scripts/hsp_release_check.sh").read_text(encoding="utf-8")
@@ -47,6 +55,15 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("git reset --hard FETCH_HEAD", script)
         self.assertIn("python3", script)
         self.assertIn("urllib.request", script)
+
+    def test_remote_auto_update_installs_and_restarts_document_worker(self):
+        script = Path("scripts/hsp_remote_auto_update.sh").read_text(encoding="utf-8")
+
+        self.assertIn("highschoolphysics-document-worker.service", script)
+        self.assertIn("stop_document_worker", script)
+        self.assertIn("sync_document_worker", script)
+        self.assertIn('systemctl --user enable "$DOCUMENT_WORKER_SERVICE"', script)
+        self.assertIn('systemctl --user restart "$DOCUMENT_WORKER_SERVICE"', script)
 
     def test_systemd_timer_runs_remote_auto_update(self):
         service = Path("scripts/systemd/highschoolphysics-auto-update.service").read_text(

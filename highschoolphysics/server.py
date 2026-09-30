@@ -4,8 +4,10 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 from urllib.parse import parse_qs, quote, urlencode, urlparse
 import html
+import os
 from http.cookies import SimpleCookie
 
 from .auth import AuthService, validate_password
@@ -29,10 +31,21 @@ from .repository import PhysicsRepository, dumps
 from . import learning, learning_views
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
+from .public_assets import read_public_asset
+from .question_rendering import question_math_asset_tags
+from . import document_ingestion, document_views
+from .document_store import DocumentStore, DocumentStoreError
+from .question_export import (
+    QuestionExportError,
+    build_paper_markdown_zip,
+    build_question_markdown_zip,
+)
+from .question_content import visible_question_asset_ids
 
 
-ASSET_DIR = Path(__file__).with_name("assets")
 ASSET_VERSION = "20260922-exam-import"
+QUESTION_ASSET_VERSION = "20260929-mobile-katex-scroll"
+DOCUMENT_ASSET_VERSION = "20260929-review-draft-export-review-state"
 
 
 def ensure_database(path, demo_mode=False):
@@ -54,7 +67,12 @@ def truthy(value):
     return str(value).lower() in ("1", "true", "yes", "on", "启用", "双向")
 
 
-def render_layout(title, user, body, active=""):
+def document_ingestion_enabled():
+    value = os.environ.get("HSP_DOCUMENT_INGESTION_ENABLED")
+    return False if value is None else truthy(value)
+
+
+def render_layout(title, user, body, active="", question_math=False):
     user_text = ""
     if user:
         role_label = {
@@ -64,10 +82,11 @@ def render_layout(title, user, body, active=""):
         }.get(user["role"], user["role"])
         user_text = (
             "<div class='session-chip'>"
-            "<span>%s</span><strong>%s</strong><a href='exams'>考试与作答</a><a href='logout' onclick=\"return confirm('确定退出登录吗？')\">退出</a>"
+            "<span>%s</span><strong>%s</strong><a href='/exams'>考试与作答</a><a href='/logout' onclick=\"return confirm('确定退出登录吗？')\">退出</a>"
             "</div>"
             % (escape(role_label), escape(user["display_name"]))
         )
+    math_assets, math_scripts = question_math_asset_tags(QUESTION_ASSET_VERSION) if question_math else ("", "")
     return """<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -75,6 +94,8 @@ def render_layout(title, user, body, active=""):
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
   <link rel="stylesheet" href="/assets/app.css?v={asset_version}">
+  {document_styles}
+  {math_assets}
 </head>
 <body data-active="{active}">
   <header class="topbar">
@@ -83,6 +104,8 @@ def render_layout(title, user, body, active=""):
   </header>
   <main>{body}</main>
   <script src="/assets/app.js?v={asset_version}"></script>
+  {math_scripts}
+  {document_scripts}
 </body>
 </html>""".format(
         title=escape(title),
@@ -90,6 +113,16 @@ def render_layout(title, user, body, active=""):
         asset_version=escape(ASSET_VERSION),
         user_text=user_text,
         body=body,
+        math_assets=math_assets,
+        math_scripts=math_scripts,
+        document_styles=(
+            '<link rel="stylesheet" href="/assets/document-import.css?v=%s">' % escape(DOCUMENT_ASSET_VERSION)
+            if 'data-document-home' in body or 'data-document-review' in body or 'document-entry' in body else ""
+        ),
+        document_scripts=(
+            '<script defer src="/assets/document-import.js?v=%s"></script>' % escape(DOCUMENT_ASSET_VERSION)
+            if 'data-document-home' in body or 'data-document-review' in body else ""
+        ),
     )
 
 
@@ -3009,6 +3042,34 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._send_html(render_change_password_page(user))
             elif user and user["must_change_password"]:
                 self._redirect("/change-password")
+            elif path == "/documents":
+                if not user:
+                    self._redirect("/login")
+                elif not document_ingestion_enabled():
+                    self._send_error(HTTPStatus.NOT_FOUND, "整卷导入当前未启用")
+                elif user["role"] not in ("teacher", "admin"):
+                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能管理试卷导入")
+                else:
+                    tasks = document_ingestion.list_tasks(conn, user)
+                    body = document_views.documents_home(user, tasks)
+                    self._send_html(render_layout("导入整份试卷", user, body, "teacher"))
+            elif path == "/documents/review":
+                if not user:
+                    self._redirect("/login")
+                elif not document_ingestion_enabled():
+                    self._send_error(HTTPStatus.NOT_FOUND, "整卷导入当前未启用")
+                elif user["role"] not in ("teacher", "admin"):
+                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能复核导入题目")
+                else:
+                    task_id = (parse_qs(parsed.query).get("task_id") or [""])[0]
+                    task = document_ingestion.get_task(conn, user, task_id)
+                    items = document_ingestion.get_task_items(conn, user, task_id, limit=500)
+                    source_assets = document_ingestion.get_task_source_assets(conn, user, task_id)
+                    self._send_html(render_layout("整卷复核", user, document_views.document_review_page(task, items, source_assets), "teacher", question_math=True))
+            elif path.startswith("/api/documents/"):
+                self._handle_documents_get(conn, user, path, parse_qs(parsed.query))
+            elif path.startswith("/api/question-assets/"):
+                self._handle_question_asset_get(conn, user, path, parse_qs(parsed.query))
             elif path == "/":
                 self._redirect(self._home_for(user))
             elif path == "/exams":
@@ -3017,7 +3078,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 else:
                     repo = PhysicsRepository(conn)
                     aid = (parse_qs(parsed.query).get("id") or [None])[0]
-                    self._send_html(render_layout("考试与作答", user, (learning_views.exams(repo, user, aid) if learning.enabled(conn) else render_exams(repo, user, aid)), "exams"))
+                    if learning.enabled(conn):
+                        body = learning_views.exams(repo, user, aid, self._base_path())
+                        self._send_html(render_layout("考试与作答", user, body, "exams", question_math=True))
+                    else:
+                        self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams", question_math=True))
             elif path == "/exam-media":
                 if not user:
                     self._send_error(HTTPStatus.FORBIDDEN, "请先登录")
@@ -3036,7 +3101,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._redirect("/login")
                 elif user["role"] == "student":
                     repo = PhysicsRepository(conn)
-                    self._send_html((render_layout("我的学习", user, learning_views.student(repo, user, parse_qs(parsed.query)), "app") if learning.enabled(conn) else render_student_app(user, repo.student_dashboard(user["id"]))))
+                    if learning.enabled(conn):
+                        self._send_html(render_layout("我的学习", user, learning_views.student(repo, user, parse_qs(parsed.query), self._base_path()), "app", question_math=True))
+                    else:
+                        self._send_html(render_student_app(user, repo.student_dashboard(user["id"])))
                 else:
                     self._redirect(self._home_for(user))
             elif path == "/teacher":
@@ -3044,7 +3112,18 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._redirect("/login")
                 elif user["role"] in ("teacher", "admin"):
                     repo = PhysicsRepository(conn)
-                    self._send_html((render_layout("教师工作台", user, learning_views.teacher(repo, user, parse_qs(parsed.query)), "teacher") if learning.enabled(conn) else render_teacher_app(user, repo.teacher_dashboard(user["id"]))))
+                    document_entry = (
+                        '<section class="document-entry"><a href="/documents">导入整份试卷</a>'
+                        '<span>Word / PDF 自动转换、拆题与复核</span></section>'
+                        if document_ingestion_enabled()
+                        else ""
+                    )
+                    if learning.enabled(conn):
+                        self._send_html(render_layout("教师工作台", user, document_entry + learning_views.teacher(repo, user, parse_qs(parsed.query)), "teacher"))
+                    else:
+                        teacher_page = render_teacher_app(user, repo.teacher_dashboard(user["id"]))
+                        teacher_page = teacher_page.replace("<main>", "<main>%s" % document_entry, 1)
+                        self._send_html(teacher_page)
                 else:
                     self._send_error(HTTPStatus.FORBIDDEN, "Forbidden")
             elif path == "/admin":
@@ -3076,7 +3155,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         student_id = user["id"]
                     repo = PhysicsRepository(conn)
                     if learning.enabled(conn):
-                        self._send_html(render_layout("错题学习单", user, '<base href="../../">' + learning_views.export_wrong_book(repo, user, assessment_id, student_id, class_id), "exams"))
+                        self._send_html(render_layout("错题学习单", user, '<base href="../../">' + learning_views.export_wrong_book(repo, user, assessment_id, student_id, class_id, self._base_path()), "exams", question_math=True))
                         return
                     self._send_html(
                         build_wrong_book_html(
@@ -3131,6 +3210,16 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             self._handle_login()
             return
 
+        if path.startswith("/api/documents/"):
+            self._require_same_origin()
+            if "application/json" not in self.headers.get("Content-Type", "").lower():
+                raise InvalidRequest("Document API requests must use application/json")
+            payload = self._read_payload(max_bytes=800 * 1024)
+            if not isinstance(payload, dict):
+                raise InvalidRequest("Document API request body must be a JSON object")
+            self._handle_documents_post(path, payload)
+            return
+
         conn = connect(self.db_path)
         try:
             user = self._current_user(conn)
@@ -3147,7 +3236,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             payload = self._read_payload()
             auth = AuthService(conn)
             if path.startswith("/api/learning/"):
-                result = learning.api(PhysicsRepository(conn), user, path.rsplit("/", 1)[-1], payload)
+                result = learning.api(PhysicsRepository(conn), user, path.rsplit("/", 1)[-1], payload, self._base_path())
                 self._send_json({"ok": True, "result": result})
                 return
             if learning.enabled(conn) and path in ("/api/exams/import", "/api/exams/upload-chunk", "/api/teacher/grade", "/api/student/redo-attempt", "/api/teacher/redo-attempt/review", "/api/teacher/grading-revision", "/api/teacher/ocr-import", "/api/teacher/resolve-review"):
@@ -3945,8 +4034,15 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 return value
         return None
 
-    def _read_payload(self):
-        length = int(self.headers.get("Content-Length", 0) or 0)
+    def _read_payload(self, max_bytes=2 * 1024 * 1024):
+        if self.headers.get("Content-Length") is None:
+            raise InvalidRequest("Content-Length is required")
+        try:
+            length = int(self.headers.get("Content-Length", "") or 0)
+        except (TypeError, ValueError) as exc:
+            raise InvalidRequest("Invalid Content-Length") from exc
+        if length < 0 or length > max_bytes:
+            raise document_ingestion.IngestionError("request_too_large", "The request body exceeds the allowed size", 413)
         raw = self.rfile.read(length).decode("utf-8") if length else ""
         content_type = self.headers.get("Content-Type", "")
         if "application/json" in content_type:
@@ -3964,6 +4060,15 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         return "/admin"
 
     def _send_html(self, content, status=HTTPStatus.OK):
+        base_path = self._base_path()
+        if base_path:
+            content = re.sub(r"<body(?=[ >])", '<body data-base-path="%s"' % html.escape(base_path, quote=True), content, count=1, flags=re.IGNORECASE)
+            content = re.sub(
+                r"\b(href|src|action)=(['\"])/(?!/)",
+                lambda match: '%s=%s%s/' % (match.group(1), match.group(2), base_path),
+                content,
+                flags=re.IGNORECASE,
+            )
         encoded = content.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -3982,35 +4087,467 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def _send_domain_error(self, error, code=None):
-        self._send_json(
-            {
-                "error": code or error.code,
-                "message": error.message,
-            },
-            status=error.status,
-        )
+        payload = {"error": code or error.code, "message": error.message}
+        if getattr(error, "details", None):
+            payload["details"] = error.details
+        self._send_json(payload, status=error.status)
 
     def _send_error(self, status, message):
         self._send_html(render_layout(str(status), None, "<section class='empty-state'>%s</section>" % escape(message)), status)
 
     def _redirect(self, target):
+        if target.startswith("/") and not target.startswith("//"):
+            prefix = self._base_path()
+            if prefix and not (target == prefix or target.startswith(prefix + "/")):
+                target = prefix + target
         self.send_response(HTTPStatus.SEE_OTHER)
         self.send_header("Location", target)
         self.end_headers()
 
     def _serve_asset(self, path):
-        name = Path(path).name
-        asset_path = ASSET_DIR / name
-        if not asset_path.exists():
+        relative = path[len("/assets/") :]
+        asset = read_public_asset(relative)
+        if asset is None:
             self._send_error(HTTPStatus.NOT_FOUND, "Asset not found")
             return
-        content_type = "text/css; charset=utf-8" if name.endswith(".css") else "application/javascript; charset=utf-8"
-        payload = asset_path.read_bytes()
+        content_type, payload = asset
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "public, max-age=3600")
         self.end_headers()
         self.wfile.write(payload)
+
+    def _base_path(self):
+        raw = (self.headers.get("X-Forwarded-Prefix") or "").strip()
+        if not raw:
+            return ""
+        segments = [segment for segment in raw.strip("/").split("/") if segment]
+        if not segments or any(segment in (".", "..") or not re.fullmatch(r"[A-Za-z0-9._~-]+", segment) for segment in segments):
+            return ""
+        return "/" + "/".join(segments)
+
+    def _require_same_origin(self):
+        origin = self.headers.get("Origin")
+        referer = self.headers.get("Referer")
+        source = origin or referer
+        if not source:
+            raise PermissionDenied("Same-origin request required")
+        try:
+            parsed = urlparse(source)
+            host = (self.headers.get("X-Forwarded-Host") or self.headers.get("Host") or "").lower()
+            expected_scheme = (self.headers.get("X-Forwarded-Proto") or "http").lower().split(",", 1)[0].strip()
+            if parsed.netloc.lower() != host or parsed.scheme.lower() != expected_scheme:
+                raise PermissionDenied("Same-origin request required")
+        except ValueError as exc:
+            raise PermissionDenied("Same-origin request required") from exc
+
+    def _send_document_bytes(self, payload, mime_type, filename, inline=False):
+        safe_name = re.sub(r"[\r\n\"\\]", "_", filename or "document")
+        disposition = "inline" if inline else "attachment"
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime_type or "application/octet-stream")
+        self.send_header("Content-Disposition", "%s; filename*=UTF-8''%s" % (disposition, quote(safe_name, safe="")))
+        self.send_header("Cache-Control", "private, no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _document_task_row(self, conn, user, task_id):
+        document_ingestion._task_for_actor(conn, user, task_id)
+        row = conn.execute(
+            "select task.*,file.storage_key,file.sha256,file.mime_type,file.original_name,paper.title as paper_title from document_parse_tasks task join document_files file on file.id=task.input_document_id join original_papers paper on paper.id=file.original_paper_id where task.id=? and file.school_id=?",
+            (task_id, user["school_id"]),
+        ).fetchone()
+        if row is None:
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Document source not found")
+        return row
+
+    def _handle_documents_get(self, conn, user, path, query):
+        if not user:
+            raise PermissionDenied("Please sign in")
+        if user["must_change_password"]:
+            raise PasswordChangeRequired("You must change your temporary password before continuing")
+        if user["role"] not in ("teacher", "admin"):
+            raise PermissionDenied("Teacher or admin access required")
+        if not document_ingestion_enabled() and not path.endswith("/export.zip"):
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Document ingestion is disabled")
+        include_solution = (query.get("include_solution") or [""])[0].lower() in ("1", "true", "yes")
+        match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/review-export\.zip", path)
+        if match:
+            task_id = match.group(1)
+            task = self._document_task_row(conn, user, task_id)
+            rows = conn.execute(
+                """select item.id,item.item_index,item.document_json,item.review_revision,
+                          item.review_status,item.disposition
+                   from parsed_question_items item
+                   left join import_item_publications publication on publication.parsed_item_id=item.id
+                   where item.parse_task_id=? and item.school_id=? and item.disposition='active'
+                     and publication.parsed_item_id is null
+                   order by item.item_index,item.id""",
+                (task_id, user["school_id"]),
+            ).fetchall()
+            if not rows:
+                raise document_ingestion.IngestionError(
+                    "review_export_unavailable",
+                    "This task has no unpublished candidate questions to export",
+                    409,
+                )
+            questions = []
+            review_items = []
+            open_issue_count = 0
+            for index, row in enumerate(rows, 1):
+                document = json.loads(row["document_json"])
+                issues = document.get("issues", [])
+                open_issues = [
+                    issue for issue in issues
+                    if issue.get("severity") in ("blocking", "review")
+                    and issue.get("state") != "resolved"
+                ]
+                open_issue_count += len(open_issues)
+                review = {
+                    "candidate_id": row["id"],
+                    "review_revision": row["review_revision"],
+                    "review_status": row["review_status"],
+                    "open_issue_count": len(open_issues),
+                    "issues": [
+                        {
+                            key: issue[key]
+                            for key in (
+                                "code",
+                                "severity",
+                                "state",
+                                "field",
+                                "message",
+                                "reviewed_by",
+                                "reviewed_at",
+                                "resolution_note",
+                            )
+                            if key in issue
+                        }
+                        for issue in issues
+                    ],
+                }
+                review_items.append(review)
+                questions.append(
+                    {
+                        "document": document,
+                        "revision_id": "review-%s-r%d" % (row["id"], row["review_revision"]),
+                        "child_key": None,
+                        "review": review,
+                    }
+                )
+            review_metadata = {
+                "state": "teacher_review_draft",
+                "task_id": task_id,
+                "source_file": task["original_name"],
+                "source_sha256": task["sha256"],
+                "candidate_count": len(questions),
+                "open_issue_count": open_issue_count,
+                "items": review_items,
+            }
+            try:
+                payload = build_paper_markdown_zip(
+                    questions,
+                    task["paper_title"] + "（未审核校对稿）",
+                    lambda asset_id: self._load_task_review_asset(conn, user, task_id, asset_id),
+                    include_solution=include_solution,
+                    actor_role=user["role"],
+                    review_metadata=review_metadata,
+                )
+            except QuestionExportError as exc:
+                raise document_ingestion.IngestionError("export_failed", str(exc), 422) from exc
+            filename = Path(task["paper_title"]).stem + "-未审核校对稿.zip"
+            self._send_document_bytes(payload, "application/zip", filename)
+            return
+        match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/export\.zip", path)
+        if match:
+            task_id = match.group(1)
+            task = self._document_task_row(conn, user, task_id)
+            rows = conn.execute(
+                """select item.document_json,publication.revision_id
+                   from parsed_question_items item
+                   join import_item_publications publication on publication.parsed_item_id=item.id
+                   join question_content_revisions revision on revision.id=publication.revision_id
+                   join question_content_groups group_row on group_row.id=publication.group_id
+                   where item.parse_task_id=? and item.school_id=? order by item.item_index,item.id""",
+                (task_id, user["school_id"]),
+            ).fetchall()
+            if not rows:
+                raise document_ingestion.IngestionError("export_unavailable", "This task has no published questions to export", 409)
+            questions = [
+                {"document": json.loads(row["document_json"]), "revision_id": row["revision_id"], "child_key": None}
+                for row in rows
+            ]
+            try:
+                payload = build_paper_markdown_zip(
+                    questions,
+                    task["paper_title"],
+                    lambda asset_id: self._load_export_asset(conn, user, asset_id, list({row["revision_id"] for row in rows})),
+                    include_solution=include_solution,
+                    actor_role=user["role"],
+                )
+            except QuestionExportError as exc:
+                raise document_ingestion.IngestionError("export_failed", str(exc), 422) from exc
+            filename = task["paper_title"] + ("-含答案" if include_solution else "") + ".zip"
+            self._send_document_bytes(payload, "application/zip", filename)
+            return
+        match = re.fullmatch(r"/api/documents/items/([A-Za-z0-9_-]{1,96})/export\.zip", path)
+        if match:
+            item_id = match.group(1)
+            row = conn.execute(
+                """select task.id as task_id,task.file_name,publication.revision_id,
+                          revision.document_json,publication.group_id
+                   from parsed_question_items item
+                   join document_parse_tasks task on task.id=item.parse_task_id
+                   join import_item_publications publication on publication.parsed_item_id=item.id
+                   join question_content_revisions revision on revision.id=publication.revision_id
+                   where item.id=? and item.school_id=?""",
+                (item_id, user["school_id"]),
+            ).fetchone()
+            if row is None:
+                from .errors import ResourceNotFound
+                raise ResourceNotFound("Published question not found")
+            document_ingestion._task_for_actor(conn, user, row["task_id"])
+            try:
+                payload = build_question_markdown_zip(
+                    json.loads(row["document_json"]),
+                    row["revision_id"],
+                    lambda asset_id: self._load_export_asset(conn, user, asset_id, row["revision_id"]),
+                    include_solution=include_solution,
+                    actor_role=user["role"],
+                )
+            except QuestionExportError as exc:
+                raise document_ingestion.IngestionError("export_failed", str(exc), 422) from exc
+            filename = Path(row["file_name"]).stem + "-" + item_id + ("-含答案" if include_solution else "") + ".zip"
+            self._send_document_bytes(payload, "application/zip", filename)
+            return
+        if path == "/api/documents/tasks":
+            tasks = document_ingestion.list_tasks(conn, user, (query.get("limit") or [25])[0], (query.get("cursor") or [None])[0])
+            self._send_json({"tasks": tasks})
+            return
+        match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})", path)
+        if match:
+            self._send_json(document_ingestion.get_task(conn, user, match.group(1)))
+            return
+        match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/items", path)
+        if match:
+            self._send_json({"items": document_ingestion.get_task_items(conn, user, match.group(1), (query.get("cursor") or [0])[0], (query.get("limit") or [50])[0])})
+            return
+        match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(source|preview)", path)
+        if match:
+            task_id, variant = match.groups()
+            row = self._document_task_row(conn, user, task_id)
+            store = DocumentStore(document_ingestion._store_for_db(self.db_path).root)
+            if variant == "source":
+                payload = store.read(row["storage_key"], row["sha256"], max_bytes=50 * 1024 * 1024)
+                self._send_document_bytes(payload, row["mime_type"], row["original_name"])
+                return
+            if row["mime_type"] == "application/pdf":
+                payload = store.read(row["storage_key"], row["sha256"], max_bytes=50 * 1024 * 1024)
+                self._send_document_bytes(payload, "application/pdf", row["original_name"], inline=True)
+                return
+            if not row["conversion_id"]:
+                raise document_ingestion.IngestionError("preview_unavailable", "原卷网页预览尚未生成，请先下载原文件核对", 424)
+            conversion = conn.execute("select manifest_key from document_conversions where id=? and task_id=?", (row["conversion_id"], task_id)).fetchone()
+            if conversion is None:
+                raise document_ingestion.IngestionError("preview_unavailable", "原卷网页预览尚未生成，请先下载原文件核对", 424)
+            manifest = json.loads(store.read(conversion["manifest_key"], max_bytes=2 * 1024 * 1024).decode("utf-8"))
+            preview_name = manifest.get("preview_pdf")
+            if preview_name != "preview.pdf":
+                raise document_ingestion.IngestionError("preview_unavailable", "转换器未生成网页预览，请下载原文件核对", 424)
+            key = "schools/%s/conversions/%s/preview.pdf" % (user["school_id"], row["conversion_id"])
+            payload = store.read(key, max_bytes=100 * 1024 * 1024)
+            self._send_document_bytes(payload, "application/pdf", Path(row["original_name"]).stem + "-preview.pdf", inline=True)
+            return
+        match = re.fullmatch(r"/api/documents/assets/([A-Za-z0-9_-]{1,64})", path)
+        if match:
+            task_id = (query.get("task_id") or [""])[0]
+            document_ingestion._task_for_actor(conn, user, task_id)
+            asset_id = match.group(1)
+            row = conn.execute(
+                """select asset.* from document_assets asset
+                   join conversion_asset_refs ref on ref.asset_id=asset.id
+                   join document_conversions conversion on conversion.id=ref.conversion_id
+                   join document_parse_tasks asset_task on asset_task.id=conversion.task_id
+                   join document_parse_tasks viewer_task on viewer_task.id=?
+                   join document_files asset_file on asset_file.id=asset_task.input_document_id
+                   where asset.id=? and asset.school_id=?
+                     and asset_task.school_id=viewer_task.school_id
+                     and asset_task.original_paper_id=viewer_task.original_paper_id
+                     and asset_task.created_by=viewer_task.created_by
+                     and asset_file.role in ('paper','answers','rubric')
+                   limit 1""",
+                (task_id, asset_id, user["school_id"]),
+            ).fetchone()
+            if row is None:
+                from .errors import ResourceNotFound
+                raise ResourceNotFound("Document asset not found")
+            payload = DocumentStore(document_ingestion._store_for_db(self.db_path).root).read(row["storage_key"], row["sha256"], max_bytes=25 * 1024 * 1024)
+            self._send_document_bytes(payload, row["mime_type"], asset_id, inline=True)
+            return
+        from .errors import ResourceNotFound
+        raise ResourceNotFound("Document API route not found")
+
+    def _load_export_asset(self, conn, user, asset_id, revision_id):
+        revision_ids = revision_id if isinstance(revision_id, (list, tuple, set)) else [revision_id]
+        if not revision_ids:
+            raise QuestionExportError("No authorized content revision was selected")
+        placeholders = ",".join("?" for _ in revision_ids)
+        row = conn.execute(
+            """select asset.id,asset.sha256,asset.mime_type,asset.storage_key
+               from document_assets asset
+               join content_asset_refs ref on ref.asset_id=asset.id
+               where ref.revision_id in (%s) and asset.id=? and asset.school_id=?""" % placeholders,
+            tuple(revision_ids) + (asset_id, user["school_id"]),
+        ).fetchone()
+        if row is None:
+            raise QuestionExportError("An image is not referenced by the requested content revision")
+        store = document_ingestion._store_for_db(self.db_path)
+        try:
+            data = store.read(row["storage_key"], row["sha256"], max_bytes=25 * 1024 * 1024)
+        except (DocumentStoreError, OSError) as exc:
+            raise QuestionExportError(
+                "A required image is missing, unreadable, or failed integrity validation"
+            ) from exc
+        return {"data": data, "mime_type": row["mime_type"], "sha256": row["sha256"]}
+
+    def _load_task_review_asset(self, conn, user, task_id, asset_id):
+        row = conn.execute(
+            """select asset.id,asset.sha256,asset.mime_type,asset.storage_key
+               from document_parse_tasks task
+               join document_conversions conversion on conversion.id=task.conversion_id
+               join conversion_asset_refs ref on ref.conversion_id=conversion.id
+               join document_assets asset on asset.id=ref.asset_id
+               where task.id=? and task.school_id=? and asset.id=? and asset.school_id=?
+                 and ref.asset_role in ('figure','option_figure')""",
+            (task_id, user["school_id"], asset_id, user["school_id"]),
+        ).fetchone()
+        if row is None:
+            raise QuestionExportError("An image is not referenced by this review task")
+        store = document_ingestion._store_for_db(self.db_path)
+        try:
+            data = store.read(row["storage_key"], row["sha256"], max_bytes=25 * 1024 * 1024)
+        except (DocumentStoreError, OSError) as exc:
+            raise QuestionExportError(
+                "A required image is missing, unreadable, or failed integrity validation"
+            ) from exc
+        return {"data": data, "mime_type": row["mime_type"], "sha256": row["sha256"]}
+
+    def _handle_question_asset_get(self, conn, user, path, query):
+        if not user:
+            self._send_json({"error": "unauthorized"}, HTTPStatus.UNAUTHORIZED)
+            return
+        if user["must_change_password"]:
+            raise PasswordChangeRequired("You must change your temporary password before continuing")
+        match = re.fullmatch(r"/api/question-assets/([A-Za-z0-9_-]{1,64})", path)
+        if not match:
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Question asset not found")
+        snapshot_id = (query.get("snapshot_id") or [""])[0]
+        asset = conn.execute(
+            """select document_asset.storage_key,document_asset.sha256,document_asset.mime_type,
+                      snapshot.assessment_id,revision.document_json,
+                      coalesce(correction.child_key,binding.child_key,'') as child_key
+               from document_assets document_asset
+               join content_asset_refs asset_ref on asset_ref.asset_id=document_asset.id
+               join question_content_revisions revision on revision.id=asset_ref.revision_id
+               join question_content_groups content_group on content_group.id=revision.group_id
+               join question_version_snapshots snapshot on snapshot.id=?
+               left join snapshot_content_bindings binding on binding.snapshot_id=snapshot.id
+               left join historical_content_corrections correction
+                 on correction.snapshot_id=snapshot.id and correction.state='active'
+               where content_group.school_id=? and document_asset.id=? and document_asset.school_id=? and snapshot.id=?
+                 and revision.id=coalesce(correction.revision_id,binding.revision_id)
+               limit 1""",
+            (snapshot_id, user["school_id"], match.group(1), user["school_id"], snapshot_id),
+        ).fetchone()
+        if asset is None:
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Question asset not found")
+        include_solution = (query.get("solution") or [""])[0].lower() in ("1", "true", "yes")
+        if include_solution and user["role"] not in ("teacher", "admin"):
+            raise PermissionDenied("Only teachers can view answer and analysis assets")
+        allowed_asset_ids = visible_question_asset_ids(
+            json.loads(asset["document_json"]), asset["child_key"] or None, include_solution
+        )
+        if match.group(1) not in allowed_asset_ids:
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Question asset not found")
+        if not AuthService(conn).can_assessment(user, "view", asset["assessment_id"]):
+            raise PermissionDenied("You do not have access to this question asset")
+        payload = document_ingestion._store_for_db(self.db_path).read(asset["storage_key"], asset["sha256"], max_bytes=25 * 1024 * 1024)
+        self._send_document_bytes(payload, asset["mime_type"], match.group(1), inline=True)
+
+    def _handle_documents_post(self, path, payload):
+        conn = connect(self.db_path)
+        try:
+            user = self._current_user(conn)
+            if not user:
+                raise PermissionDenied("Please sign in")
+            if user["must_change_password"]:
+                raise PasswordChangeRequired("You must change your temporary password before continuing")
+            if user["role"] not in ("teacher", "admin"):
+                raise PermissionDenied("Teacher or admin access required")
+            if not document_ingestion_enabled():
+                from .errors import ResourceNotFound
+                raise ResourceNotFound("Document ingestion is disabled")
+            root = document_ingestion._store_for_db(self.db_path).root
+            if path == "/api/documents/uploads":
+                result = document_ingestion.create_upload(conn, user, payload, self.db_path, root)
+                self._send_json({"ok": True, "result": result}, HTTPStatus.ACCEPTED)
+                return
+            match = re.fullmatch(r"/api/documents/uploads/([A-Za-z0-9_-]{1,96})/(parts|complete|cancel)", path)
+            if match:
+                upload_id, operation = match.groups()
+                if operation == "parts":
+                    result = document_ingestion.store_upload_part(conn, user, upload_id, payload, self.db_path, root)
+                elif operation == "complete":
+                    result = document_ingestion.complete_upload(conn, user, upload_id, self.db_path, root)
+                else:
+                    result = document_ingestion.cancel_upload(conn, user, upload_id, self.db_path, root)
+                self._send_json({"ok": True, "result": result}, HTTPStatus.ACCEPTED if operation == "complete" else HTTPStatus.OK)
+                return
+            match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(cancel|retry|confirm|reorder|sources|restructure|attach-answers)", path)
+            if match:
+                task_id, operation = match.groups()
+                if operation == "cancel":
+                    result = document_ingestion.task_cancel(conn, user, task_id)
+                elif operation == "retry":
+                    result = document_ingestion.retry_task(conn, user, task_id, payload.get("request_key"))
+                elif operation == "reorder":
+                    from .document_restructure import reorder_candidates
+                    result = reorder_candidates(conn, user, task_id, payload)
+                elif operation == "sources":
+                    from .document_restructure import assign_source_spans
+                    result = assign_source_spans(conn, user, task_id, payload)
+                elif operation == "restructure":
+                    from .document_restructure import restructure_candidates
+                    result = restructure_candidates(conn, user, task_id, payload)
+                elif operation == "attach-answers":
+                    result = document_ingestion.attach_answers(conn, user, task_id, payload, self.db_path, root)
+                else:
+                    result = document_ingestion.confirm_candidates(conn, user, task_id, payload)
+                self._send_json({"ok": True, "result": result})
+                return
+            match = re.fullmatch(r"/api/documents/items/([A-Za-z0-9_-]{1,96})/(preview|save)", path)
+            if match:
+                item_id, operation = match.groups()
+                task_id = payload.get("task_id")
+                if operation == "preview":
+                    result = document_ingestion.preview_candidate(conn, user, item_id, task_id, payload.get("markdown", ""), self._base_path())
+                else:
+                    result = document_ingestion.save_candidate(conn, user, item_id, payload)
+                self._send_json({"ok": True, "result": result})
+                return
+            from .errors import ResourceNotFound
+            raise ResourceNotFound("Document API route not found")
+        finally:
+            conn.close()
 
 
 def run(

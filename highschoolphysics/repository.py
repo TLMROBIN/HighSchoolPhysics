@@ -305,6 +305,8 @@ class PhysicsRepository:
         source_confidence=None,
     ):
         self._require_question_bank_actor(actor_id)
+        if self.conn.execute("select 1 from question_content_bindings where question_id=?", (question_id,)).fetchone():
+            raise StateConflict("This question uses a versioned document; edit it through the document content revision flow")
         existing = self.conn.execute(
             "select * from questions where id = ?",
             (question_id,),
@@ -490,6 +492,14 @@ class PhysicsRepository:
                 "partial_points": answer.get("partial_points", 0) if isinstance(answer, dict) else 0,
             }
             snapshot_id = "snap-" + uuid.uuid4().hex[:12]
+            content_binding = self.conn.execute(
+                """select binding.group_id,binding.child_key,group_row.current_revision_id
+                   from question_content_bindings binding
+                   join question_content_groups group_row on group_row.id=binding.group_id
+                   join question_content_revisions revision on revision.id=group_row.current_revision_id
+                   where binding.question_id=? and group_row.school_id=? and revision.review_state='verified'""",
+                (row["question_id"], actor["school_id"]),
+            ).fetchone()
             snapshots.append(
                 {
                     "id": snapshot_id,
@@ -505,6 +515,8 @@ class PhysicsRepository:
                         self.tags_for_question(row["question_id"])
                     ),
                     "question_version": row["version"],
+                    "content_revision_id": content_binding["current_revision_id"] if content_binding else None,
+                    "content_child_key": content_binding["child_key"] if content_binding else "",
                 }
             )
             full_score += row["points"]
@@ -584,6 +596,11 @@ class PhysicsRepository:
                     ontology_id,
                 ),
             )
+            if snapshot["content_revision_id"]:
+                self.conn.execute(
+                    "insert into snapshot_content_bindings(snapshot_id,revision_id,child_key) values(?,?,?)",
+                    (snapshot["id"], snapshot["content_revision_id"], snapshot["content_child_key"]),
+                )
         self.audit(
             actor_id,
             "assessment_created_from_paper",
@@ -1213,6 +1230,8 @@ class PhysicsRepository:
             raise ResourceNotFound(
                 "Parsed question item not found: %s" % parsed_item_id
             )
+        if row["document_json"]:
+            raise StateConflict("This candidate contains versioned Markdown; publish it through the document review flow")
         item = self._parsed_item_payload(row)
         question = self.create_question(
             actor_id=actor_id,

@@ -77,10 +77,18 @@ check_git_state() {
 
 node_check() {
   if ! command -v node >/dev/null 2>&1; then
-    warn "node is not available; skipping highschoolphysics/assets/app.js syntax check"
+    warn "node is not available; skipping browser asset syntax checks"
     return 0
   fi
-  node --check highschoolphysics/assets/app.js
+  local asset
+  local assets=(
+    highschoolphysics/assets/app.js
+    highschoolphysics/assets/document-import.js
+    highschoolphysics/assets/question-rendering.js
+  )
+  for asset in "${assets[@]}"; do
+    node --check "$asset"
+  done
 }
 
 http_smoke() {
@@ -103,7 +111,7 @@ check_local() {
   fi
 
   if [[ "$RUN_NODE_CHECK" == "1" ]]; then
-    run_step "node --check highschoolphysics/assets/app.js" node_check
+    run_step "Node syntax checks for application and document-ingestion assets" node_check
   else
     printf '[SKIP] node check disabled\n'
   fi
@@ -227,7 +235,17 @@ else
   fail "highschoolphysics server process not found"
 fi
 
-python3 - "$base_url" "$public_base_url" "$entry_path" <<'PY'
+if systemctl --user is-active --quiet highschoolphysics-document-worker.service; then
+  pass "highschoolphysics document worker process"
+elif [[ "$require_remote_head_match" == "1" ]]; then
+  fail "highschoolphysics document worker service is not active"
+else
+  warn "highschoolphysics document worker service is not active"
+fi
+
+python3 - "$base_url" "$public_base_url" "$entry_path" "$require_remote_head_match" "$remote_dir" <<'PY'
+import os
+import sqlite3
 import sys
 from urllib.error import HTTPError
 from urllib.request import urlopen
@@ -235,6 +253,8 @@ from urllib.request import urlopen
 base_url = sys.argv[1].rstrip("/")
 public_base_url = sys.argv[2].rstrip("/")
 entry_path = sys.argv[3]
+require_feature_release = sys.argv[4] == "1"
+remote_dir = sys.argv[5]
 if not entry_path.startswith("/"):
     entry_path = "/" + entry_path
 entry_url = public_base_url + entry_path
@@ -265,6 +285,48 @@ except Exception as exc:
 if status not in (200, 302, 303, 307, 308):
     fail(f"remote public entry returned status={status} for {entry_url}")
 passed(f"remote public entry {entry_url}")
+
+if require_feature_release:
+    required_assets = (
+        "/physics/assets/document-import.css",
+        "/physics/assets/document-import.js",
+        "/physics/assets/question-rendering.css",
+        "/physics/assets/question-rendering.js",
+        "/physics/assets/vendor/katex/katex.min.js",
+    )
+    for asset_path in required_assets:
+        try:
+            with urlopen(public_base_url + asset_path, timeout=8) as response:
+                if response.status != 200:
+                    fail(f"document-ingestion asset returned status={response.status}: {asset_path}")
+        except Exception as exc:
+            fail(f"document-ingestion asset unavailable {asset_path}: {type(exc).__name__}: {exc}")
+        passed(f"document-ingestion asset {asset_path}")
+
+    database_path = os.path.join(remote_dir, "data", "school.sqlite3")
+    try:
+        database = sqlite3.connect("file:" + database_path + "?mode=ro", uri=True, timeout=10)
+        core_version = database.execute("pragma user_version").fetchone()[0]
+        migration_table = database.execute(
+            "select 1 from sqlite_master where type='table' and name='app_schema_migrations'"
+        ).fetchone()
+        feature_version = 0
+        if migration_table:
+            row = database.execute(
+                "select version from app_schema_migrations where feature='document_ingestion'"
+            ).fetchone()
+            feature_version = row[0] if row else 0
+        integrity = database.execute("pragma integrity_check").fetchone()[0]
+        foreign_key_errors = database.execute("pragma foreign_key_check").fetchall()
+        database.close()
+    except Exception as exc:
+        fail(f"document-ingestion schema inspection failed: {type(exc).__name__}: {exc}")
+    if core_version != 11 or feature_version != 12 or integrity != "ok" or foreign_key_errors:
+        fail(
+            "document-ingestion schema gate failed: core=%s feature=%s integrity=%s fk_errors=%d"
+            % (core_version, feature_version, integrity, len(foreign_key_errors))
+        )
+    passed("document-ingestion schema v12 and database integrity")
 PY
 
 python3 -m highschoolphysics.runtime_check --json

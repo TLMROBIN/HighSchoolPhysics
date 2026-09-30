@@ -4,6 +4,7 @@ from urllib.parse import quote
 from .repository import loads
 from .exam_views import esc, image_html
 from .learning import LABELS, progress, snapshot
+from .question_content import render_snapshot_content, render_snapshot_options
 
 
 def form(action, body):
@@ -13,6 +14,36 @@ def hidden(k,v): return '<input type="hidden" name="%s" value="%s">'%(esc(k),esc
 def select(name, rows): return '<select name="%s" required><option value="">请选择</option>%s</select>'%(name,''.join('<option value="%s">%s</option>'%(esc(k),esc(v)) for k,v in rows))
 def tags(s): return '<p>'+''.join('<span class="pill">%s：%s</span> '%('知识点' if t['tag_type']=='knowledge' else '能力',esc(t['name'])) for t in loads(s['tag_snapshot_json'],[]) if t['tag_type'] in ('knowledge','ability'))+'</p>'
 def images(c,q): return ''.join(image_html(r[0]) for r in c.execute('select id from exam_assets where question_id=?',(q,)))
+def question_fragment(c, snapshot_row, user, base_path="", include_solution=False, include_options=True):
+    rendered = render_snapshot_content(c, snapshot_row["id"], user["school_id"], base_path, include_solution, include_options)
+    if rendered is not None:
+        return rendered
+    old = '<div class="legacy-question-content"><p>%s</p>%s</div>' % (esc(snapshot_row["stem"]), images(c, snapshot_row["question_id"]))
+    return old
+
+
+def answer_controls(c, snapshot_row, user, base_path=""):
+    option_rows = render_snapshot_options(c, snapshot_row["id"], user["school_id"], base_path)
+    multiple = snapshot_row["question_type"] == "multiple_choice"
+    control_type = "checkbox" if multiple else "radio"
+    if option_rows is not None:
+        if option_rows:
+            return "".join(
+                '<label style="display:block;padding:10px"><input type="%s" name="answer" value="%s"> %s. %s</label>'
+                % (control_type, esc(option["key"]), esc(option["key"]), option["html"])
+                for option in option_rows
+            )
+        return '<label>我的作答<textarea name="answer" rows="3"></textarea></label>'
+    options = loads(snapshot_row["options_json"], {})
+    if isinstance(options, list):
+        options = {chr(65 + index): value for index, value in enumerate(options)}
+    if snapshot_row["question_type"] in ("single_choice", "multiple_choice"):
+        return "".join(
+            '<label style="display:block;padding:10px"><input type="%s" name="answer" value="%s"> %s. %s</label>'
+            % (control_type, esc(key), esc(key), esc(value))
+            for key, value in options.items()
+        )
+    return '<label>我的作答<textarea name="answer" rows="3"></textarea></label>'
 def fill_question_context(s):
     try:
         question_type = s.get('question_type') if hasattr(s, 'get') else s['question_type']
@@ -23,7 +54,7 @@ def fill_question_context(s):
 def footer(): return '<script src="assets/learning.js?v=1" defer></script>'
 def base(user): return '<section class="panel learning"><h1>错题与学习记录</h1><nav>'+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
-def student(repo,user,params):
+def student(repo,user,params,base_path=""):
     c=repo.conn;uid=user['id'];body=[base(user)]
     wrongs=[dict(r) for r in c.execute("select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id where w.student_id=? and a.grading_status='published' order by w.created_at desc,w.id",(uid,))]
     unique={}
@@ -41,13 +72,8 @@ def student(repo,user,params):
             from .errors import PermissionDenied
             raise PermissionDenied('尚未发布')
         s=snapshot(c,w);p=progress(c,w)
-        body.append('<article><h2>作答练习</h2><p>%s · 验证 %s/3 · 下次日期 %s</p><p>%s</p>%s%s%s'%(p['status'],p['count'],p['due'],esc(s['stem']),fill_question_context(s),tags(s),images(c,w['question_id'])))
-        controls=''
-        options=loads(s['options_json'],{})
-        if isinstance(options,list): options={chr(65+i):x for i,x in enumerate(options)}
-        if s['question_type'] in ('single_choice','multiple_choice'):
-            for k,v in options.items(): controls+='<label style="display:block;padding:10px"><input type="%s" name="answer" value="%s"> %s. %s</label>'%('checkbox' if s['question_type']=='multiple_choice' else 'radio',esc(k),esc(k),esc(v))
-        else: controls='<label>我的作答<textarea name="answer" rows="3"></textarea></label>'
+        body.append('<article><h2>作答练习</h2><p>%s · 验证 %s/3 · 下次日期 %s</p>%s%s%s'%(p['status'],p['count'],p['due'],question_fragment(c,s,user,base_path,include_options=False),fill_question_context(s),tags(s)))
+        controls=answer_controls(c,s,user,base_path)
         body.append(form('submit',hidden('wrong_id',wid)+'<label>练习方式<select name="purpose"><option value="'+('verify' if p['available'] else 'learn')+'">'+('独立验证' if p['available'] else '学习练习')+'</option><option value="'+('learn' if p['available'] else 'verify')+'">'+('学习练习' if p['available'] else '提前独立作答（不提前增加验证进度）')+'</option></select></label>'+controls+'<button>提交作答</button>'))
         body.append('<button type="button" class="learning-solution" data-id="%s">查看答案与解析，切换为学习练习</button><div class="solution-output" role="status"></div></article>'%esc(wid))
     body.append('<h2 id="wrong">我的错题本</h2>')
@@ -56,7 +82,7 @@ def student(repo,user,params):
         tag=(params.get('tag') or [''])[0]
         if tag and not any(t['name']==tag for t in loads(s['tag_snapshot_json'],[])):continue
         r=c.execute('select initial_answer from student_responses where id=?',(w['response_id'],)).fetchone()
-        body.append('<details><summary>%s · %s · %s/3</summary><p>%s</p>%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的选项或填空；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],esc(s['stem']),fill_question_context(s),tags(s),images(c,w['question_id']),esc(r[0]) or '空白',p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
+        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的选项或填空；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_fragment(c,s,user,base_path),fill_question_context(s),tags(s),esc(r[0]) or '空白',p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
     body.append('<h2>最近的练习记录</h2><p>已复核仅表示结果已确认；本题是否巩固仍以三次间隔验证为准。</p><table><tr><th>提交时间</th><th>作答</th><th>用途</th><th>结果 / 教师反馈</th></tr>')
     for a in c.execute('select * from redo_attempts where student_id=? order by submitted_at desc limit 20',(uid,)):
         body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s %s</td></tr>'%(esc(a['submitted_at']),esc(a['answer']) or '空白','独立验证' if a['purpose']=='verify' else '学习练习' if a['purpose']=='learn' else '历史记录',LABELS[a['outcome']],esc(a['feedback'])))
@@ -106,7 +132,7 @@ def teacher(repo,user,params):
         body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(a['class_name']),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
     return ''.join(body)+'</table></section>'+footer()
 
-def exams(repo,user,aid=None):
+def exams(repo,user,aid=None,base_path=""):
     c=repo.conn;staff=user['role'] in ('teacher','admin');body=[base(user)]
     if not aid:
         rows=repo.assessment_overview(user['id']) if staff else [dict(r) for r in c.execute("select a.*,c.name class_name from assessment_sessions a join class_groups c on c.id=a.class_id join assessment_participants p on p.assessment_id=a.id where p.student_id=? and p.status='present' and a.grading_status='published'",(user['id'],))]
@@ -135,8 +161,12 @@ def exams(repo,user,aid=None):
     included={p['student_id'] for p in participants if p['status']=='present'}
     for q in qs:
         rows=[r for r in rs if r['question_id']==q['question_id'] and r['student_id'] in included]
-        body.append('<article><h3>原题 %s（录入序号 %s）</h3><p>%s</p>%s%s%s'%(esc(q['original_question_number'] or q['position']),q['position'],esc(q['stem']),fill_question_context(q),tags(q),images(c,q['question_id'])))
-        body.append('<details><summary>查看标准答案与解析</summary><p>%s</p></details>'%esc(loads(q['grading_rule_json'],{}).get('answer')) if staff else '')
+        body.append('<article><h3>原题 %s（录入序号 %s）</h3>%s%s%s'%(esc(q['original_question_number'] or q['position']),q['position'],question_fragment(c,q,user,base_path),fill_question_context(q),tags(q)))
+        if staff:
+            solution = render_snapshot_content(c, q['id'], user['school_id'], base_path, include_solution=True)
+            if solution is None:
+                solution = '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
+            body.append('<details><summary>查看标准答案与解析</summary>%s</details>' % solution)
         body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>结果</th><th>原图</th></tr>')
         for r in rows:
             media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
@@ -156,7 +186,7 @@ def exams(repo,user,aid=None):
         body.append('</table>')
     return ''.join(body)+'</section>'+footer()
 
-def export_wrong_book(repo,user,aid,student_id=None,class_id=None):
+def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     c=repo.conn;repo.assessment_detail(user['id'],aid)
     rows=c.execute('select w.*,u.display_name,u.class_id from wrong_questions w join users u on u.id=w.student_id where w.assessment_id=? order by u.display_name,w.id',(aid,)).fetchall()
     if user['role']=='student': student_id=user['id'];class_id=None
@@ -164,7 +194,8 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None):
     out=['<section class="panel learning"><h1>错题学习单</h1><p>首次作答与复习记录分开保存。请先尝试回想，再参考答案。</p>']
     for w in rows:
         s=snapshot(c,w)
-        out.append('<article><h2>%s</h2><p>%s</p>%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),esc(s['stem']),fill_question_context(s),tags(s),images(c,w['question_id']),esc(w['wrong_answer']) or '空白',esc(loads(s['grading_rule_json'],{}).get('answer'))))
+        content = question_fragment(c,s,user,base_path,include_solution=True)
+        out.append('<article><h2>%s</h2>%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(loads(s['grading_rule_json'],{}).get('answer'))))
         if user['role']=='student':
             from .learning import now
             c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(user['id'],w['question_id'],now()))

@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from .errors import InvalidRequest, PermissionDenied, StateConflict
 from .grading import grade_answer
 from .repository import loads, dumps
+from .question_content import render_snapshot_content, snapshot_content
 
 LABELS = {'correct':'本次正确','wrong':'需再练','blank':'空白','pending':'待教师确认'}
 TZ = ZoneInfo('Asia/Shanghai')
@@ -99,6 +100,12 @@ def check(rule, answer):
     if grade_answer(dict(rule,points=1),answer)['correct']: return 'correct'
     return 'pending' if rule.get('type')=='fill' else 'wrong'
 
+def outcome_for_snapshot(conn, snapshot_row, school_id, answer):
+    content = snapshot_content(conn, snapshot_row["id"], school_id)
+    if str(answer).strip() and content is not None and content["answer_state"] != "verified":
+        return "pending"
+    return check(loads(snapshot_row["grading_rule_json"], {}), answer)
+
 def progress(conn, wrong, today=None):
     today=today or datetime.now(TZ).date()
     version=snapshot(conn,wrong)['question_version']
@@ -141,7 +148,8 @@ def submit(repo, actor, payload):
         p=progress(c,wrong)
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
         purpose='verify' if payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date()) else 'learn'
-        outcome=check(loads(snapshot(c,wrong)['grading_rule_json'],{}),answer)
+        question_snapshot = snapshot(c, wrong)
+        outcome = outcome_for_snapshot(c, question_snapshot, wrong["school_id"], answer)
         aid='redo-'+uuid.uuid4().hex[:12]
         c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,answer,status,outcome,purpose,request_key,submitted_at) values(?,?,?,?,?,?,?,?,?,?)',(aid,wrong['school_id'],wrong['id'],actor,answer,'submitted' if outcome=='pending' else 'reviewed',outcome,purpose,key,now()))
         c.commit()
@@ -154,7 +162,7 @@ def staff_assessment(repo,user,aid):
     if a['school_id']!=user['school_id']: raise PermissionDenied('不可跨学校操作')
     return a
 
-def api(repo,user,action,p):
+def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     if action=='submit': return submit(repo,actor,p)
     if action=='solution':
@@ -163,6 +171,26 @@ def api(repo,user,action,p):
         c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(actor,w['question_id'],now()));c.commit()
         s=snapshot(c,w)
         q=repo.get_question(w['question_id'])
+        school_id = user.get("school_id") if hasattr(user, "get") else None
+        if not school_id:
+            owner = c.execute("select school_id from users where id=?", (actor,)).fetchone()
+            school_id = owner["school_id"] if owner else ""
+        content = snapshot_content(c, s["id"], school_id)
+        if content is not None:
+            item = content["document"]
+            if content["child_key"]:
+                child = next((row for row in item["children"] if row["key"] == content["child_key"]), {})
+                answer = child.get("answer_md", "")
+                analysis = child.get("analysis_md", "")
+            else:
+                answer = item.get("answer_md", "")
+                analysis = item.get("analysis_md", "")
+            return {
+                "answer": answer,
+                "analysis": analysis,
+                "solution_html": render_snapshot_content(c, s["id"], school_id, base_path, include_solution=True),
+                "message": "已进入学习练习，本日不增加验证次数",
+            }
         return dict(answer=loads(s['grading_rule_json'],{}).get('answer'),analysis=q['analysis'],message='已进入学习练习，本日不增加验证次数')
     if user['role'] not in ('admin','teacher'): raise PermissionDenied('需要教师身份')
     if action=='settings':
@@ -235,7 +263,12 @@ def api(repo,user,action,p):
             if len(students)!=1: raise InvalidRequest('学生无法唯一匹配：'+row['学生'])
             s=c.execute('select s.* from question_version_snapshots s where assessment_id=? and position=?',(a['id'],row['题号'])).fetchone()
             if not s: raise InvalidRequest('题号不存在：'+row['题号'])
-            answer=row.get('作答','');outcome={'正确':'correct','错误':'wrong','空白':'blank','待确认':'pending'}.get(row.get('结果','')) or check(loads(s['grading_rule_json'],{}),answer)
+            answer=row.get('作答','')
+            supplied_outcome={'正确':'correct','错误':'wrong','空白':'blank','待确认':'pending'}.get(row.get('结果',''))
+            if supplied_outcome is not None:
+                outcome=supplied_outcome
+            else:
+                outcome=outcome_for_snapshot(c,s,user['school_id'],answer)
             if outcome=='blank' and answer.strip(): raise InvalidRequest('非空答案不可标为空白')
             prepared.append((students[0],s,answer,outcome))
         if len({(u['id'],s['id']) for u,s,_,_ in prepared})!=len(prepared): raise InvalidRequest('表格包含重复学生题号')

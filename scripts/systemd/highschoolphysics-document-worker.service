@@ -1,0 +1,20 @@
+[Unit]
+Description=HighSchoolPhysics document conversion worker
+After=network.target highschoolphysics-app.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/yub/Documents/trae_projects/HighSchoolPhysics
+Environment=HSP_DOCUMENT_ROOT=/home/yub/Documents/trae_projects/HighSchoolPhysics/data/documents
+Environment=HSP_DOCUMENT_WORKER_ENABLED=1
+Environment=HSP_MINERU_TOOLS_CONFIG_JSON=/home/yub/mineru.json
+Environment=MINERU_MODEL_SOURCE=local
+Environment=HSP_MINERU_THREADS=1
+ExecStart=/usr/bin/python3 -m highschoolphysics.document_worker --db data/school.sqlite3
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+
+[Install]
+WantedBy=default.target

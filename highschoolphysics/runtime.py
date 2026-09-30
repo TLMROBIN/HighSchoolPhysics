@@ -1,6 +1,9 @@
 """Runtime capability checks for production dependencies."""
 
 from importlib import import_module, metadata
+import json
+import os
+from pathlib import Path
 import shutil
 import sys
 
@@ -38,6 +41,16 @@ CAPABILITY_DEFINITIONS = (
         "package": "mineru",
         "executable": "mineru",
         "minimum_version": "2.0.0",
+        "supported_version": "3.4.0",
+        "required_pipeline_models": (
+            ("models/Layout/PP-DocLayoutV2", "directory"),
+            ("models/MFR/unimernet_hf_small_2503", "directory"),
+            ("models/OCR/paddleocr_torch", "directory"),
+            ("models/TabRec/SlanetPlus/slanet-plus.onnx", "file"),
+            ("models/TabRec/UnetStructure/unet.onnx", "file"),
+            ("models/TabCls/paddle_table_cls/PP-LCNet_x1_0_table_cls.onnx", "file"),
+            ("models/MFR/pp_formulanet_plus_m", "directory"),
+        ),
         "python_min": (3, 10),
     },
     {
@@ -71,8 +84,12 @@ CAPABILITY_DEFINITIONS = (
 
 CAPABILITY_STATUSES = (
     "ready",
+    "configured",
     "missing_dependency",
     "missing_executable",
+    "missing_configuration",
+    "invalid_configuration",
+    "missing_models",
     "missing_credential",
     "disabled",
     "degraded",
@@ -112,6 +129,60 @@ def _version_is_below(current, minimum):
     current_tuple += (0,) * (length - len(current_tuple))
     minimum_tuple += (0,) * (length - len(minimum_tuple))
     return current_tuple < minimum_tuple
+
+
+def _mineru_local_configuration(definition):
+    config_name = (
+        os.environ.get("HSP_MINERU_TOOLS_CONFIG_JSON")
+        or os.environ.get("MINERU_TOOLS_CONFIG_JSON")
+        or "mineru.json"
+    )
+    config_path = Path(config_name).expanduser()
+    if not config_path.is_absolute():
+        config_path = Path.home() / config_path
+    if not config_path.is_file():
+        return {
+            "status": "missing_configuration",
+            "detail": "MinerU is installed, but its local pipeline model configuration is missing",
+        }
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {
+            "status": "invalid_configuration",
+            "detail": "MinerU local model configuration cannot be read as valid JSON",
+        }
+    model_dirs = config.get("models-dir") if isinstance(config, dict) else None
+    model_root_value = model_dirs.get("pipeline") if isinstance(model_dirs, dict) else None
+    if not isinstance(model_root_value, str) or not model_root_value.strip():
+        return {
+            "status": "missing_configuration",
+            "detail": "MinerU configuration does not define a local pipeline model directory",
+        }
+    model_root = Path(model_root_value).expanduser()
+    if not model_root.is_absolute():
+        model_root = (Path.cwd() / model_root).resolve()
+    if not model_root.is_dir():
+        return {
+            "status": "missing_models",
+            "detail": "MinerU pipeline model directory is not present",
+        }
+    missing = []
+    for relative_path, expected_type in definition.get("required_pipeline_models", ()):
+        candidate = model_root / relative_path
+        if expected_type == "file" and not candidate.is_file():
+            missing.append(relative_path)
+        elif expected_type == "directory" and not candidate.is_dir():
+            missing.append(relative_path)
+    if missing:
+        return {
+            "status": "missing_models",
+            "detail": "MinerU local pipeline is missing %d required model paths" % len(missing),
+        }
+    return {
+        "status": "configured",
+        "detail": "MinerU 3.4.0 local pipeline files are configured; this does not prove OCR quality on a real sample",
+    }
 
 
 def check_single_capability(definition):
@@ -159,6 +230,16 @@ def check_single_capability(definition):
             % (label, version or "unknown", minimum_version),
             "version": version,
         }
+    supported_version = definition.get("supported_version")
+    if supported_version and version != supported_version:
+        return {
+            "capability_id": capability_id,
+            "label": label,
+            "status": "degraded",
+            "detail": "%s version %s is unsupported; this adapter requires %s"
+            % (label, version or "unknown", supported_version),
+            "version": version,
+        }
     executable = definition.get("executable")
     if executable and not shutil.which(executable):
         return {
@@ -174,6 +255,15 @@ def check_single_capability(definition):
             "label": label,
             "status": "missing_credential",
             "detail": "%s requires admin credentials" % label,
+            "version": version,
+        }
+    if definition.get("required_pipeline_models"):
+        configured = _mineru_local_configuration(definition)
+        return {
+            "capability_id": capability_id,
+            "label": label,
+            "status": configured["status"],
+            "detail": configured["detail"],
             "version": version,
         }
     return {
