@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20260922-exam-import"
 QUESTION_ASSET_VERSION = "20260929-mobile-katex-scroll"
-DOCUMENT_ASSET_VERSION = "20260929-review-draft-export-review-state"
+DOCUMENT_ASSET_VERSION = "20260930-http-sha256-upload-fallback"
 
 
 def ensure_database(path, demo_mode=False):
