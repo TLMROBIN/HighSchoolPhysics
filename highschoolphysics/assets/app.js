@@ -252,7 +252,11 @@ const ADMIN_FORM_ENDPOINTS = {
   "export-profile": "api/admin/export-profile",
   "runtime-check": "api/admin/runtime-check",
   "provider-config": "api/admin/provider-config",
+  "llm-provider-config": "api/admin/llm-provider-config",
+  "mineru-provider-config": "api/admin/mineru-provider-config",
   "provider-test": "api/admin/provider-test",
+  "llm-provider-test": "api/admin/llm-provider-test",
+  "mineru-provider-test": "api/admin/mineru-provider-test",
   "oidc-provider": "api/admin/oidc-provider",
   "import-teacher": "api/admin/import-teacher"
 };

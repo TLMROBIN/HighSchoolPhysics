@@ -55,11 +55,13 @@ def documents_home(user, tasks):
   <form class="document-upload-form" id="document-upload-form">
     <label>试卷文件<input id="document-file" type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>
     <label>试卷名称<input id="document-title" type="text" maxlength="240" placeholder="可留空，使用文件名"></label>
+    <label>PDF 解析方式<select id="document-parser-mode" name="parser_mode"><option value="mineru_api" selected>MinerU 云端 API（推荐）</option><option value="mineru_local">服务器本地 MinerU</option></select></label>
+    <p class="document-parser-help">DOCX 继续使用可编辑正文解析；PDF 云端模式会将原文件发送至 MinerU 官方 API。</p>
     <button type="submit">上传并开始转换</button>
     <div class="document-upload-progress" id="document-upload-progress" aria-live="polite"></div>
   </form>
   <section class="document-task-section"><h2>我的导入任务</h2><div id="document-task-list">%s</div></section>
-  <p class="document-limits">支持 DOCX、旧 DOC、PDF；单文件最大 50 MiB。扫描版 PDF 在服务器上识别；若服务器模型不可用，任务会显示明确错误。转换时间随页数而变。</p>
+  <p class="document-limits">支持 DOCX、旧 DOC、PDF；单文件最大 50 MiB。DOCX 在本机服务器转换；PDF 可选官方云端 API 或本机 MinerU，云端解析会把文件发送到 MinerU，且仅在明确选择后使用。解析失败会显示错误，不会改用另一条识别路径。</p>
 </section>""" % (_e(user.get("id", "")), task_table)
 
 

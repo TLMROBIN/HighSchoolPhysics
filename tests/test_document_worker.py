@@ -46,7 +46,7 @@ class DocumentWorkerFlowTests(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
-    def _create_task(self):
+    def _create_task(self, parser_mode="mineru_local"):
         data = b"%PDF-1.7\nworker test fixture\n"
         digest = hashlib.sha256(data).hexdigest()
         conn = connect(self.db_path)
@@ -60,6 +60,7 @@ class DocumentWorkerFlowTests(unittest.TestCase):
                     "sha256": digest,
                     "title": "Worker fixture",
                     "role": "paper",
+                    "parser_mode": parser_mode,
                     "request_key": "worker-upload-001",
                 },
                 self.db_path,
@@ -75,6 +76,61 @@ class DocumentWorkerFlowTests(unittest.TestCase):
             )
             complete = complete_upload(conn, self.actor, upload["upload_id"], self.db_path, self.root / "documents")
             return complete["task_id"]
+        finally:
+            conn.close()
+
+    def test_cloud_mode_passes_decrypted_provider_secret_only_to_converter(self):
+        conn = connect(self.db_path)
+        try:
+            repo = PhysicsRepository(conn)
+            admin_id = conn.execute("select id from users where role='admin' limit 1").fetchone()[0]
+            repo.save_provider_config(
+                actor_id=admin_id,
+                provider_kind="mineru_api",
+                provider_name="MinerU test",
+                model_name="vlm",
+                api_endpoint="https://mineru.net",
+                secret="test-only-mineru-token",
+                enabled=True,
+                daily_call_limit=5,
+            )
+        finally:
+            conn.close()
+        task_id = self._create_task(parser_mode="mineru_api")
+        task = claim_next_task(self.db_path)
+        captured = {}
+
+        def converter(*args, **kwargs):
+            captured.update(kwargs)
+            return self._converter(*args, **kwargs)
+
+        result = process_task(task, db_path=self.db_path, document_root=self.root / "documents", converter=converter)
+        self.assertEqual(result["status"], "parsed")
+        self.assertEqual(captured["api_config"]["api_token"], "test-only-mineru-token")
+        self.assertEqual(captured["api_config"]["model_name"], "vlm")
+        self.assertEqual(task["id"], task_id)
+
+    def test_cloud_upload_requires_an_enabled_mineru_provider(self):
+        data = b"%PDF-1.7\nworker test fixture\n"
+        digest = hashlib.sha256(data).hexdigest()
+        conn = connect(self.db_path)
+        try:
+            with self.assertRaisesRegex(Exception, "MinerU API"):
+                create_upload(
+                    conn,
+                    self.actor,
+                    {
+                        "name": "cloud-fixture.pdf",
+                        "size": len(data),
+                        "sha256": digest,
+                        "title": "Cloud fixture",
+                        "role": "paper",
+                        "parser_mode": "mineru_api",
+                        "request_key": "cloud-upload-001",
+                    },
+                    self.db_path,
+                    self.root / "documents",
+                )
         finally:
             conn.close()
 

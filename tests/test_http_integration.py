@@ -954,6 +954,44 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertEqual(tested["last_test_status"], "ready")
         self.assertNotIn("sk-http-secret", payload.decode("utf-8"))
 
+    def test_llm_and_mineru_settings_use_separate_admin_endpoints(self):
+        _, admin_cookie, _ = self.server.login("admin", "admin123")
+        status, _, payload = self.server.post_json(
+            "/api/admin/mineru-provider-config",
+            {
+                "provider_name": "MinerU Test",
+                "model_name": "vlm",
+                "api_endpoint": "https://attacker.example",
+                "secret": "test-mineru-token",
+                "enabled": False,
+                "daily_call_limit": 5,
+            },
+            admin_cookie,
+        )
+        self.assertEqual(status, 200)
+        mineru = json.loads(payload)["config"]
+        self.assertEqual(mineru["provider_kind"], "mineru_api")
+        self.assertEqual(mineru["api_endpoint"], "https://mineru.net")
+        self.assertNotIn("test-mineru-token", payload.decode("utf-8"))
+
+        status, _, payload = self.server.post_json(
+            "/api/admin/llm-provider-config",
+            {
+                "provider_name": "LLM Test",
+                "model_name": "test-model",
+                "api_endpoint": "https://llm.example/v1",
+                "secret": "test-llm-key",
+                "enabled": False,
+                "daily_call_limit": 8,
+            },
+            admin_cookie,
+        )
+        self.assertEqual(status, 200)
+        llm = json.loads(payload)["config"]
+        self.assertEqual(llm["provider_kind"], "llm")
+        self.assertEqual(llm["api_endpoint"], "https://llm.example/v1")
+        self.assertNotIn("test-llm-key", payload.decode("utf-8"))
+
     def test_oidc_provider_endpoint_is_admin_only_and_masks_secret(self):
         _, admin_cookie, _ = self.server.login("admin", "admin123")
         _, teacher_cookie, _ = self.server.login("teacher_li", "teacher123")

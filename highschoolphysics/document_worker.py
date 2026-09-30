@@ -19,6 +19,7 @@ from .document_adapters import AdapterError, convert_document
 from .document_ingestion import _store_for_db
 from .document_models import canonical_json
 from .document_store import DocumentStore, DocumentStoreError
+from .providers import ProviderSecretStore
 from .question_splitter import split_document_ir
 
 
@@ -36,6 +37,12 @@ SAFE_FAILURES = {
     "dependency_missing": "A required server-side conversion tool is unavailable.",
     "model_unavailable": "The server-side document recognition model is unavailable.",
     "conversion_timeout": "Document conversion exceeded the time limit.",
+    "mineru_api_unavailable": "MinerU cloud parsing could not be reached. Check the provider endpoint and try again.",
+    "mineru_api_rejected": "MinerU rejected the cloud parsing request. Check the token and account quota.",
+    "mineru_api_upload_failed": "The document could not be uploaded to MinerU.",
+    "mineru_api_parse_failed": "MinerU could not parse this document.",
+    "provider_not_ready": "MinerU API is not configured or its saved credential cannot be opened.",
+    "provider_daily_limit": "The configured daily MinerU file limit has been reached.",
     "invalid_adapter_output": "The conversion tool returned output that did not match the verified schema.",
     "conversion_failed": "The document conversion failed. Retry the task or contact an administrator.",
     "empty_document": "No editable document content was recognized.",
@@ -102,7 +109,7 @@ def claim_next_task(db_path=DEFAULT_DB_PATH):
             conn.rollback()
             return None
         row = conn.execute(
-            """select id,school_id,input_document_id,original_paper_id,import_batch_id,created_by,generation,attempts
+            """select id,school_id,input_document_id,original_paper_id,import_batch_id,created_by,generation,attempts,parser_mode
                from document_parse_tasks where status='queued' and input_document_id is not null
                  and coalesce(cancel_requested,0)=0 and coalesce(available_at,'')<=?
                order by created_at,id limit 1""",
@@ -214,6 +221,48 @@ def _read_task_source(db_path, store, task_id, school_id, document_id, work_dir)
         conn.close()
 
 
+def _mineru_api_config(db_path, school_id, task_id):
+    conn = connect(db_path)
+    try:
+        provider = conn.execute(
+            """select * from provider_configs
+               where school_id=? and provider_kind='mineru_api' and enabled=1
+                 and secret_ciphertext<>'' and api_endpoint<>''
+               order by updated_at desc,created_at desc limit 1""",
+            (school_id,),
+        ).fetchone()
+        if provider is None:
+            raise AdapterError("provider_not_ready", "MinerU API is not configured")
+        limit = int(provider["daily_call_limit"] or 0)
+        if limit > 0:
+            today_tasks = conn.execute(
+                """select count(*) from document_parse_tasks
+                   where school_id=? and parser_mode='mineru_api'
+                     and date(created_at)=date('now')""",
+                (school_id,),
+            ).fetchone()[0]
+            if int(today_tasks or 0) > limit:
+                raise AdapterError("provider_daily_limit", "MinerU daily file limit has been reached")
+        try:
+            token = ProviderSecretStore.for_connection(conn).decrypt(provider["secret_ciphertext"])
+        except Exception as exc:
+            raise AdapterError("provider_not_ready", "MinerU API credentials cannot be decrypted") from exc
+        if not token:
+            raise AdapterError("provider_not_ready", "MinerU API token is not configured")
+        return {
+            "api_endpoint": provider["api_endpoint"],
+            "api_token": token,
+            "model_name": provider["model_name"],
+            "provider_config_id": provider["id"],
+            "provider_name": provider["provider_name"],
+            "daily_call_limit": provider["daily_call_limit"],
+            "task_id": task_id,
+            "created_by": provider["created_by"],
+        }
+    finally:
+        conn.close()
+
+
 def _document_assets_to_store(conn, school_id, conversion_id, assets):
     for asset in assets:
         conn.execute(
@@ -291,6 +340,14 @@ def process_task(task, db_path=DEFAULT_DB_PATH, document_root=None, converter=No
         os.chmod(original_path, 0o600)
         conversion_id = "conversion-" + uuid.uuid4().hex
         run_converter = converter or convert_document
+        converter_options = {
+            "timeout_seconds": MAX_CONVERSION_SECONDS,
+            "cancel_event": heartbeat.cancelled,
+        }
+        if task.get("parser_mode") == "mineru_api":
+            converter_options["api_config"] = _mineru_api_config(
+                db_path, task["school_id"], task_id
+            )
         output = run_converter(
             original_path,
             original_name,
@@ -299,8 +356,7 @@ def process_task(task, db_path=DEFAULT_DB_PATH, document_root=None, converter=No
             task["input_document_id"],
             conversion_id,
             work_dir,
-            timeout_seconds=MAX_CONVERSION_SECONDS,
-            cancel_event=heartbeat.cancelled,
+            **converter_options,
         )
         if heartbeat.cancelled.is_set():
             raise AdapterError("cancelled", "Document conversion was cancelled")

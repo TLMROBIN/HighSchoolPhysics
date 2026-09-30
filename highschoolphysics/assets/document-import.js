@@ -42,12 +42,13 @@
     try { window.sessionStorage.setItem(resumeStorageKey, JSON.stringify(records.slice(0, 2))); }
     catch (_error) { /* Upload still works when the browser blocks session storage. */ }
   };
-  const findResumeRecord = (file, digest, role, paperId) => readResumeRecords().find((record) =>
+  const findResumeRecord = (file, digest, role, paperId, parserMode) => readResumeRecords().find((record) =>
     record.file_name === file.name
     && record.file_size === file.size
     && record.sha256 === digest
     && record.role === role
     && (record.paper_id || null) === (paperId || null)
+    && (record.parser_mode || "mineru_local") === parserMode
   );
   const rememberUpload = (record) => {
     const records = readResumeRecords().filter((item) => item.request_key !== record.request_key);
@@ -67,6 +68,7 @@
   if (uploadForm) {
     const fileInput = document.getElementById("document-file");
     const titleInput = document.getElementById("document-title");
+    const parserModeInput = document.getElementById("document-parser-mode");
     const status = document.getElementById("document-upload-progress");
     uploadForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -80,7 +82,8 @@
         }
         setText(status, "正在计算文件校验值…");
         const digest = await fileHash(file);
-        const resumed = findResumeRecord(file, digest, "paper", null);
+        const parserMode = /\.docx$/i.test(file.name) ? "mineru_local" : (parserModeInput ? parserModeInput.value : "mineru_local");
+        const resumed = findResumeRecord(file, digest, "paper", null, parserMode);
         const title = (titleInput.value.trim() || (resumed && resumed.title) || file.name.replace(/\.[^.]+$/, "")).trim().slice(0, 240);
         if (!titleInput.value.trim()) titleInput.value = title;
         const requestKey = resumed && resumed.title === title ? resumed.request_key : randomKey();
@@ -90,6 +93,7 @@
           sha256: digest,
           title,
           role: "paper",
+          parser_mode: parserMode,
           paper_id: null,
           request_key: requestKey,
           saved_at: Date.now(),
@@ -101,6 +105,7 @@
           sha256: digest,
           title,
           role: "paper",
+          parser_mode: parserMode,
           request_key: requestKey,
         });
         const received = new Set(upload.received_parts || []);
@@ -119,7 +124,7 @@
           transferred += 1;
           setText(status, `上传中：${transferred} / ${upload.total_parts} 个分片`);
         }
-        setText(status, "文件已上传，正在排入转换队列…");
+        setText(status, parserMode === "mineru_api" ? "文件已上传，正在排入 MinerU 云端解析队列…" : "文件已上传，正在排入本地 MinerU 转换队列…");
         const completed = await request(`/api/documents/uploads/${encodeURIComponent(upload.upload_id)}/complete`, { request_key: `complete-${upload.upload_id}` });
         forgetUpload(requestKey);
         window.location.href = url(`/documents/review?task_id=${encodeURIComponent(completed.task_id)}`);

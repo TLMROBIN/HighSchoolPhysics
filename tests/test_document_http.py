@@ -83,9 +83,9 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertIn('href="/assets/document-import.css', page)
         self.assertIn("href='/exams'", page)
         self.assertIn('href="/logout"', page)
-        self.assertIn("扫描版 PDF 在服务器上识别", page)
-        self.assertIn("服务器模型不可用", page)
-        self.assertNotIn("本机模型", page)
+        self.assertIn("PDF 云端模式会将原文件发送至 MinerU", page)
+        self.assertIn('value="mineru_api" selected', page)
+        self.assertIn('value="mineru_local"', page)
 
         source = b"%PDF-1.7\nprefix logout link fixture\n"
         digest = hashlib.sha256(source).hexdigest()

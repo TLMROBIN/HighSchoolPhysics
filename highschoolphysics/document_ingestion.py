@@ -112,6 +112,21 @@ def create_upload(conn, actor, payload, db_path=None, document_root=None):
     role = payload.get("role", "paper")
     if role not in ("paper", "answers", "rubric"):
         raise IngestionError("invalid_role", "The document role is invalid")
+    parser_mode = payload.get("parser_mode", "mineru_local")
+    if parser_mode not in ("mineru_api", "mineru_local"):
+        raise IngestionError("invalid_parser_mode", "The PDF recognition mode is invalid")
+    if role != "paper" or Path(name).suffix.lower() == ".docx":
+        parser_mode = "mineru_local"
+    if parser_mode == "mineru_api":
+        provider = conn.execute(
+            """select id from provider_configs
+               where school_id=? and provider_kind='mineru_api' and enabled=1
+                 and secret_ciphertext<>'' and api_endpoint<>''
+               order by updated_at desc,created_at desc limit 1""",
+            (actor["school_id"],),
+        ).fetchone()
+        if provider is None:
+            raise IngestionError("mineru_api_not_ready", "请先在管理员设置中保存并启用 MinerU API 配置", 409)
     title = str(payload.get("title") or Path(name).stem).strip()[:240]
     if not title:
         raise IngestionError("invalid_title", "A paper title is required")
@@ -132,6 +147,7 @@ def create_upload(conn, actor, payload, db_path=None, document_root=None):
         "role": role,
         "title": title,
         "original_paper_id": original_paper_id,
+        "parser_mode": parser_mode,
     }
     request_hash = hashlib.sha256(canonical_json({
         "name": name,
@@ -448,7 +464,7 @@ def complete_upload(conn, actor, upload_id, db_path=None, document_root=None):
                 "1.0.0",
                 original_paper_id,
                 batch_id,
-                batch_mode,
+                metadata.get("parser_mode", "mineru_local"),
                 document_id,
                 _now(),
                 _now(),

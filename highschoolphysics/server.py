@@ -2616,6 +2616,34 @@ def render_admin_app(user, dashboard):
     )
     if not provider_options:
         provider_options = "<option value=''>先保存 Provider 配置</option>"
+    llm_provider_options = "".join(
+        "<option value='%s'>%s / %s</option>" % (
+            escape(item["id"]), escape(item["provider_name"]), escape(item.get("model_name") or "默认模型")
+        )
+        for item in dashboard.get("provider_configs", []) if item["provider_kind"] == "llm"
+    ) or "<option value=''>先保存大模型 API 配置</option>"
+    mineru_provider_options = "".join(
+        "<option value='%s'>%s / %s</option>" % (
+            escape(item["id"]), escape(item["provider_name"]), escape(item.get("model_name") or "默认管线")
+        )
+        for item in dashboard.get("provider_configs", []) if item["provider_kind"] == "mineru_api"
+    ) or "<option value=''>先保存 MinerU API 配置</option>"
+    def provider_rows_for(kind):
+        rows = []
+        for item in dashboard.get("provider_configs", []):
+            if item["provider_kind"] != kind:
+                continue
+            rows.append(
+                "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                    escape(item["provider_name"]),
+                    escape(item.get("model_name") or "—"),
+                    "启用" if item.get("enabled") else "停用",
+                    escape(item.get("secret_masked") or "未保存"),
+                    escape(item.get("daily_call_limit", 0)),
+                    escape(item.get("last_test_status") or "未检查"),
+                )
+            )
+        return "".join(rows) or "<tr><td colspan='6'>暂无配置</td></tr>"
     provider_usage_rows = "".join(
         "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
         % (
@@ -2897,34 +2925,53 @@ def render_admin_app(user, dashboard):
         <div class="panel-head">
           <div>
             <h2>Provider 运营</h2>
-            <p class="explain">LLM 与 MinerU API 的密钥、预算/用量、测试状态和停用策略统一在这里管理。</p>
+            <p class="explain">大模型 API 和整卷文档解析分别配置、独立检查；MinerU 按页数/账号额度计费的部分由 MinerU 账户侧管理。</p>
           </div>
         </div>
-        <div class="provider-ops-grid">
-          <form data-admin-form="provider-config" class="provider-config-form">
-            <h3>LLM 与 MinerU API</h3>
-            <label>类型<select name="provider_kind"><option value="llm">LLM</option><option value="mineru_api">MinerU API</option></select></label>
-            <label>Provider 名称<input name="provider_name" value="OpenAI Compatible" required></label>
-            <label>模型/管线<input name="model_name" value="gpt-4.1-mini"></label>
-            <label>API Endpoint<input name="api_endpoint" placeholder="https://api.example.com/v1"></label>
-            <label>Secret<input name="secret" type="password" autocomplete="new-password" placeholder="保存后只显示掩码"></label>
-            <label>启用<select name="enabled"><option value="1">启用</option><option value="0">停用</option></select></label>
-            <label>每日调用上限<input name="daily_call_limit" type="number" value="1000"></label>
-            <label>月预算（分）<input name="monthly_budget_cents" type="number" value="0"></label>
-            <label>单次上限（分）<input name="per_call_max_cents" type="number" value="0"></label>
-            <label>输入单价/千单位（分）<input name="input_cost_per_1k_cents" type="number" value="0" step="0.001"></label>
-            <label>输出单价/千单位（分）<input name="output_cost_per_1k_cents" type="number" value="0" step="0.001"></label>
-            <button type="submit">保存 Provider</button>
-          </form>
-          <form data-admin-form="provider-test" class="provider-test-form">
-            <h3>连接与预算测试</h3>
-            <label>Provider<select name="provider_config_id">{provider_options}</select></label>
-            <button type="submit">测试配置</button>
-            <p class="explain">测试不会把 secret 写入日志；真实远程烟测由显式运行时检查触发。</p>
-          </form>
-        </div>
-        <div class="taxonomy-table-scroll">
-          <table><thead><tr><th>类型</th><th>Provider</th><th>模型</th><th>启用</th><th>Secret</th><th>预算/用量</th><th>测试</th></tr></thead><tbody>{provider_rows}</tbody></table>
+        <div class="provider-ops-grid provider-ops-split">
+          <section class="provider-config-section">
+            <h3>大模型 API</h3>
+            <p class="explain">管理生成式模型的 Endpoint、模型名、密钥和 token 单价预算。</p>
+            <form data-admin-form="llm-provider-config" class="provider-config-form">
+              <label>Provider 名称<input name="provider_name" value="OpenAI Compatible" required></label>
+              <label>模型名称<input name="model_name" value="gpt-4.1-mini" required></label>
+              <label>API Endpoint<input name="api_endpoint" placeholder="https://api.example.com/v1"></label>
+              <label>API Key<input name="secret" type="password" autocomplete="new-password" placeholder="留空保留已存密钥"></label>
+              <label>启用<select name="enabled"><option value="0">停用</option><option value="1">启用</option></select></label>
+              <label>每日调用上限<input name="daily_call_limit" type="number" value="1000" min="0"></label>
+              <label>月预算（分）<input name="monthly_budget_cents" type="number" value="0" min="0"></label>
+              <label>单次上限（分）<input name="per_call_max_cents" type="number" value="0" min="0"></label>
+              <label>输入单价/千单位（分）<input name="input_cost_per_1k_cents" type="number" value="0" min="0" step="0.001"></label>
+              <label>输出单价/千单位（分）<input name="output_cost_per_1k_cents" type="number" value="0" min="0" step="0.001"></label>
+              <button type="submit">保存大模型配置</button>
+            </form>
+            <form data-admin-form="llm-provider-test" class="provider-test-form">
+              <label>大模型配置<select name="provider_config_id">{llm_provider_options}</select></label>
+              <button type="submit">检查配置</button>
+            </form>
+            <div class="taxonomy-table-scroll"><table><thead><tr><th>Provider</th><th>模型</th><th>状态</th><th>API Key</th><th>每日上限</th><th>检查</th></tr></thead><tbody>{llm_provider_rows}</tbody></table></div>
+          </section>
+          <section class="provider-config-section">
+            <h3>MinerU 文档解析 API</h3>
+            <p class="explain">用于整份 PDF 上传、公式与图像识别。文件将发送到 MinerU 云端；解析走异步任务并返回结构化 ZIP。</p>
+            <form data-admin-form="mineru-provider-config" class="provider-config-form">
+              <label>配置名称<input name="provider_name" value="MinerU 精准解析 API" required></label>
+              <label>模型管线<select name="model_name"><option value="vlm" selected>VLM（建议先用此项对照）</option><option value="pipeline">Pipeline</option></select></label>
+              <label>官方 API 主机<input value="https://mineru.net/api/v4" readonly></label>
+              <input type="hidden" name="api_endpoint" value="https://mineru.net">
+              <label>MinerU Token<input name="secret" type="password" autocomplete="new-password" placeholder="粘贴 API 管理页创建的 Token"></label>
+              <label>启用<select name="enabled"><option value="0">停用</option><option value="1">启用</option></select></label>
+              <label>本系统每日解析文件上限<input name="daily_call_limit" type="number" value="5" min="1"></label>
+              <p class="explain">公式识别开启，语言为中文；扫描 PDF 自动启用 OCR。这里的文件次数上限独立于 MinerU 账号的页数额度。</p>
+              <button type="submit">保存 MinerU 配置</button>
+            </form>
+            <form data-admin-form="mineru-provider-test" class="provider-test-form">
+              <label>MinerU 配置<select name="provider_config_id">{mineru_provider_options}</select></label>
+              <button type="submit">检查密钥配置</button>
+              <p class="explain">此检查验证本地加密配置；真实解析成功以教师上传 PDF 后的任务结果为准。</p>
+            </form>
+            <div class="taxonomy-table-scroll"><table><thead><tr><th>配置</th><th>管线</th><th>状态</th><th>Token</th><th>每日文件上限</th><th>检查</th></tr></thead><tbody>{mineru_provider_rows}</tbody></table></div>
+          </section>
         </div>
         <h3>Provider 调用台账</h3>
         <div class="taxonomy-table-scroll">
@@ -2936,7 +2983,6 @@ def render_admin_app(user, dashboard):
         <p class="explain">错题本和报告 PDF 由 Playwright 服务生成，任务记录文件大小、引擎版本和失败原因。</p>
         <table><thead><tr><th>类型</th><th>状态</th><th>文件</th><th>大小</th><th>引擎</th></tr></thead><tbody>{pdf_export_rows}</tbody></table>
       </section>
-      <section class="panel"><h2>LLM Key</h2><table><thead><tr><th>Provider</th><th>模型</th><th>Key</th><th>测试</th></tr></thead><tbody>{llm_rows}</tbody></table></section>
       <section class="panel"><h2>解析任务</h2><table><thead><tr><th>文件</th><th>工具</th><th>状态</th><th>原因</th></tr></thead><tbody>{parse_rows}</tbody></table></section>
     </div>
   </section>
@@ -2963,6 +3009,10 @@ def render_admin_app(user, dashboard):
         runtime_health_rows=runtime_health_rows,
         provider_options=provider_options,
         provider_rows=provider_rows,
+        llm_provider_options=llm_provider_options,
+        mineru_provider_options=mineru_provider_options,
+        llm_provider_rows=provider_rows_for("llm"),
+        mineru_provider_rows=provider_rows_for("mineru_api"),
         provider_usage_rows=provider_usage_rows,
         mastery_trend=_mastery_trend,
         mastery_grade_columns=_mastery_grade_columns,
@@ -3636,9 +3686,52 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         "checks": checks,
                     }
                 )
-            elif path == "/api/admin/provider-config":
+            elif path in ("/api/admin/llm-provider-config", "/api/admin/mineru-provider-config"):
                 if user["role"] != "admin":
                     raise PermissionDenied("Admin role required")
+                is_mineru = path.endswith("/mineru-provider-config")
+                provider_kind = "mineru_api" if is_mineru else "llm"
+                model_name = str(payload.get("model_name", "")).strip()
+                api_endpoint = str(payload.get("api_endpoint", "")).strip()
+                if is_mineru:
+                    if model_name not in ("pipeline", "vlm"):
+                        raise DomainError("MinerU 模型管线只能选择 pipeline 或 vlm")
+                    # Use the official origin. The adapter controls the upload, polling, and download routes.
+                    api_endpoint = "https://mineru.net"
+                    provider_name = str(payload.get("provider_name") or "MinerU 精准解析 API").strip()
+                    enabled = truthy(payload.get("enabled", "0"))
+                    if enabled and not payload.get("secret"):
+                        existing = repo.conn.execute(
+                            """select secret_ciphertext from provider_configs
+                               where school_id=? and provider_kind='mineru_api'
+                                 and provider_name=? and model_name=?""",
+                            (user["school_id"], provider_name, model_name),
+                        ).fetchone()
+                        if existing is None or not existing["secret_ciphertext"]:
+                            raise DomainError("启用 MinerU 前请先填写 API 管理页生成的 Token")
+                else:
+                    provider_name = str(payload.get("provider_name") or "").strip()
+                    enabled = truthy(payload.get("enabled", "0"))
+                config = repo.save_provider_config(
+                    actor_id=user["id"],
+                    provider_kind=provider_kind,
+                    provider_name=provider_name,
+                    model_name=model_name,
+                    secret=payload.get("secret", ""),
+                    api_endpoint=api_endpoint,
+                    enabled=enabled,
+                    daily_call_limit=int(payload.get("daily_call_limit", 0) or 0),
+                    monthly_budget_cents=float(payload.get("monthly_budget_cents", 0) or 0),
+                    per_call_max_cents=float(payload.get("per_call_max_cents", 0) or 0),
+                    input_cost_per_1k_cents=float(payload.get("input_cost_per_1k_cents", 0) or 0),
+                    output_cost_per_1k_cents=float(payload.get("output_cost_per_1k_cents", 0) or 0),
+                )
+                self._send_json({"ok": True, "message": "MinerU API 配置已保存" if is_mineru else "大模型 API 配置已保存", "config": config})
+            elif path in ("/api/admin/provider-config",):
+                if user["role"] != "admin":
+                    raise PermissionDenied("Admin role required")
+                if payload.get("provider_kind") != "llm":
+                    raise DomainError("请分别使用大模型 API 或 MinerU API 专用配置入口")
                 config = repo.save_provider_config(
                     actor_id=user["id"],
                     provider_kind=payload["provider_kind"],
@@ -3668,9 +3761,14 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         "config": config,
                     }
                 )
-            elif path == "/api/admin/provider-test":
+            elif path in ("/api/admin/provider-test", "/api/admin/llm-provider-test", "/api/admin/mineru-provider-test"):
                 if user["role"] != "admin":
                     raise PermissionDenied("Admin role required")
+                expected_kind = "llm" if path.endswith("/llm-provider-test") else "mineru_api" if path.endswith("/mineru-provider-test") else ""
+                if expected_kind:
+                    row = repo._provider_config_row(payload["provider_config_id"], user["school_id"])
+                    if row["provider_kind"] != expected_kind:
+                        raise DomainError("所选配置类型与测试表单不匹配")
                 config = repo.test_provider_connection(
                     actor_id=user["id"],
                     provider_config_id=payload["provider_config_id"],

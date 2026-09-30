@@ -150,45 +150,76 @@ def convert_pdf(
     timeout_seconds=1200,
     source_locator=None,
     cancel_event=None,
+    api_config=None,
 ):
     source_path = Path(source_path).resolve()
     work_dir = Path(work_dir).resolve()
-    binary = os.environ.get("HSP_MINERU_BIN") or shutil.which("mineru")
-    if not binary:
-        raise AdapterError("dependency_missing", "MinerU is required for PDF conversion")
-    env = os.environ.copy()
-    env["MINERU_MODEL_SOURCE"] = env.get("MINERU_MODEL_SOURCE", "local")
-    env["MINERU_TOOLS_CONFIG_JSON"] = _mineru_config(env)
-    threads = env.get("HSP_MINERU_THREADS", "1")
-    if not threads.isdigit() or not (1 <= int(threads) <= 4):
-        raise AdapterError("invalid_configuration", "HSP_MINERU_THREADS must be between 1 and 4")
-    for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS", "MINERU_API_MAX_CONCURRENT_REQUESTS", "MINERU_PROCESSING_WINDOW_SIZE"):
-        env[key] = "2" if key == "MINERU_PROCESSING_WINDOW_SIZE" else threads
     work_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     output_root = work_dir / "mineru-output"
     output_root.mkdir(mode=0o700, exist_ok=True)
     input_path = work_dir / "source.pdf"
     if input_path != source_path:
         shutil.copyfile(source_path, input_path)
-    method = _select_method(input_path)
-    code, log = _run(
-        [binary, "--path", str(input_path), "--output", str(output_root), "--backend", "pipeline", "--method", method, "--lang", "ch"],
-        timeout_seconds,
-        env,
-        cancel_event=cancel_event,
-    )
-    base = output_root / input_path.stem / "ocr"
-    markdown_path = base / (input_path.stem + ".md")
-    middle_path = base / (input_path.stem + "_middle.json")
-    content_path = base / (input_path.stem + "_content_list.json")
-    if code != 0 or not (markdown_path.is_file() and middle_path.is_file() and content_path.is_file()):
-        raise AdapterError("invalid_adapter_output", "MinerU did not produce the verified 3.4 output files")
+    if api_config is not None:
+        from .mineru_api import convert_pdf as convert_pdf_api
+
+        api_config = dict(api_config)
+        api_config["data_id"] = "doc-" + source_sha256[:24] + "-" + str(api_config.get("task_id", ""))[-64:]
+        method = _select_method(input_path)
+        api_config["is_ocr"] = method == "ocr"
+        remote = convert_pdf_api(
+            input_path,
+            work_dir,
+            api_config,
+            timeout_seconds=timeout_seconds,
+            cancel_event=cancel_event,
+        )
+        base = remote["base"]
+        markdown_path = remote["markdown_path"]
+        middle_path = remote["middle_path"]
+        content_path = remote["content_path"]
+        method = "cloud-api-ocr" if api_config["is_ocr"] else "cloud-api-text"
+        expected_version = None
+        expected_backend = remote["backend"]
+        adapter_name = "mineru-cloud-api"
+        adapter_version = remote["version"]
+    else:
+        binary = os.environ.get("HSP_MINERU_BIN") or shutil.which("mineru")
+        if not binary:
+            raise AdapterError("dependency_missing", "MinerU is required for PDF conversion")
+        env = os.environ.copy()
+        env["MINERU_MODEL_SOURCE"] = env.get("MINERU_MODEL_SOURCE", "local")
+        env["MINERU_TOOLS_CONFIG_JSON"] = _mineru_config(env)
+        threads = env.get("HSP_MINERU_THREADS", "1")
+        if not threads.isdigit() or not (1 <= int(threads) <= 4):
+            raise AdapterError("invalid_configuration", "HSP_MINERU_THREADS must be between 1 and 4")
+        for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS", "MINERU_API_MAX_CONCURRENT_REQUESTS", "MINERU_PROCESSING_WINDOW_SIZE"):
+            env[key] = "2" if key == "MINERU_PROCESSING_WINDOW_SIZE" else threads
+        method = _select_method(input_path)
+        code, _log = _run(
+            [binary, "--path", str(input_path), "--output", str(output_root), "--backend", "pipeline", "--method", method, "--lang", "ch"],
+            timeout_seconds,
+            env,
+            cancel_event=cancel_event,
+        )
+        base = output_root / input_path.stem / "ocr"
+        markdown_path = base / (input_path.stem + ".md")
+        middle_path = base / (input_path.stem + "_middle.json")
+        content_path = base / (input_path.stem + "_content_list.json")
+        if code != 0 or not (markdown_path.is_file() and middle_path.is_file() and content_path.is_file()):
+            raise AdapterError("invalid_adapter_output", "MinerU did not produce the verified 3.4 output files")
+        expected_version = SUPPORTED_MINERU_VERSION
+        expected_backend = "pipeline"
+        adapter_name = "mineru-pipeline"
+        adapter_version = SUPPORTED_MINERU_VERSION
     try:
         middle = json.loads(middle_path.read_text(encoding="utf-8"))
         content = json.loads(content_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise AdapterError("invalid_adapter_output", "MinerU returned malformed output") from exc
-    if middle.get("_version_name") != SUPPORTED_MINERU_VERSION or middle.get("_backend") != "pipeline":
+    if not isinstance(middle, dict):
+        raise AdapterError("invalid_adapter_output", "MinerU returned an invalid layout document")
+    if expected_version and (middle.get("_version_name") != expected_version or middle.get("_backend") != expected_backend):
         raise AdapterError("invalid_adapter_output", "The installed MinerU version or backend differs from the verified adapter")
     pages_in = middle.get("pdf_info")
     if not isinstance(pages_in, list) or not pages_in or len(pages_in) > MAX_PDF_PAGES:
@@ -301,9 +332,9 @@ def convert_pdf(
     formula_count = sum(len(value) for value in formulas.values())
     manifest = {
         "schema_version": 1,
-        "adapter": "mineru-pipeline",
-        "adapter_version": middle["_version_name"],
-        "backend": middle["_backend"],
+        "adapter": adapter_name,
+        "adapter_version": adapter_version,
+        "backend": middle.get("_backend") or expected_backend,
         "method": method,
         "source_sha256": source_sha256,
         "rendered_source_sha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
@@ -314,8 +345,8 @@ def convert_pdf(
         "issues": issues,
     }
     return {
-        "adapter_name": "mineru-pipeline",
-        "adapter_version": middle["_version_name"],
+        "adapter_name": adapter_name,
+        "adapter_version": adapter_version,
         "document": document,
         "markdown": output_markdown,
         "assets": list(assets.values()),

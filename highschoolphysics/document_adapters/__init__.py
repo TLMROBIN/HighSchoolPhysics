@@ -26,6 +26,7 @@ def convert_document(
     work_dir,
     timeout_seconds=1200,
     cancel_event=None,
+    api_config=None,
 ):
     suffix = Path(original_name).suffix.lower()
     source_sha256 = _hash_file(source_path)
@@ -67,6 +68,7 @@ def convert_document(
             work_dir,
             timeout_seconds=timeout_seconds,
             cancel_event=cancel_event,
+            api_config=api_config,
         )
     if suffix == ".doc":
         rendered = convert_legacy_doc(source_path, work_dir, timeout_seconds=timeout_seconds, cancel_event=cancel_event)
@@ -86,6 +88,7 @@ def convert_document(
                 "converter": rendered["converter"],
             },
             cancel_event=cancel_event,
+            api_config=api_config,
         )
         output["adapter_name"] = "libreoffice+mineru"
         output["adapter_version"] = rendered["converter"] + "+" + output["adapter_version"]

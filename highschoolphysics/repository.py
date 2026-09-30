@@ -4659,6 +4659,12 @@ class PhysicsRepository:
         if secret:
             secret_ciphertext = self._provider_secret_store().encrypt(secret)
             secret_masked = mask_secret(secret)
+        if provider_kind == "mineru_api":
+            # Document uploads select the single enabled MinerU provider for the school.
+            self.conn.execute(
+                "update provider_configs set enabled=0,updated_at=current_timestamp where school_id=? and provider_kind='mineru_api' and id<>?",
+                (actor["school_id"], config_id),
+            )
         self.conn.execute(
             """
             insert into provider_configs(
@@ -4878,6 +4884,8 @@ class PhysicsRepository:
         row = self._provider_config_row(provider_config_id, actor["school_id"])
         status = "ready"
         detail = "密钥可解密，预算策略可执行；远程连通性需在显式烟测中执行。"
+        if row["provider_kind"] == "mineru_api":
+            detail = "MinerU Token 已加密保存且可解密；此项不代表云端解析已成功。"
         if not row["enabled"]:
             status = "disabled"
             detail = "Provider 已停用。"
