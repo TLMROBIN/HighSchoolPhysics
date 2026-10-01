@@ -340,7 +340,7 @@ def student(repo,user,params,base_path=""):
 
 def metrics(repo,uid):
     c=repo.conn;groups=defaultdict(lambda:dict(q=set(),attempts=0,correct=0,wrong=0,blank=0))
-    rows=c.execute("select r.question_id,r.outcome,s.tag_snapshot_json from student_responses r join question_version_snapshots s on s.id=r.snapshot_id join assessment_sessions a on a.id=r.assessment_id where r.student_id=? and a.grading_status='published' union all select w.question_id,a.outcome,s.tag_snapshot_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and a.purpose='verify'",(uid,uid)).fetchall()
+    rows=c.execute("select r.question_id,r.outcome,s.tag_snapshot_json from student_responses r join question_version_snapshots s on s.id=r.snapshot_id join assessment_sessions a on a.id=r.assessment_id join assessment_participants participant on participant.assessment_id=r.assessment_id and participant.student_id=r.student_id where participant.status='present' and r.student_id=? and a.grading_status='published' union all select w.question_id,a.outcome,s.tag_snapshot_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and a.purpose='verify'",(uid,uid)).fetchall()
     for r in rows:
         if r['outcome']=='pending': continue
         seen=set()

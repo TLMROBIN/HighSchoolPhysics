@@ -106,7 +106,7 @@ def outcome_for_snapshot(conn, snapshot_row, school_id, answer):
 def progress(conn, wrong, today=None):
     today=today or datetime.now(TZ).date()
     version=snapshot(conn,wrong)['question_version']
-    originals=conn.execute("select coalesce(r.effective_from,r.created_at) from student_responses r join assessment_sessions a on a.id=r.assessment_id join question_version_snapshots s on s.id=r.snapshot_id where r.student_id=? and r.question_id=? and s.question_version=? and r.outcome in ('wrong','blank') and a.grading_status='published'",(wrong['student_id'],wrong['question_id'],version)).fetchall()
+    originals=conn.execute("select coalesce(r.effective_from,r.created_at) from student_responses r join assessment_sessions a on a.id=r.assessment_id join question_version_snapshots s on s.id=r.snapshot_id join assessment_participants participant on participant.assessment_id=r.assessment_id and participant.student_id=r.student_id where participant.status='present' and r.student_id=? and r.question_id=? and s.question_version=? and r.outcome in ('wrong','blank') and a.grading_status='published'",(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events=[(r[0],'wrong','original') for r in originals]
     attempts=conn.execute('select a.* from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and w.question_id=? and s.question_version=? order by a.submitted_at,a.id',(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events += [(a['submitted_at'],a['outcome'],a['purpose']) for a in attempts if a['purpose']=='verify']

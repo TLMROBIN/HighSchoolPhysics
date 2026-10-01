@@ -104,6 +104,18 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.response()['outcome'],'blank')
         self.assertEqual(self.c.execute('select count(*) from wrong_questions where assessment_id=?',(self.a,)).fetchone()[0],1)
 
+    def test_excluded_after_import_does_not_enter_learning_statistics(self):
+        before=learning_views.metrics(self.repo,'stu-1001')
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
+        p=dict(self.payload(),csv='学生,题号,作答,结果\nstu_1001,1,A,\nstu_1002,1,B,')
+        self.save(p)
+        learning.api(self.repo,self.admin,'participant',dict(assessment_id=self.a,student_id='stu-1001',status='absent'))
+        learning.api(self.repo,self.admin,'publish',{'assessment_id':self.a})
+        self.assertEqual(learning_views.metrics(self.repo,'stu-1001'),before)
+        self.assertEqual(self.c.execute('select count(*) from wrong_questions where assessment_id=?',(self.a,)).fetchone()[0],0)
+        publication=self.c.execute('select decisions_json from response_publications where assessment_id=?',(self.a,)).fetchone()[0]
+        self.assertEqual(len(json.loads(publication)),1)
+
     def test_import_replay_after_publication_and_publish_protected(self):
         p=self.payload();preview,_=self.save(p)
         learning.api(self.repo,self.admin,'publish',{'assessment_id':self.a})

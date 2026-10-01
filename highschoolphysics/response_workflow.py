@@ -305,7 +305,7 @@ def history(repo,user,p):
 
 def _publication(conn,user,aid,kind):
     version=conn.execute("select coalesce(max(version),0)+1 from response_publications where assessment_id=?",(aid,)).fetchone()[0]
-    records=[dict(r) for r in conn.execute("select id,effective_decision_id from student_responses where assessment_id=? order by id",(aid,))]
+    records=[dict(r) for r in conn.execute("select r.id,r.effective_decision_id from student_responses r join assessment_participants p on p.assessment_id=r.assessment_id and p.student_id=r.student_id where r.assessment_id=? and p.status='present' order by r.id",(aid,))]
     conn.execute("insert into response_publications(id,assessment_id,version,kind,decisions_json,created_by,created_at) values(?,?,?,?,?,?,?)",
                  (identifier("publication"),aid,version,kind,dumps(records),user["id"],timestamp()))
 
