@@ -168,6 +168,13 @@ except (subprocess.SubprocessError, IndexError):
     pass
 PY_GITHUB
 )"
+  # ssh concatenates command arguments before invoking the remote shell, so an
+  # empty final argument would be dropped and shift the positional parameters.
+  # Preserve the absence explicitly; the remote check can still validate the
+  # checkout and service, while reporting GitHub parity as unproven.
+  if [[ -z "$local_github_head" ]]; then
+    local_github_head="__unknown__"
+  fi
 
   printf '\n== Remote HighSchoolPhysics deploy check ==\n'
   printf 'REMOTE_HOST=%s\n' "$REMOTE_HOST"
@@ -206,7 +213,7 @@ cd "$remote_dir"
 remote_head="$(git rev-parse HEAD)"
 origin_head="$(git rev-parse origin/main 2>/dev/null || true)"
 github_head="$(timeout 25 git ls-remote "$github_url" refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
-if [[ -z "$github_head" && -n "$local_github_head" ]]; then
+if [[ -z "$github_head" && "$local_github_head" != "__unknown__" ]]; then
   github_head="$local_github_head"
   printf '[INFO] GitHub main verified through a fresh local query to the same repository\n'
 fi
