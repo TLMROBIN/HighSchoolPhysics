@@ -299,12 +299,12 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<script src="assets/learning.js?v=2" defer></script>'
+def footer(): return '<script src="assets/learning.js?v=20261001-evidence-2" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def student(repo,user,params,base_path=""):
     c=repo.conn;uid=user['id'];body=[base(user)]
-    wrongs=[dict(r) for r in c.execute("select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id where w.student_id=? and a.grading_status='published' order by w.created_at desc,w.id",(uid,))]
+    wrongs=[dict(r) for r in c.execute("select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id where w.student_id=? and w.is_active=1 and a.grading_status='published' order by w.created_at desc,w.id",(uid,))]
     unique={}
     for w in wrongs: unique.setdefault(w['question_id'],w)
     due=[w for w in unique.values() if progress(c,w)['available']]
@@ -444,14 +444,14 @@ def teacher(repo,user,params,document_import_enabled=False):
     body.append('<h3>批量确认题库标签</h3>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label><label>素养'+select('literacy',literacy)+'</label>'+''.join('<label class="bulk-question-choice"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'<button>为所选题确认三类标签</button>'))
     body.append('</details>')
     allowed={a['id'] for a in assessments}
-    pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.outcome='pending' order by a.submitted_at").fetchall()
+    pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where w.is_active=1 and a.outcome='pending' order by a.submitted_at").fetchall()
     body.append('<h2 id="review">待确认的重做</h2>')
     for a in pending:
         if a['assessment_id'] not in allowed: continue
         body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),esc(a['stem']),esc(a['answer']),esc(loads(a['grading_rule_json'],{}).get('answer')),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
     body.append('<h2 id="progress">复习进度</h2><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
     for a in assessments:
-        ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where assessment_id=?',(a['id'],))]
+        ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
         body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(a['class_name']),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
     return ''.join(body)+'</table></section>'+footer()
 
@@ -489,9 +489,9 @@ def exams(repo,user,aid=None,base_path=""):
     if staff and a['grading_status']!='published':
         body.append('<h3>核对学生范围</h3>')
         for p in participants:
-            body.append(form('participant',hidden('assessment_id',aid)+hidden('student_id',p['student_id'])+'<span>%s · 当前：%s</span>'%(esc(p['display_name']),esc(p['status']))+select('status',[('present','纳入'),('absent','缺考'),('not_included','不纳入')])+'<button>更新</button>'))
-        body.append('<h3>录入 / 导入作答</h3><p>CSV 列名：学生,题号,作答,结果。学生可填姓名、学号或账号；题号用下方每个评分小问的顺序号。结果填正确、错误、空白、待确认；实验题和解答题的作答需教师确认。留空时选择题自动核对、填空不匹配交教师确认。逗号答案请用英文双引号包围。</p>')
-        body.append(form('answers',hidden('assessment_id',aid)+'<input type="file" class="answers-file" accept=".csv,text/csv"><textarea name="csv" rows="8" placeholder="学生,题号,作答,结果&#10;张三,1,A,"></textarea><button>预览表格</button><button type="button" class="confirm-answers" hidden>确认保存</button>'))
+            body.append(form('participant',hidden('assessment_id',aid)+hidden('student_id',p['student_id'])+'<span>%s · 当前：%s</span>'%(esc(p['display_name']),esc({'present':'纳入','absent':'缺考','not_included':'不纳入'}.get(p['status'],p['status'])))+select('status',[('present','纳入'),('absent','缺考'),('not_included','不纳入')])+'<button>更新</button>'))
+        body.append('<h3>录入 / 导入作答</h3><p>CSV 列名：学生,题号,作答,结果。学生可填姓名、学号或账号；题号用下方每个评分小问的顺序号。有外部结果请选择“导入已核对结果”并说明来源；与规则不一致时须复核。留空时选择题自动核对、填空不匹配交教师确认。逗号答案请用英文双引号包围。</p>')
+        body.append(form('answers',hidden('assessment_id',aid)+'<label>导入方式<select name="source_type"><option value="answers">导入学生答案</option><option value="external">导入已核对结果</option></select></label><label>来源名称<input name="source_name" value="教师 CSV 录入" maxlength="240"></label><label>外部结果核对依据<textarea name="source_reason" rows="2"></textarea></label><input type="file" class="answers-file" accept=".csv,text/csv"><textarea name="csv" rows="8" placeholder="学生,题号,作答,结果&#10;张三,1,A,"></textarea><button>预览表格</button><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存</button>'))
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
         body.append('<p>应有 %s 条，已录入 %s 条，待确认 %s 条。缺失不能当作空白。</p>'%(expected,actual,sum(r['outcome']=='pending' for r in rs)))
@@ -519,10 +519,18 @@ def exams(repo,user,aid=None,base_path=""):
                     or '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
                 ) if staff else ''
             ))
-            body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>结果</th><th>原图</th></tr>')
+            body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>原图 / 复核</th></tr>')
             for r in rows:
                 media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
-                body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',LABELS[r['outcome']],'<a target="_blank" href="exam-media?id=%s">答题卡</a>'%quote(media) if media else ''))
+                correction_note = ('<p>经更正的作答：%s</p>' % (esc(r['final_answer']) or '空白')) if r['initial_answer']!=r['final_answer'] else ''
+                operations = ('<a href="exam-media?id=%s">答题卡</a>' % quote(media)) if media else ''
+                if staff:
+                    operations += response_controls(r, a['grading_status']=='published')
+                else:
+                    latest=c.execute('select method,reason from response_decisions where id=?',(r['effective_decision_id'],)).fetchone()
+                    if latest and latest['method']=='teacher_correction':
+                        correction_note += '<p>教师更正说明：%s</p>' % esc(latest['reason'])
+                body.append('<tr><td>%s</td><td>%s%s</td><td>%s</td><td>%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',correction_note,LABELS[r['outcome']],operations))
                 if r['outcome']=='pending': continue
                 seen=set()
                 for t in loads(q['tag_snapshot_json'],[]):
@@ -541,7 +549,7 @@ def exams(repo,user,aid=None,base_path=""):
 
 def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     c=repo.conn;repo.assessment_detail(user['id'],aid)
-    rows=c.execute('select w.*,u.display_name,u.class_id from wrong_questions w join users u on u.id=w.student_id where w.assessment_id=? order by u.display_name,w.id',(aid,)).fetchall()
+    rows=c.execute('select w.*,u.display_name,u.class_id from wrong_questions w join users u on u.id=w.student_id where w.is_active=1 and w.assessment_id=? order by u.display_name,w.id',(aid,)).fetchall()
     if user['role']=='student': student_id=user['id'];class_id=None
     rows=[r for r in rows if (not student_id or r['student_id']==student_id) and (not class_id or r['class_id']==class_id)]
     out=['<section class="panel learning"><h1>错题学习单</h1><p>首次作答与复习记录分开保存。请先尝试回想，再参考答案。</p>']
@@ -554,3 +562,21 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
             c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(user['id'],w['question_id'],now()))
     c.commit()
     return ''.join(out)+'</section>'
+
+
+def response_controls(r, published):
+    history = '<button type="button" class="response-history" data-id="%s">查看证据与判定历史</button><div class="response-history-output"></div>' % esc(r['id'])
+    if not published and r['outcome']!='pending':
+        return history
+    action='response-correct' if published else 'response-review'
+    label='更正作答或结果' if published else '确认待复核作答'
+    body=hidden('response_id',r['id'])+hidden('expected_decision_id',r['effective_decision_id'])
+    body+='<label>核对后的答案<textarea name="answer">%s</textarea></label>' % esc(r['final_answer'])
+    body+='<label>核对后的结果'+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'</label>'
+    if published:
+        body+='<label>更正类型'+select('reason_code',[('extraction_error','识别或转录错误'),('external_error','外部结果错误'),('judgment_error','判定错误')])+'</label>'
+    body+='<label>核对依据（必填）<textarea name="reason" required maxlength="2000"></textarea></label>'
+    body+='<button>%s</button><div class="response-preview"></div>' % ('预览更正影响' if published else '确认复核')
+    if published:
+        body+='<button type="button" class="confirm-answers" hidden>确认更正并更新统计</button>'
+    return history+'<details><summary>%s</summary>%s</details>' % (label,form(action,body))

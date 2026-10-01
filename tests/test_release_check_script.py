@@ -9,6 +9,7 @@ class ReleaseCheckScriptTests(unittest.TestCase):
         self.assertIn("compileall -q highschoolphysics tools tests", script)
         self.assertIn('node --check "$asset"', script)
         self.assertIn("highschoolphysics/assets/app.js", script)
+        self.assertIn("highschoolphysics/assets/learning.js", script)
         self.assertIn("highschoolphysics/assets/document-import.js", script)
         self.assertIn("highschoolphysics/assets/question-rendering.js", script)
         self.assertIn("unittest discover -s tests -v", script)

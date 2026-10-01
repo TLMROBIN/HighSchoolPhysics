@@ -1,6 +1,4 @@
 """Outcome-only classroom workflow. Scores are not learning evidence."""
-import csv
-import io
 import json
 import re
 import sqlite3
@@ -8,7 +6,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from .errors import InvalidRequest, PermissionDenied, StateConflict
-from .grading import grade_answer
 from .repository import loads, dumps
 from .question_content import render_snapshot_content, snapshot_content
 
@@ -29,7 +26,10 @@ def enabled(conn):
     return bool(conn.execute("select 1 from sqlite_master where name='learning_state'").fetchone())
 
 def migrate(conn):
-    if conn.execute("select 1 from sqlite_master where name='learning_state'").fetchone(): return
+    if conn.execute("select 1 from sqlite_master where name='learning_state'").fetchone():
+        from .response_workflow import migrate as migrate_evidence
+        migrate_evidence(conn)
+        return
     # Keep a private, reversible pre-migration archive; never overwrite one.
     path = conn.execute('pragma database_list').fetchone()[2]
     if path:
@@ -92,24 +92,21 @@ def migrate(conn):
     except Exception:
         conn.rollback(); raise
     finally: conn.execute('pragma foreign_keys=on')
+    from .response_workflow import migrate as migrate_evidence
+    migrate_evidence(conn)
 
 def check(rule, answer):
-    if not str(answer).strip(): return 'blank'
-    if rule.get('type') not in ('single_choice','multiple_choice','fill'): return 'pending'
-    if rule.get('type') in ('single_choice','multiple_choice') and not re.fullmatch(r'[A-Fa-f,，、;；\s]+',str(answer)): return 'pending'
-    if grade_answer(dict(rule,points=1),answer)['correct']: return 'correct'
-    return 'pending' if rule.get('type')=='fill' else 'wrong'
+    from .outcomes import decide
+    return decide(rule, answer)['outcome']
 
 def outcome_for_snapshot(conn, snapshot_row, school_id, answer):
-    content = snapshot_content(conn, snapshot_row["id"], school_id)
-    if str(answer).strip() and content is not None and content["answer_state"] != "verified":
-        return "pending"
-    return check(loads(snapshot_row["grading_rule_json"], {}), answer)
+    from .response_workflow import snapshot_decision
+    return snapshot_decision(conn,snapshot_row,school_id,answer)['outcome']
 
 def progress(conn, wrong, today=None):
     today=today or datetime.now(TZ).date()
     version=snapshot(conn,wrong)['question_version']
-    originals=conn.execute("select r.created_at from student_responses r join assessment_sessions a on a.id=r.assessment_id join question_version_snapshots s on s.id=r.snapshot_id where r.student_id=? and r.question_id=? and s.question_version=? and r.outcome in ('wrong','blank') and a.grading_status='published'",(wrong['student_id'],wrong['question_id'],version)).fetchall()
+    originals=conn.execute("select coalesce(r.effective_from,r.created_at) from student_responses r join assessment_sessions a on a.id=r.assessment_id join question_version_snapshots s on s.id=r.snapshot_id where r.student_id=? and r.question_id=? and s.question_version=? and r.outcome in ('wrong','blank') and a.grading_status='published'",(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events=[(r[0],'wrong','original') for r in originals]
     attempts=conn.execute('select a.* from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and w.question_id=? and s.question_version=? order by a.submitted_at,a.id',(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events += [(a['submitted_at'],a['outcome'],a['purpose']) for a in attempts if a['purpose']=='verify']
@@ -121,9 +118,15 @@ def progress(conn, wrong, today=None):
         if result in ('wrong','blank'): count=0; due=d+timedelta(days=1)
         elif count<3 and d>=due:
             count+=1; due=d+timedelta(days=(3 if count==1 else 7))
-    pending=any(a['outcome']=='pending' for a in attempts)
+    pending=any(a['outcome']=='pending' and c_active(conn,a['wrong_question_id']) for a in attempts)
+    if not originals:
+        return dict(count=0,due=str(today),status='本次错误记录已撤销',last='已更正',pending=False,available=False)
     status='待教师确认' if pending else '本题已巩固' if count>=3 else '等待下次验证' if due>today else '需再练'
     return dict(count=count,due=str(due),status=status,last=last,pending=pending,available=not pending and count<3 and due<=today)
+
+def c_active(conn, wrong_id):
+    row=conn.execute('select is_active from wrong_questions where id=?',(wrong_id,)).fetchone()
+    return bool(row and row[0])
 
 def snapshot(conn, wrong):
     result=dict(conn.execute('select s.* from student_responses r join question_version_snapshots s on s.id=r.snapshot_id where r.id=?',(wrong['response_id'],)).fetchone())
@@ -133,6 +136,7 @@ def snapshot(conn, wrong):
 def submit(repo, actor, payload):
     wrong=repo._require_wrong_question_student(actor,payload['wrong_id'])
     if repo.conn.execute('select grading_status from assessment_sessions where id=?',(wrong['assessment_id'],)).fetchone()[0]!='published': raise PermissionDenied('尚未发布')
+    if not c_active(repo.conn,wrong['id']): raise StateConflict('该错误来源已撤销，请刷新错题本')
     answer=payload.get('answer','')
     if isinstance(answer,list): answer=','.join(sorted(set(answer)))
     key=str(payload.get('request_key',''))
@@ -144,7 +148,7 @@ def submit(repo, actor, payload):
         if old:
             if old['answer']!=answer or old['wrong_question_id']!=wrong['id']: raise StateConflict('重复请求内容不一致')
             c.rollback();return dict(old)
-        if c.execute("select 1 from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where a.student_id=? and w.question_id=? and a.outcome='pending'",(actor,wrong['question_id'])).fetchone(): raise StateConflict('这道题有一次作答待教师确认，请勿重复提交')
+        if c.execute("select 1 from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where a.student_id=? and w.question_id=? and w.is_active=1 and a.outcome='pending'",(actor,wrong['question_id'])).fetchone(): raise StateConflict('这道题有一次作答待教师确认，请勿重复提交')
         p=progress(c,wrong)
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
         purpose='verify' if payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date()) else 'learn'
@@ -224,6 +228,12 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
+    from . import response_workflow
+    if action=='answers': return response_workflow.import_answers(repo,user,p)
+    if action=='publish': return response_workflow.publish(repo,user,p)
+    if action=='response-history': return response_workflow.history(repo,user,p)
+    if action=='response-review': return response_workflow.review_or_correct(repo,user,p)
+    if action=='response-correct': return response_workflow.review_or_correct(repo,user,p,correction=True)
     if action=='submit': return submit(repo,actor,p)
     if action=='solution':
         w=repo._require_wrong_question_student(actor,p['wrong_id'])
@@ -315,47 +325,4 @@ def api(repo,user,action,p,base_path=""):
     if action=='participant':
         if p['status'] not in ('present','absent','not_included'): raise InvalidRequest('无效状态')
         c.execute('update assessment_participants set status=? where assessment_id=? and student_id=?',(p['status'],a['id'],p['student_id']));c.commit();return {'message':'纳入范围已更新'}
-    if action=='answers':
-        reader=csv.DictReader(io.StringIO(p.get('csv','').lstrip('\ufeff')))
-        rows=list(reader)
-        if not set(('学生','题号','作答','结果')).issubset(reader.fieldnames or []): raise InvalidRequest('表格列名必须包含：学生,题号,作答,结果')
-        if not rows: raise InvalidRequest('请提供 CSV 表格，列名：学生,题号,作答,结果')
-        prepared=[]
-        for row in rows:
-            if any(row.get(k) is None for k in ('学生','题号','作答','结果')): raise InvalidRequest('表格有缺失单元格，请明确填写空白或待确认，不要把缺失当空白')
-            if row['结果'] not in ('','正确','错误','空白','待确认'): raise InvalidRequest('结果只能填正确、错误、空白或待确认')
-            students=c.execute('select u.* from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=? and p.status=\'present\' and (u.username=? or u.display_name=? or u.student_no=?)',(a['id'],row['学生'],row['学生'],row['学生'])).fetchall()
-            if len(students)!=1: raise InvalidRequest('学生无法唯一匹配：'+row['学生'])
-            s=c.execute('select s.* from question_version_snapshots s where assessment_id=? and position=?',(a['id'],row['题号'])).fetchone()
-            if not s: raise InvalidRequest('题号不存在：'+row['题号'])
-            answer=row.get('作答','')
-            supplied_outcome={'正确':'correct','错误':'wrong','空白':'blank','待确认':'pending'}.get(row.get('结果',''))
-            if supplied_outcome is not None:
-                outcome=supplied_outcome
-            else:
-                outcome=outcome_for_snapshot(c,s,user['school_id'],answer)
-            if outcome=='blank' and answer.strip(): raise InvalidRequest('非空答案不可标为空白')
-            prepared.append((students[0],s,answer,outcome))
-        if len({(u['id'],s['id']) for u,s,_,_ in prepared})!=len(prepared): raise InvalidRequest('表格包含重复学生题号')
-        if not p.get('confirm'): return {'message':'预览通过：%s 条作答，%s 条待确认。确认后保存。'%(len(prepared),sum(x[3]=='pending' for x in prepared)),'preview':True}
-        with c:
-            for u,s,answer,outcome in prepared:
-                c.execute('''insert into student_responses(id,school_id,assessment_id,student_id,question_id,snapshot_id,raw_answer,final_answer,initial_answer,outcome,review_status,grading_status) values(?,?,?,?,?,?,?,?,?,?,?,?) on conflict(assessment_id,student_id,question_id) do update set final_answer=excluded.final_answer,initial_answer=excluded.initial_answer,outcome=excluded.outcome,review_status=excluded.review_status''',('resp-'+uuid.uuid4().hex[:12],user['school_id'],a['id'],u['id'],s['question_id'],s['id'],answer,answer,answer,outcome,'pending' if outcome=='pending' else 'reviewed','reviewed'))
-        return {'message':'作答已保存；发布前仍可核对修正'}
-    if action=='publish':
-        students=c.execute("select student_id from assessment_participants where assessment_id=? and status='present'",(a['id'],)).fetchall()
-        qs=c.execute('select * from question_version_snapshots where assessment_id=?',(a['id'],)).fetchall()
-        if not students or not qs: raise InvalidRequest('没有纳入学生或题目')
-        rows=[]
-        for u in students:
-            for s in qs:
-                r=c.execute('select * from student_responses where assessment_id=? and student_id=? and question_id=?',(a['id'],u[0],s['question_id'])).fetchone()
-                if not r or r['outcome']=='pending': raise StateConflict('仍有缺失或待确认作答，不能发布')
-                rows.append((r,s))
-        with c:
-            for r,s in rows:
-                if r['outcome']!='correct':
-                    c.execute('insert into wrong_questions(id,school_id,assessment_id,student_id,question_id,response_id,wrong_answer,correct_answer_json,score,max_score) values(?,?,?,?,?,?,?,?,null,null)',('wrong-'+uuid.uuid4().hex[:12],user['school_id'],a['id'],r['student_id'],r['question_id'],r['id'],r['initial_answer'],s['answer_json']))
-            c.execute("update assessment_sessions set grading_status='published',status='published' where id=?",(a['id'],))
-        return {'message':'已发布，学生可查看自己的结果和错题'}
     raise InvalidRequest('未知操作')

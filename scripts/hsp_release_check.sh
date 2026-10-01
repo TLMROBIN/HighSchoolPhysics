@@ -83,6 +83,7 @@ node_check() {
   local asset
   local assets=(
     highschoolphysics/assets/app.js
+    highschoolphysics/assets/learning.js
     highschoolphysics/assets/document-import.js
     highschoolphysics/assets/question-rendering.js
   )
@@ -321,17 +322,19 @@ if require_feature_release:
                 "select version from app_schema_migrations where feature='automatic_tagging_queue'"
             ).fetchone()
             tagging_version = row[0] if row else 0
+        row = database.execute("select version from app_schema_migrations where feature='response_evidence'").fetchone()
+        response_version = row[0] if row else 0
         integrity = database.execute("pragma integrity_check").fetchone()[0]
         foreign_key_errors = database.execute("pragma foreign_key_check").fetchall()
         database.close()
     except Exception as exc:
         fail(f"document-ingestion schema inspection failed: {type(exc).__name__}: {exc}")
-    if core_version != 11 or feature_version != 12 or tagging_version != 13 or integrity != "ok" or foreign_key_errors:
+    if core_version != 11 or feature_version != 12 or tagging_version != 13 or response_version != 14 or integrity != "ok" or foreign_key_errors:
         fail(
-            "document-ingestion/tagging schema gate failed: core=%s ingestion=%s tagging=%s integrity=%s fk_errors=%d"
-            % (core_version, feature_version, tagging_version, integrity, len(foreign_key_errors))
+            "schema gate failed: core=%s ingestion=%s tagging=%s response=%s integrity=%s fk_errors=%d"
+            % (core_version, feature_version, tagging_version, response_version, integrity, len(foreign_key_errors))
         )
-    passed("document-ingestion v12, automatic-tagging v13 and database integrity")
+    passed("document-ingestion v12, automatic-tagging v13, response-evidence v14 and database integrity")
 PY
 
 python3 -m highschoolphysics.runtime_check --json --db data/school.sqlite3

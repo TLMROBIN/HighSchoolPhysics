@@ -76,13 +76,16 @@ class LearningTests(unittest.TestCase):
   a=learning.api(self.repo,self.admin,'assessment',dict(title='无分数周测',class_id='class-physics-1',questions=[q]))['url'].split('=')[1]
   students=self.c.execute('select u.username from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=?',(a,)).fetchall()
   csv='学生,题号,作答,结果\n'+'\n'.join(r[0]+',1,B,' for r in students)
-  payload=dict(assessment_id=a,csv=csv)
-  self.assertTrue(learning.api(self.repo,self.admin,'answers',payload)['preview'])
+  payload=dict(assessment_id=a,csv=csv,request_key='test-import-1')
+  preview=learning.api(self.repo,self.admin,'answers',payload)
+  self.assertTrue(preview['preview'])
+  payload['preview_token']=preview['preview_token']
   with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'publish',{'assessment_id':a})
   learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True));learning.api(self.repo,self.admin,'publish',{'assessment_id':a})
   self.assertEqual(self.c.execute('select count(*) from wrong_questions where assessment_id=?',(a,)).fetchone()[0],len(students))
   self.assertIsNone(self.c.execute('select score from student_responses where assessment_id=?',(a,)).fetchone()[0])
-  with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True))
+  self.assertTrue(learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True))['already_saved'])
+  with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(payload,request_key='new-import',confirm=True))
  def test_experiment_group_is_selected_and_rendered_as_one_complete_question(self):
   question_ids=[]
   for label,stem,answer in [('1','记录小车运动位置','由纸带读取位置'),('2','求小车加速度','根据位移数据计算')]:

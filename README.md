@@ -1,5 +1,11 @@
 # HighSchoolPhysics
 
+## 可信作答与结果更正升级
+
+“考试与作答”支持带逐项预览的答案导入和已核对外部结果导入；外部冲突必须教师复核。每条作答保留不可变证据与判定历史。发布后可预览并更正个别作答/结果，保留首次答案，同步统计和错题有效状态，已有练习不删除。
+
+无分数、首次作答与独立验证分离、三次间隔复习规则继续使用。扫描模板识别、单位/表达式增强和真实课堂观察按后续门禁推进。参见[升级方案](docs/superpowers/plans/2026-10-01-response-evidence-upgrade-plan.md)与[实施及验收记录](docs/superpowers/plans/2026-10-01-response-evidence-implementation.md)。
+
 本项目是 `docs/superpowers/specs/2026-06-05-high-school-physics-knowledge-graph-blueprint.md` 的首期 MVP 实现，聚焦一个班级的一次测评闭环。
 
 ## 运行
