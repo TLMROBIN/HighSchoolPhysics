@@ -104,6 +104,12 @@ def serialize_question_md(document):
                 _item_marker("child_stem", child["key"], child["stem_md"]),
             )
         )
+        option_body = "\n\n".join(
+            "### 选项 %s\n%s" % (option["key"], _item_marker("child_option", option["key"], option["markdown"]))
+            for option in child.get("options", [])
+        )
+        child_lines.extend(("", "<!-- hsp:child_options:%s:start -->\n%s\n<!-- hsp:child_options:%s:end -->" %
+                            (child["key"], option_body, child["key"])))
     sections.append("\n".join(child_lines))
 
     answer_lines = [
@@ -197,6 +203,10 @@ def parse_question_md(text, original_document, known_asset_ids=None):
     child_analyses, _ = _read_item_markers(
         sections["解析"], "child_analysis", [item["key"] for item in original["children"]]
     )
+    has_child_options = "<!-- hsp:child_options:" in sections["小问"]
+    child_options, _ = _read_item_markers(
+        sections["小问"], "child_options", [item["key"] for item in original["children"]]
+    ) if has_child_options else ({}, [])
 
     result = copy.deepcopy(original)
     result["stem_md"] = _read_single_marker(sections["题干"], "stem")
@@ -217,6 +227,11 @@ def parse_question_md(text, original_document, known_asset_ids=None):
         item["stem_md"] = child_stems[key]
         item["answer_md"] = child_answers[key]
         item["analysis_md"] = child_analyses[key]
+        if has_child_options:
+            values, order = _read_item_markers(
+                child_options[key], "child_option", [option["key"] for option in item.get("options", [])]
+            )
+            item["options"] = [{"key": option_key, "markdown": values[option_key]} for option_key in order]
         result["children"].append(item)
     markdown_fields = [result["stem_md"], result["answer_md"], result["analysis_md"]]
     markdown_fields.extend(option["markdown"] for option in result["options"])
@@ -227,6 +242,87 @@ def parse_question_md(text, original_document, known_asset_ids=None):
         {asset_id for field in markdown_fields for asset_id in ASSET_URI_RE.findall(field or "")}
     )
     return validate_question_document(result, known_asset_ids=known_asset_ids)
+
+
+def apply_editor_operations(document, operations):
+    """Apply explicit draft structure edits while retaining surviving stable IDs."""
+    if not isinstance(operations, list) or len(operations) > 100:
+        raise DocumentValidationError(["结构操作必须是最多 100 项的列表；请先保存草稿"])
+    result = copy.deepcopy(document)
+    kinds = {"single_choice", "multiple_choice", "fill", "short_answer", "structured", "experiment"}
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise DocumentValidationError(["结构操作无效"])
+        action = operation.get("action")
+        child_key = operation.get("child_key", "")
+        child = next((item for item in result["children"] if item["key"] == child_key), None)
+        if child_key and child is None:
+            raise DocumentValidationError(["所选小问不存在"])
+        target = child if child_key else result
+        if action == "add_child":
+            key = operation.get("key")
+            if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", key) or any(item["key"] == key for item in result["children"]):
+                raise DocumentValidationError(["新增小问 ID 无效或重复"])
+            if len(result["children"]) >= 100:
+                raise DocumentValidationError(["每题最多 100 个小问"])
+            labels = [int(match.group(1)) for child in result["children"]
+                      for match in [re.fullmatch(r"[（(](\d+)[）)]", child["label"])] if match]
+            result["children"].append({
+                "key": key, "label": "(%s)" % (max(labels, default=0) + 1), "kind": "short_answer",
+                "stem_md": "请填写小问正文。", "options": [], "answer_md": "", "analysis_md": "",
+                "answer_state": "missing", "grading_rule": None,
+                "source_spans": copy.deepcopy(result.get("source_spans", [])),
+            })
+        elif action == "remove_child":
+            if child is None:
+                raise DocumentValidationError(["请选择要删除的小问"])
+            result["children"].remove(child)
+        elif action in ("add_option", "remove_option", "move_option", "move_child"):
+            options = target["options"]
+            if action == "add_option":
+                key = next((key for key in "ABCDEFGH" if not any(item["key"] == key for item in options)), None)
+                if key is None:
+                    raise DocumentValidationError(["最多 8 个选项"])
+                options.append({"key": key, "markdown": "请填写选项正文。"})
+            else:
+                items = result["children"] if action == "move_child" else options
+                selected = child if action == "move_child" else next((item for item in options if item["key"] == operation.get("option_key")), None)
+                if selected is None:
+                    raise DocumentValidationError(["请选择要调整的选项或小问"])
+                if action == "remove_option":
+                    items.remove(selected)
+                else:
+                    if operation.get("direction") not in ("up", "down"):
+                        raise DocumentValidationError(["移动方向无效"])
+                    index = items.index(selected)
+                    neighbor = index + (-1 if operation["direction"] == "up" else 1)
+                    if not 0 <= neighbor < len(items):
+                        raise DocumentValidationError(["已经位于边界"])
+                    items[index], items[neighbor] = items[neighbor], items[index]
+        elif action == "set_kind":
+            if operation.get("kind") not in kinds:
+                raise DocumentValidationError(["题型无效"])
+            target["kind"] = operation["kind"]
+            target["grading_rule"] = None
+        else:
+            raise DocumentValidationError(["不支持的结构操作"])
+    fields = [result["stem_md"], result["answer_md"], result["analysis_md"]]
+    fields.extend(item["markdown"] for item in result["options"])
+    for child in result["children"]:
+        fields.extend((child["stem_md"], child["answer_md"], child["analysis_md"]))
+        fields.extend(item["markdown"] for item in child.get("options", []))
+    result["asset_refs"] = sorted({asset for field in fields for asset in ASSET_URI_RE.findall(field)})
+    if operations:
+        issue = {"code": "question_structure_changed", "severity": "review", "field": "children",
+                 "structure_sha256": canonical_sha256({"kind": result["kind"], "options": result["options"],
+                                                       "children": result["children"]}),
+                 "message": "题目结构或题型已调整；请核对选项、小问顺序、来源与答案后再入库。"}
+        if not any(item.get("structure_sha256") == issue["structure_sha256"] for item in result.get("issues", [])):
+            result.setdefault("issues", []).append(issue)
+        for target in [result] + result["children"]:
+            if target.get("answer_md") or target.get("analysis_md"):
+                target["answer_state"] = "needs_review"
+    return validate_question_document(result)
 
 
 def content_revision_sha256(document):
@@ -362,7 +458,8 @@ def render_snapshot_solution(conn, snapshot_id, school_id, base_path=""):
         )
         if selected is None:
             return None
-        fields = (selected.get("answer_md", ""), selected.get("analysis_md", ""))
+        fields = (document.get("answer_md", ""), document.get("analysis_md", ""),
+                  selected.get("answer_md", ""), selected.get("analysis_md", ""))
     else:
         fields = (document.get("answer_md", ""), document.get("analysis_md", ""))
     rendered = "".join(render_markdown(field, asset_url) for field in fields if field)

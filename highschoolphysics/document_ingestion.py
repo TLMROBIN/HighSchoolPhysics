@@ -964,8 +964,8 @@ def get_task_source_assets(conn, actor, task_id):
     return list(assets.values())
 
 
-def preview_candidate(conn, actor, item_id, task_id, markdown, base_path=""):
-    from .question_content import parse_question_md
+def preview_candidate(conn, actor, item_id, task_id, markdown, base_path="", structure_operations=None, structure_action=None):
+    from .question_content import parse_question_md, apply_editor_operations, serialize_question_md
     from .question_rendering import render_question
 
     _task_for_actor(conn, actor, task_id)
@@ -982,7 +982,18 @@ def preview_candidate(conn, actor, item_id, task_id, markdown, base_path=""):
         raise IngestionError("invalid_candidate", "This candidate has no editable Markdown source", 422)
     try:
         known_assets = _paper_asset_ids(conn, actor["school_id"], item["original_paper_id"], item["created_by"])
+        if structure_operations or structure_action:
+            _require_teacher(actor)
+            if conn.execute("select 1 from import_item_publications where parsed_item_id=?", (item_id,)).fetchone():
+                raise StateConflict("已入库题目不能调整结构")
+        if structure_operations is not None:
+            original = apply_editor_operations(original, structure_operations)
         document = parse_question_md(markdown, original, known_asset_ids=known_assets)
+        if structure_action is not None:
+            document = apply_editor_operations(document, [structure_action])
+            document = validate_question_document(document, known_asset_ids=known_assets)
+    except (PermissionDenied, StateConflict):
+        raise
     except Exception as exc:
         raise IngestionError("invalid_markdown", str(exc), 422) from exc
     asset_prefix = base_path.rstrip("/")
@@ -991,7 +1002,7 @@ def preview_candidate(conn, actor, item_id, task_id, markdown, base_path=""):
         asset_url=lambda asset_id: "%s/api/documents/assets/%s?task_id=%s" % (asset_prefix, asset_id, task_id),
         include_solution=True,
     )
-    return {"document": document, "html": html_fragment}
+    return {"document": document, "html": html_fragment, "markdown": serialize_question_md(document)}
 
 
 def _operation_result(conn, actor, operation, request_key, request_hash):
@@ -1097,7 +1108,9 @@ def save_candidate(conn, actor, item_id, payload):
     if not changed:
         conn.rollback()
         raise IngestionError("revision_conflict", "This question changed in another session; reload before saving", 409)
-    result = {"id": item_id, "review_revision": expected_revision + 1, "document": document}
+    result = {"id": item_id, "review_revision": expected_revision + 1, "document": document,
+              "issues": [{"id": hashlib.sha256(canonical_json(issue).encode()).hexdigest()[:20],
+                          "issue": issue} for issue in document["issues"]]}
     conn.execute(
         "insert into content_operation_keys(school_id,actor_id,operation,request_key,request_hash,result_json) values(?,?,?,?,?,?)",
         (actor["school_id"], actor["id"], "save_candidate", request_key, request_hash, json.dumps(result, ensure_ascii=False)),

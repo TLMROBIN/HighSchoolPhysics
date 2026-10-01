@@ -14,7 +14,7 @@ from unittest import mock
 from PIL import Image
 
 from highschoolphysics.document_adapters import AdapterError, convert_document
-from highschoolphysics.document_adapters.docx_native import _math_text_run, convert_docx
+from highschoolphysics.document_adapters.docx_native import _math_text_run, convert_docx, _reconcile_markitdown_blocks
 from highschoolphysics.document_adapters.mtef_worker import _normalise_formula, _restore_unlisted_cjk
 from highschoolphysics.document_adapters.mineru_pdf import _run, convert_pdf
 from highschoolphysics.document_store import DocumentStore
@@ -104,6 +104,18 @@ def make_wps_shape_docx(path):
 
 
 class DocumentAdapterTests(unittest.TestCase):
+    def test_markitdown_cannot_replace_simple_inline_formula_or_numeric_difference(self):
+        for native_text, converted in (
+            ("1．小球从静止开始运动，末速度满足 $v^2=2as$，请选择正确结论。", "1．小球从静止开始运动，末速度满足 ，请选择正确结论。"),
+            ("1．小球运动如下，速度 v=10。", "1．小球运动如下，速度 v=100。"),
+        ):
+            native = [{"id": "b1", "type": "paragraph", "markdown": native_text,
+                       "asset_ids": [], "issues": [], "source_locator": {}}]
+            blocks, _, issues = _reconcile_markitdown_blocks(native, converted)
+            self.assertEqual(blocks[0]["markdown"], native_text)
+            self.assertEqual(issues[0]["code"], "markitdown_content_difference")
+            self.assertEqual(native[0]["issues"], [])
+
     def _run_long_lived_mineru_fixture(self, *, timeout_seconds, cancel_event=None):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))

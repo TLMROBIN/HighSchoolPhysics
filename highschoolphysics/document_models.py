@@ -249,6 +249,17 @@ def validate_question_document(document, known_asset_ids=None):
             errors.append("%s.answer_state is invalid" % path)
         if not isinstance(child.get("options", []), list):
             errors.append("%s.options must be an array" % path)
+        else:
+            keys = set()
+            for option in child.get("options", []):
+                if (not isinstance(option, dict) or not isinstance(option.get("key"), str)
+                        or not re.fullmatch(r"[A-H]", option["key"])
+                        or not isinstance(option.get("markdown"), str)):
+                    errors.append("%s.options must contain A-H keys and Markdown text" % path)
+                elif option["key"] in keys:
+                    errors.append("%s.options contain duplicate keys" % path)
+                else:
+                    keys.add(option["key"])
         spans = child.get("source_spans", [])
         if not isinstance(spans, list):
             errors.append("%s.source_spans must be an array" % path)

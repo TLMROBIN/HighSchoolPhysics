@@ -38,3 +38,18 @@
 U3 的固定答题卡识别尚未实施；需真实模板与独立真值样本。U4 单位换算、安全表达式、AI 建议尚未实施。直接 XLSX、第三方凭据开放、标准答案批量修订、主观题与细分诊断不作为本批已完成能力。
 
 本批与现场另一批 DOCX/题目渲染改动隔离提交，并以独立检出运行发布回归。不会把其他未提交工作纳入本批发布。
+
+
+## 最终工程发布记录（2026-10-01）
+
+- 功能代码提交：`d6e5d901`（证据/导入/复核/更正）、`80cc3233`（手机卡片与中文来源）、`42116b41`（排除导入后改为缺考的作答）。其他导题内容工作保留在原工作树，没有纳入本批提交。
+- 在独立 managed worktree 上，最终 `42116b41` 通过 `PATH=/tmp/hsp-doc-test-env/bin:$PATH PYTHON_BIN=/tmp/hsp-doc-test-env/bin/python VERIFY_TARGET=local bash scripts/hsp_release_check.sh`：374 tests、1 skipped；compileall、四份脚本 Node 语法、runtime 报告、diff 检查通过。先前独立回归的 MinerU 模拟器失败来自子进程 PATH Python 缺 PIL；统一虚拟环境后单项和最终全量通过。
+- 生产最终备份：`data/backups/school-response-predeploy-20261001T025846Z.sqlite3`，SHA-256 `32315f54b1e65cff7e5b6f0255a2ee3406ba63b3ed495b0686ac3234dcdc20b0`；文档/资源备份 `data/backups/response-resources-20261001T025846Z.tar.gz`，SHA-256 `6d4a10997f8190cb1c9e1953d95cc4828990f7fe13a8aacf6448bcb928f9e8fc`。二者权限 600。
+- GitHub 推送成功。远端 HTTPS fetch 卡住时，临时停止 user-level 自动更新 timer/service，以已校验 Git bundle 快进到同一 GitHub 提交，重启 app 与 document worker 后恢复 timer；未改 Nginx、网络或 systemd 持久配置。
+- 远端 app/worker active，timer enabled/active；`response_evidence=14`，核心及已有 feature 版本保留。生产迁移后 79 张原业务表的原列数据指纹全一致；3148 条作答、1480 条错题、0 条历史重做保持原数，3148 条 legacy 判定已建立，integrity=ok、外键错误 0。生产核验摘要：`data/backups/response-postdeploy-20261001.json`。
+- `REQUIRE_REMOTE_HEAD_MATCH=1 bash scripts/hsp_release_check.sh` 通过：本机 HEAD、本机/远端 origin、GitHub main、远端 checkout 为同一功能版本；服务、正式入口、文档资源、feature v14、数据库完整性与学校库 runtime 检查通过。
+- 正式 Chromium 未认证访问 `/physics/exams` 正常到 `/physics/login`；新 learning.js 与 learning-responses.css 均 HTTP 200，哈希等于独立发布版本；未登录访问证据 API 返回 401，页面脚本错误 0。生产真实教师 SSO 和实际课堂流程仍未验证。
+- 独立版本再次在隔离数据库通过更正预览/确认及历史查看。教师手机展开证据后采用完整卡片，教师/学生均 390×844、scrollWidth=390，页面错误 0。它不是 Android 真机或教学效果证据。
+- 本地日志、脱敏摘要和演示页面截图存于 `output/response-evidence-20261001/`；没有提交生产数据库、学生身份资料或测试会话凭据。
+
+工程第一批已可使用，U2 的真实班级试用门禁仍未通过。U3/U4 及课堂观察不因这次发布自动标完成；后续班级与测评选择待教师明确。

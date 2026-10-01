@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 
 from .document_models import canonical_json
 from .question_content import serialize_question_md
@@ -191,6 +192,29 @@ def _source_asset_gallery(task_id, assets):
     )
 
 
+def _structure_controls(document, published):
+    structure = {"kind": document.get("kind", "short_answer"),
+                 "options": [{"key": item["key"]} for item in document.get("options", [])],
+                 "children": [{"key": child["key"], "label": child["label"], "kind": child["kind"],
+                               "options": [{"key": item["key"]} for item in child.get("options", [])]}
+                              for child in document.get("children", [])]}
+    return '''<details class="question-structure-tools" data-question-structure="%s">
+      <summary>调整题型、选项和小问</summary>
+      <fieldset %s><label>编辑对象<select data-structure-target><option value="">整题</option></select></label>
+      <label>题型<select data-structure-kind><option value="single_choice">单选</option><option value="multiple_choice">多选</option><option value="fill">填空</option><option value="short_answer">简答</option><option value="structured">综合</option><option value="experiment">实验</option></select></label>
+      <button type="button" data-structure-action="add_child">增加小问</button>
+      <button type="button" data-structure-action="remove_child">删除所选小问</button>
+      <button type="button" data-structure-action="move_child" data-direction="up">小问上移</button>
+      <button type="button" data-structure-action="move_child" data-direction="down">小问下移</button>
+      <label>选项<select data-structure-option></select></label>
+      <button type="button" data-structure-action="add_option">增加选项</button>
+      <button type="button" data-structure-action="remove_option">删除所选选项</button>
+      <button type="button" data-structure-action="move_option" data-direction="up">选项上移</button>
+      <button type="button" data-structure-action="move_option" data-direction="down">选项下移</button>
+      <p>结构调整先保留在本页；保存草稿后生效。剩余小问与选项的 ID 保持不变，请核对顺序与答案。</p>
+      </fieldset></details>''' % (_e(json.dumps(structure, ensure_ascii=False)), "disabled" if published else "")
+
+
 def document_review_page(task, items, source_assets=()):
     cards = []
     source_url = "/api/documents/tasks/%s/preview" % _e(task["id"])
@@ -243,7 +267,8 @@ def document_review_page(task, items, source_assets=()):
   <header class="question-card-heading"><label class="question-select"><input type="checkbox" data-publish-select %s>纳入本次批量入库</label><strong>第 <span data-question-number>%s</span> 题</strong><label class="question-number-field">题号<input type="text" maxlength="32" required data-question-number-edit value="%s" %s></label><span>复核版本 <span data-revision-label>%s</span></span><span class="publish-state">%s</span>%s</header>
   <div class="question-source-link">%s%s</div>
   %s
-  <label class="markdown-editor-label">整题 Markdown（含稳定选项和小问 ID）<textarea class="question-markdown" rows="18" spellcheck="false">%s</textarea></label>
+  %s
+  <label class="markdown-editor-label">整题 Markdown（含稳定选项和小问 ID）<textarea class="question-markdown" rows="18" spellcheck="false" %s>%s</textarea></label>
   <label class="review-note-label">复核记录<textarea class="review-note" rows="2" placeholder="标记识别事项已核对时，说明对照了原卷的哪一处。"></textarea></label>
   <div class="question-card-actions"><button type="button" data-preview-item>更新预览</button><button type="button" data-save-item>保存草稿</button>%s%s<span class="save-status" aria-live="polite"></span></div>
   <div class="question-preview"><h3>渲染预览</h3><div data-preview-body>%s</div></div>
@@ -262,6 +287,8 @@ def document_review_page(task, items, source_assets=()):
                 _e(source_label),
                 source_link,
                 _issue_list(item),
+                _structure_controls(document, published),
+                "readonly" if published else "",
                 html.escape(markdown, quote=False),
                 restructure_controls,
                 export_links,
