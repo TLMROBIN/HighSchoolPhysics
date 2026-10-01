@@ -418,6 +418,16 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertIn("返回我的学习", html)
         self.assertNotIn('"error": "forbidden"', html)
 
+        status, _, payload = self.server.request(
+            "GET",
+            "/admin",
+            headers={"Cookie": cookie, "X-Forwarded-Prefix": "/physics"},
+        )
+        html = payload.decode("utf-8")
+        self.assertEqual(status, 403)
+        self.assertIn("href='app'", html)
+        self.assertNotIn("href='/app'", html)
+
         status, headers, payload = self.server.request(
             "GET",
             "/exams?id=assess-week-1",

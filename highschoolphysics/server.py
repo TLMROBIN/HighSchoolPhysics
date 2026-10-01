@@ -4250,6 +4250,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         else:
             target = "/login"
             target_label = "返回登录页"
+        # Keep this link relative to the current public route.  The app is
+        # served behind /physics in production, while nginx normalizes
+        # root-relative links from the internal app; a root-relative /app
+        # would otherwise escape the proxy prefix and land on nginx's 404.
+        target = target.lstrip("/")
         body = (
             "<section class='empty-state error-state' role='alert' aria-labelledby='error-title'>"
             "<p class='error-code'>HTTP %s</p>"
