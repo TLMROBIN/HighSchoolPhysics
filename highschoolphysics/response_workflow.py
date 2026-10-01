@@ -84,6 +84,7 @@ def assessment(repo, user, aid):
 
 def context_hash(conn, aid):
     return digest({
+        "decision_rule_version": VERSION,
         "assessment": [dict(r) for r in conn.execute("select id,grading_status from assessment_sessions where id=?",(aid,))],
         "participants": [dict(r) for r in conn.execute("""select p.student_id,p.status,u.username,u.display_name,u.student_no
                             from assessment_participants p join users u on u.id=p.student_id

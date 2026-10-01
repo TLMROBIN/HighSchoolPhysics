@@ -86,6 +86,30 @@ class LearningTests(unittest.TestCase):
   self.assertIsNone(self.c.execute('select score from student_responses where assessment_id=?',(a,)).fetchone()[0])
   self.assertTrue(learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True))['already_saved'])
   with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(payload,request_key='new-import',confirm=True))
+ def test_numeric_fill_rule_survives_snapshot_import_publish_and_practice(self):
+  p=dict(stem='速度的单位换算',question_type='fill',answer='10',fill_match='numeric_quantity',unit='m/s',unit_required='on',allow_unit_conversion='on',absolute_tolerance='0.01',significant_figures='3',knowledge='kn-pep2019-r1-c04-s03',ability='ab-model-construction',literacy=self.repo.literacy_tags()[0]['id'])
+  learning.api(self.repo,self.admin,'question',p)
+  q=self.c.execute('select id from questions where stem=?',(p['stem'],)).fetchone()[0]
+  a=learning.api(self.repo,self.admin,'assessment',dict(title='数值规则验收',class_id='class-physics-1',questions=[q]))['url'].split('=')[1]
+  s=self.c.execute('select * from question_version_snapshots where assessment_id=?',(a,)).fetchone()
+  rule=json.loads(s['grading_rule_json']);self.assertEqual(rule['unit'],'m/s');self.assertTrue(rule['unit_required']);self.assertEqual(rule['significant_figures'],3)
+  users=self.c.execute("select u.id,u.username from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=? order by u.id",(a,)).fetchall()
+  csv='学生,题号,作答,结果\n'+'\n'.join(u['username']+',1,'+('-10.0 m/s' if i==0 else '36.0 km/h')+',' for i,u in enumerate(users))
+  payload=dict(assessment_id=a,csv=csv,request_key='numeric-import')
+  preview=learning.api(self.repo,self.admin,'answers',payload)
+  self.assertEqual(preview['records'][0]['outcome'],'wrong');self.assertTrue(all(r['outcome']=='correct' for r in preview['records'][1:]))
+  learning.api(self.repo,self.admin,'answers',dict(payload,confirm=True,preview_token=preview['preview_token']))
+  learning.api(self.repo,self.admin,'publish',dict(assessment_id=a))
+  w=self.c.execute('select * from wrong_questions where assessment_id=?',(a,)).fetchone()
+  attempt=learning.submit(self.repo,users[0]['id'],dict(wrong_id=w['id'],answer='36.0 km/h',request_key='numeric-practice'))
+  self.assertEqual(attempt['outcome'],'correct')
+  self.assertEqual(self.c.execute('select initial_answer from student_responses where assessment_id=? and student_id=?',(a,users[0]['id'])).fetchone()[0],'-10.0 m/s')
+  self.assertFalse(self.c.execute('pragma foreign_key_check').fetchall())
+ def test_invalid_numeric_configuration_does_not_create_question(self):
+  before=self.c.execute('select count(*) from questions').fetchone()[0]
+  p=dict(stem='无效容差',question_type='fill',answer='10',fill_match='numeric_quantity',unit='m',absolute_tolerance='-1',knowledge='kn-pep2019-r1-c04-s03',ability='ab-model-construction',literacy=self.repo.literacy_tags()[0]['id'])
+  with self.assertRaises(InvalidRequest):learning.api(self.repo,self.admin,'question',p)
+  self.assertEqual(self.c.execute('select count(*) from questions').fetchone()[0],before)
  def test_experiment_group_is_selected_and_rendered_as_one_complete_question(self):
   question_ids=[]
   for label,stem,answer in [('1','记录小车运动位置','由纸带读取位置'),('2','求小车加速度','根据位移数据计算')]:

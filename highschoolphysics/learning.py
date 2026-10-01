@@ -261,7 +261,8 @@ def api(repo,user,action,p,base_path=""):
                 "solution_html": render_snapshot_content(c, s["id"], school_id, base_path, include_solution=True),
                 "message": "已进入学习练习，本日不增加验证次数",
             }
-        return dict(answer=loads(s['grading_rule_json'],{}).get('answer'),analysis=q['analysis'],message='已进入学习练习，本日不增加验证次数')
+        from .fill_rules import reference_answer
+        return dict(answer=reference_answer(loads(s['grading_rule_json'],{})),analysis=q['analysis'],message='已进入学习练习，本日不增加验证次数')
     if user['role'] not in ('admin','teacher'): raise PermissionDenied('需要教师身份')
     if action=='settings':
         group=c.execute('select * from class_groups where id=? and school_id=?',(p['class_id'],user['school_id'])).fetchone()
@@ -300,7 +301,12 @@ def api(repo,user,action,p,base_path=""):
         if kind not in ('single_choice','multiple_choice','fill'): raise InvalidRequest('只支持选择题、填空题')
         options={chr(65+i):x.strip() for i,x in enumerate(p.get('options','').splitlines()) if x.strip()}
         if not p.get('knowledge') or not p.get('ability') or not p.get('literacy') or not p.get('stem','').strip() or not p.get('answer','').strip(): raise InvalidRequest('请填写题干、答案并明确选择知识点、能力和素养标签')
-        q=repo.create_question(actor,p['stem'],options,{'answer':p['answer'],'match':'exact'},p.get('analysis',''),kind,'教师录入','高三','', 'medium')
+        from .fill_rules import teacher_rule
+        try:
+            rule=teacher_rule(p) if kind=='fill' else {'answer':p['answer'],'match':'exact'}
+        except (ValueError, ArithmeticError) as exc:
+            raise InvalidRequest(str(exc)) from exc
+        q=repo.create_question(actor,p['stem'],options,rule,p.get('analysis',''),kind,'教师录入','高三','', 'medium')
         repo.confirm_question_tags(actor,q['id'],knowledge_node_ids=[p['knowledge']],ability_tag_ids=[p['ability']],literacy_tag_ids=[p['literacy']])
         if p.get('image'):
             import base64

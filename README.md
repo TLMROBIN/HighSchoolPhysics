@@ -177,3 +177,7 @@ PaddleOCR 在当前阶段体现为可导入的 OCR payload、scan batch 和低�
 ## 当前边界
 
 生产化接口已经进入可安装、可配置、可测试、可审计的状态，但重型能力仍按 extras 与显式运行时检查启用。没有安装 PaddleOCR、MinerU、Playwright 浏览器或 Authlib 时，相关能力会显示缺依赖或未配置，不会静默假装可用。真实远程 LLM/MinerU 费用、学校 IdP 联调和 Playwright 浏览器安装仍需要部署现场提供凭据、额度和二进制环境。
+
+### 填空数值与单位规则（U4a）
+
+教师单题录入可选数值与单位核对，配置单位换算、容差和有效数字；配置随测评快照冻结。旧题不会自动改判，未知单位与精度疑问进入待复核。详见 [实施与边界](docs/superpowers/plans/2026-10-01-fill-rule-enhancement.md)。

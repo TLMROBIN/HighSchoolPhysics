@@ -3,7 +3,7 @@ import re
 from decimal import Decimal, InvalidOperation
 
 
-VERSION = "outcome-1"
+VERSION = "outcome-2"
 
 
 def decide(rule, answer, options=None, verified=True):
@@ -31,6 +31,9 @@ def decide(rule, answer, options=None, verified=True):
                     reason_code="option_set")
     if kind != "fill":
         return result
+    if rule.get("match") == "numeric_quantity":
+        from .fill_rules import decide_quantity
+        return dict(result, **decide_quantity(rule, normalized))
     answers = rule["answer"] if isinstance(rule["answer"], (list, tuple)) else [rule["answer"]]
     if rule.get("match") == "numeric_tolerance":
         try:

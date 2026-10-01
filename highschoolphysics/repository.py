@@ -497,6 +497,11 @@ class PhysicsRepository:
                 "tolerance": tolerance,
                 "partial_points": answer.get("partial_points", 0) if isinstance(answer, dict) else 0,
             }
+            if row["question_type"] == "fill" and match == "numeric_quantity" and isinstance(answer, dict):
+                for key in ("unit", "unit_required", "allow_unit_conversion", "absolute_tolerance",
+                            "relative_tolerance", "significant_figures"):
+                    if key in answer:
+                        rule[key] = answer[key]
             snapshot_id = "snap-" + uuid.uuid4().hex[:12]
             content_binding = self.conn.execute(
                 """select binding.group_id,binding.child_key,group_row.current_revision_id,

@@ -61,6 +61,14 @@ class ResponseWorkflowTests(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):self.c.execute('delete from response_decisions where response_id=?',(self.response()['id'],))
         self.c.rollback()
 
+    def test_preview_is_invalidated_when_decision_algorithm_changes(self):
+        p=self.payload()
+        preview=learning.api(self.repo,self.admin,'answers',p)
+        with patch.object(workflow,'VERSION','next-version'):
+            with self.assertRaises(StateConflict):
+                learning.api(self.repo,self.admin,'answers',dict(p,confirm=True,preview_token=preview['preview_token']))
+        self.assertEqual(self.c.execute('select count(*) from student_responses where assessment_id=?',(self.a,)).fetchone()[0],0)
+
     def test_external_agreement_and_conflict_review(self):
         p=self.payload('A','正确',source_type='external',source_name='教师核对表',source_reason='已逐项核对原卡')
         preview,_=self.save(p)

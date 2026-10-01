@@ -3,8 +3,13 @@
  const request=async(action,p)=>{const r=await fetch('api/learning/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json();if(!r.ok||d.ok===false)throw Error(d.error?.message||d.message||'提交失败，请重试');return d.result||d;};
  document.querySelectorAll('.learning-form').forEach(f=>{
  const action=f.dataset.action, status=f.querySelector('[role=status]');
+ if(action==='question'){
+  const fill=f.querySelector('[data-fill-rule]'),quantity=f.querySelector('[data-quantity-rule]');
+  const updateRule=()=>{if(!fill)return;const enabled=f.elements.question_type.value==='fill';fill.hidden=!enabled;fill.disabled=!enabled;const numeric=enabled&&f.elements.fill_match.value==='numeric_quantity';quantity.hidden=!numeric;quantity.querySelectorAll('input,select').forEach(input=>input.disabled=!numeric);};
+  f.elements.question_type.addEventListener('change',updateRule);f.elements.fill_match.addEventListener('change',updateRule);updateRule();
+ }
  const outcomeLabel=x=>({correct:'正确',wrong:'错误',blank:'空白',pending:'待确认'}[x]||x);
- const reasonLabel=x=>({external_conflict:'外部结果与规则不一致',external_confirmation:'外部结论需要教师确认',external_pending:'外部记录尚未确认',answer_rule:'规则无法确定',invalid_options:'选项无效或单选多选'}[x]||'');
+ const reasonLabel=x=>({external_conflict:'外部结果与规则不一致',external_confirmation:'外部结论需要教师确认',external_pending:'外部记录尚未确认',answer_rule:'规则无法确定',invalid_options:'选项无效或单选多选',numeric_format:'数值格式待确认',unit_required:'缺少必填单位',unit_unknown:'单位暂不支持',unit_mismatch:'单位量纲不一致',unit_conversion_disabled:'本题未允许单位换算',precision_review:'有效数字需教师核对'}[x]||'');
  let previewToken='';
  const previewOutput=f.querySelector('.response-preview');
  const renderPreview=d=>{if(!previewOutput)return;previewOutput.replaceChildren();if(d.records){const table=document.createElement('table');const head=table.insertRow();['学生 / 作答序号','原始答案','规范答案','规则建议','外部结果','有效结果 / 异常'].forEach(x=>{const th=document.createElement('th');th.textContent=x;head.append(th);});d.records.forEach(r=>{const row=table.insertRow();[r.student_name+' / '+r.number,r.raw_answer||'空白',r.normalized_answer||'空白',outcomeLabel(r.proposed_outcome),r.supplied_outcome?outcomeLabel(r.supplied_outcome):'未提供',outcomeLabel(r.outcome)+' '+reasonLabel(r.category)].forEach(x=>row.insertCell().textContent=x);});const scroll=document.createElement('div');scroll.style.overflowX='auto';scroll.append(table);previewOutput.append(scroll);}if(d.impact){const impact=d.impact;[['首次答案',impact.initial_answer],['原有效答案 → 新答案',impact.old_answer+' → '+impact.new_answer],['原结果 → 新结果',outcomeLabel(impact.old_outcome)+' → '+outcomeLabel(impact.new_outcome)],['其他有效错误来源',impact.other_wrong_sources],['复习影响',impact.practice],['统计影响',impact.statistics]].forEach(([label,value])=>{const line=document.createElement('p');line.textContent=label+'：'+value;previewOutput.append(line);});}};

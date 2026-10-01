@@ -9,6 +9,7 @@ from .exam_views import esc, image_html
 from .learning import LABELS, progress, snapshot
 from .question_content import render_snapshot_content, render_snapshot_options, render_snapshot_solution, snapshot_content
 from .question_rendering import render_question
+from .fill_rules import UNITS, instructions, reference_answer
 
 
 QUESTION_TYPE_LABELS = {
@@ -274,7 +275,7 @@ def answer_controls(c, snapshot_row, user, base_path=""):
                 % (control_type, esc(option["key"]), esc(option["key"]), option["html"])
                 for option in option_rows
             )
-        return '<label>我的作答<textarea name="answer" rows="3"></textarea></label>'
+        return '<p>%s</p><label>我的作答<textarea name="answer" rows="3"></textarea></label>' % esc(instructions(loads(snapshot_row['grading_rule_json'],{})))
     options = loads(snapshot_row["options_json"], {})
     if isinstance(options, list):
         options = {chr(65 + index): value for index, value in enumerate(options)}
@@ -284,7 +285,7 @@ def answer_controls(c, snapshot_row, user, base_path=""):
             % (control_type, esc(key), esc(key), esc(value))
             for key, value in options.items()
         )
-    return '<label>我的作答<textarea name="answer" rows="3"></textarea></label>'
+    return '<p>%s</p><label>我的作答<textarea name="answer" rows="3"></textarea></label>' % esc(instructions(loads(snapshot_row['grading_rule_json'],{})))
 def fill_question_context(s):
     try:
         question_type = s.get('question_type') if hasattr(s, 'get') else s['question_type']
@@ -393,7 +394,18 @@ def teacher(repo,user,params,document_import_enabled=False):
             '<label>完整题干<textarea name="stem" rows="4" required></textarea></label>'
             '<label>题型'+select('question_type',[('single_choice','单选'),('multiple_choice','多选'),('fill','填空')])+'</label>'
             '<label>选项（每行一项；填空题留空）<textarea name="options" rows="3"></textarea></label>'
-            '<label>标准答案<input name="answer" required></label>'
+            '<label>标准答案<textarea name="answer" rows="2" required></textarea></label>'
+            '<fieldset data-fill-rule hidden disabled><legend>填空核对规则</legend>'
+            '<label>核对方式'+select('fill_match',[('exact','原文匹配'),('aliases','多个可接受答案（每行一个）'),('numeric_quantity','数值与单位')]).replace('<option value="">请选择</option>','')+'</label>'
+            '<p>规则无法确定的答案交教师复核；只影响这道新题，已发布周测不改判。</p>'
+            '<div data-quantity-rule hidden><label>标准单位'+select('unit',[(u,u or '纯数值（无单位）') for u in UNITS]).replace(' required','').replace('<option value="">请选择</option>','')+'</label>'
+            '<label><input type="checkbox" name="unit_required">学生必须填写单位</label>'
+            '<label><input type="checkbox" name="allow_unit_conversion">允许同量纲单位换算</label>'
+            '<label>绝对容差（按标准单位）<input name="absolute_tolerance" value="0" inputmode="decimal"></label>'
+            '<label>相对容差（0—1，例如 0.01 表示 1%）<input name="relative_tolerance" value="0" inputmode="decimal"></label>'
+            '<label>有效数字位数（可选，1—12）<input name="significant_figures" type="number" min="1" max="12"></label>'
+            '<p>支持小数、数值分数和 e 科学计数；未知单位与表达式待复核。整数末尾零的精度不明确时也待复核。</p>'
+            '</div></fieldset>'
             '<label>解析（可选）<textarea name="analysis" rows="3"></textarea></label>'
             '<label>原题图片（可选）<input type="file" class="question-image" accept="image/*"></label>'
             '<label>知识点'+select('knowledge',nodes)+'</label>'
@@ -448,7 +460,7 @@ def teacher(repo,user,params,document_import_enabled=False):
     body.append('<h2 id="review">待确认的重做</h2>')
     for a in pending:
         if a['assessment_id'] not in allowed: continue
-        body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),esc(a['stem']),esc(a['answer']),esc(loads(a['grading_rule_json'],{}).get('answer')),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
+        body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),esc(a['stem']),esc(a['answer']),esc(reference_answer(loads(a['grading_rule_json'],{}))),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
     body.append('<h2 id="progress">复习进度</h2><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
     for a in assessments:
         ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
@@ -516,7 +528,7 @@ def exams(repo,user,aid=None,base_path=""):
                 esc(part_title),q['position'],fill_question_context(q),tags(q),
                 '<details><summary>本小问标准答案与解析</summary>%s</details>' % (
                     render_snapshot_solution(c,q['id'],user['school_id'],base_path)
-                    or '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
+                    or '<p>%s</p>' % esc(reference_answer(loads(q['grading_rule_json'],{})))
                 ) if staff else ''
             ))
             body.append('<table class="response-table"><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>原图 / 复核</th></tr>')
@@ -556,7 +568,7 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     for w in rows:
         s=snapshot(c,w)
         content = question_fragment(c,s,user,base_path,include_solution=True,whole_group=True)
-        out.append('<article><h2>%s</h2>%s%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),question_part_context(c,s,user['school_id']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(loads(s['grading_rule_json'],{}).get('answer'))))
+        out.append('<article><h2>%s</h2>%s%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),question_part_context(c,s,user['school_id']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(reference_answer(loads(s['grading_rule_json'],{})))))
         if user['role']=='student':
             from .learning import now
             c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(user['id'],w['question_id'],now()))
