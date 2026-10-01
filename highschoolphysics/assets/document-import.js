@@ -469,6 +469,11 @@
       if (!mappings.length) return;
       applyButton.disabled = true;
       try {
+        await saveAllDraftsBeforeReload();
+        mappings.forEach((mapping) => {
+          const card = candidateCards().find((item) => item.dataset.documentItem === mapping.item_id);
+          if (card) mapping.expected_revision = Number(card.dataset.revision);
+        });
         const result = await request(`/api/documents/tasks/${encodeURIComponent(taskId)}/attach-answers`, {
           answer_task_id: answerTaskId,
           mappings,
@@ -497,24 +502,55 @@
       });
     }
   };
-  const previewCard = async (card) => {
+  const refreshStructureControls = (card, document) => {
+    card.questionStructure = document;
+    const targetSelect = card.querySelector("[data-structure-target]");
+    const targetKey = targetSelect.value;
+    targetSelect.replaceChildren(new Option("整题", ""), ...document.children.map((child) => new Option(`小问 ${child.label}`, child.key)));
+    targetSelect.value = document.children.some((child) => child.key === targetKey) ? targetKey : "";
+    const target = document.children.find((child) => child.key === targetSelect.value) || document;
+    card.querySelector("[data-structure-kind]").value = target.kind;
+    const optionSelect = card.querySelector("[data-structure-option]");
+    const optionKey = optionSelect.value;
+    optionSelect.replaceChildren(...target.options.map((option) => new Option(option.key, option.key)));
+    if (target.options.some((option) => option.key === optionKey)) optionSelect.value = optionKey;
+    card.querySelectorAll("[data-structure-action]").forEach((button) => {
+      button.disabled = card.dataset.published === "true" ||
+        (["remove_child", "move_child"].includes(button.dataset.structureAction) && !targetSelect.value) ||
+        (["remove_option", "move_option"].includes(button.dataset.structureAction) && !optionSelect.value);
+    });
+  };
+  const previewCard = async (card, structureAction) => {
     const id = card.dataset.documentItem;
     const markdown = card.querySelector(".question-markdown").value;
-    const result = await request(`/api/documents/items/${encodeURIComponent(id)}/preview`, { task_id: taskId, markdown });
-    result.document.number = card.querySelector("[data-question-number-edit]").value.trim();
+    const questionNumber = card.querySelector("[data-question-number-edit]").value.trim();
+    const operations = JSON.parse(card.dataset.structureOperations || "[]");
+    const result = await request(`/api/documents/items/${encodeURIComponent(id)}/preview`, {
+      task_id: taskId, markdown, structure_operations: operations, structure_action: structureAction,
+    });
+    result.document.number = questionNumber;
     card.querySelector("[data-preview-body]").innerHTML = result.html;
     const number = card.querySelector("[data-question-number]");
     if (number) number.textContent = result.document.number;
     renderMath(card.querySelector("[data-preview-body]"));
-    return result.document;
+    refreshStructureControls(card, result.document);
+    result.editorMarkdown = markdown;
+    return result;
   };
   const saveCard = async (card, reloadAfterSave = true) => {
+    if (card.dataset.writeBusy === "true") throw new Error("当前题目正在处理，请稍后再保存。");
+    card.dataset.writeBusy = "true";
     const status = card.querySelector(".save-status");
     const saveButton = card.querySelector("[data-save-item]");
+    const editor = card.querySelector(".question-markdown");
+    const fieldset = card.querySelector(".question-structure-tools fieldset");
+    editor.readOnly = true;
+    fieldset.disabled = true;
     saveButton.disabled = true;
     setText(status, "正在校验并保存…");
     try {
-      const document = await previewCard(card);
+      const preview = await previewCard(card);
+      const document = preview.document;
       const resolved = Array.from(card.querySelectorAll("[data-issue-id]:checked"), (input) => input.dataset.issueId);
       const note = card.querySelector(".review-note").value;
       const result = await request(`/api/documents/items/${encodeURIComponent(card.dataset.documentItem)}/save`, {
@@ -526,15 +562,40 @@
         resolution_note: note,
       });
       card.dataset.revision = String(result.review_revision);
-      card.dataset.savedMarkdown = card.querySelector(".question-markdown").value;
+      card.dataset.savedMarkdown = preview.editorMarkdown;
       card.dataset.savedQuestionNumber = document.number;
-      card.dataset.savedIssueResolution = selectedReviewIssueIds(card).join(",");
       card.dataset.savedReviewNote = card.querySelector(".review-note").value.trim();
       setText(card.querySelector("[data-revision-label]"), result.review_revision);
-      setText(status, "草稿已保存。页面即将刷新复核状态…");
-      if (reloadAfterSave) window.setTimeout(() => window.location.reload(), 250);
+      // The saved document is now the server base for subsequent structure edits.
+      card.dataset.structureOperations = "[]";
+      let issueList = card.querySelector(".document-issues");
+      if (!issueList) {
+        issueList = window.document.createElement("ul"); issueList.className = "document-issues";
+        card.querySelector(".issue-clear")?.remove();
+        card.querySelector(".question-source-link").after(issueList);
+      }
+      issueList.replaceChildren(...(result.issues || []).map(({ id, issue }) => {
+        const li = window.document.createElement("li");
+        const resolved = issue.state === "resolved" || issue.severity === "info";
+        li.className = `issue issue-${issue.severity}${resolved ? " issue-resolved" : ""}`;
+        const label = window.document.createElement("span");
+        label.textContent = `${resolved ? "已记录核对" : "需核对"}：${issue.message || issue.code}`;
+        li.append(label);
+        if (!resolved) {
+          const control = window.document.createElement("label"); control.className = "issue-resolve";
+          const checkbox = window.document.createElement("input"); checkbox.type = "checkbox"; checkbox.dataset.issueId = id;
+          control.append(checkbox, "已对照原卷核对"); li.append(control);
+        }
+        return li;
+      }));
+      card.dataset.savedIssueResolution = selectedReviewIssueIds(card).join(",");
+      cacheDraft(card);
+      setText(status, "草稿已保存；其他题目的未保存修改仍保留在页面中。");
       return result;
     } finally {
+      card.dataset.writeBusy = "false";
+      editor.readOnly = card.dataset.published === "true";
+      fieldset.disabled = card.dataset.published === "true";
       saveButton.disabled = false;
     }
   };
@@ -630,17 +691,118 @@
     card.dataset.savedQuestionNumber = card.querySelector("[data-question-number-edit]").value.trim();
     card.dataset.savedIssueResolution = "";
     card.dataset.savedReviewNote = "";
+    refreshStructureControls(card, JSON.parse(card.querySelector("[data-question-structure]").dataset.questionStructure));
   });
   refreshRestructureButtons();
   const selectedReviewIssueIds = (card) => Array.from(
     card.querySelectorAll("[data-issue-id]:checked"), (input) => input.dataset.issueId
   ).sort();
   const hasUnsavedCandidateEdits = (card) => (
+    JSON.parse(card.dataset.structureOperations || "[]").length > 0 ||
     card.querySelector(".question-markdown").value !== card.dataset.savedMarkdown ||
     card.querySelector("[data-question-number-edit]").value.trim() !== card.dataset.savedQuestionNumber ||
     selectedReviewIssueIds(card).join(",") !== card.dataset.savedIssueResolution ||
     (selectedReviewIssueIds(card).length > 0 && card.querySelector(".review-note").value.trim() !== card.dataset.savedReviewNote)
   );
+  const draftStorageKey = `hsp-document-review-drafts-v1:${taskId}`;
+  const readDrafts = () => {
+    try { return JSON.parse(window.sessionStorage.getItem(draftStorageKey) || "{}"); }
+    catch (_error) { return {}; }
+  };
+  const cacheDraft = (card) => {
+    if (card.dataset.published === "true") return;
+    try {
+      const drafts = readDrafts();
+      if (!hasUnsavedCandidateEdits(card)) delete drafts[card.dataset.documentItem];
+      else drafts[card.dataset.documentItem] = {
+        revision: Number(card.dataset.revision), savedAt: Date.now(),
+        markdown: card.querySelector(".question-markdown").value,
+        number: card.querySelector("[data-question-number-edit]").value,
+        note: card.querySelector(".review-note").value,
+        issues: selectedReviewIssueIds(card), operations: JSON.parse(card.dataset.structureOperations || "[]"),
+      };
+      window.sessionStorage.setItem(draftStorageKey, JSON.stringify(drafts));
+    } catch (_error) { /* beforeunload protection still works without storage. */ }
+  };
+  candidateCards().forEach((card) => {
+    const draft = readDrafts()[card.dataset.documentItem];
+    if (draft && Date.now() - draft.savedAt < UPLOAD_RESUME_TTL_MS && card.dataset.published !== "true") {
+      if (draft.revision === Number(card.dataset.revision)) {
+        card.querySelector(".question-markdown").value = draft.markdown;
+        card.querySelector("[data-question-number-edit]").value = draft.number;
+        card.querySelector(".review-note").value = draft.note;
+        card.dataset.structureOperations = JSON.stringify(draft.operations || []);
+        card.querySelectorAll("[data-issue-id]").forEach((input) => { input.checked = draft.issues.includes(input.dataset.issueId); });
+        setText(card.querySelector(".save-status"), "已恢复本页未保存草稿；请更新预览并核对后保存。");
+        previewCard(card).catch((error) => setText(card.querySelector(".save-status"), error.message));
+      } else {
+        setText(card.querySelector(".save-status"), "有旧版本本地草稿，未覆盖当前版本。可下载后对照恢复。");
+        const download = document.createElement("button");
+        download.type = "button"; download.textContent = "下载旧版本草稿";
+        download.addEventListener("click", () => {
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(new Blob([JSON.stringify(draft, null, 2)], { type: "application/json" }));
+          link.download = `review-draft-${card.dataset.documentItem}.json`; link.click();
+          window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        });
+        card.querySelector(".question-card-actions").append(download);
+      }
+    }
+    card.addEventListener("input", () => cacheDraft(card));
+    card.addEventListener("change", () => cacheDraft(card));
+    card.querySelector("[data-structure-target]").addEventListener("change", () => refreshStructureControls(card, card.questionStructure));
+    const changeStructure = async (operation) => {
+      if (card.dataset.writeBusy === "true") return;
+      card.dataset.writeBusy = "true";
+      const status = card.querySelector(".save-status");
+      const fieldset = card.querySelector(".question-structure-tools fieldset");
+      const editor = card.querySelector(".question-markdown");
+      const saveButton = card.querySelector("[data-save-item]");
+      editor.readOnly = true;
+      saveButton.disabled = true;
+      fieldset.disabled = true;
+      try {
+        const result = await previewCard(card, operation);
+        card.dataset.structureOperations = JSON.stringify([...JSON.parse(card.dataset.structureOperations || "[]"), operation]);
+        card.querySelector(".question-markdown").value = result.markdown;
+        if (operation.action === "add_child") {
+          card.querySelector("[data-structure-target]").value = operation.key;
+          refreshStructureControls(card, result.document);
+        }
+        cacheDraft(card);
+        setText(status, "结构已在本页调整；请修改新增正文、核对题型与答案，再保存草稿。");
+      } catch (error) { setText(status, error.message); }
+      finally {
+        card.dataset.writeBusy = "false";
+        editor.readOnly = card.dataset.published === "true";
+        saveButton.disabled = false;
+        fieldset.disabled = card.dataset.published === "true";
+      }
+    };
+    card.querySelector("[data-structure-kind]").addEventListener("change", (event) => changeStructure({
+      action: "set_kind", child_key: card.querySelector("[data-structure-target]").value, kind: event.target.value,
+    }));
+    card.querySelectorAll("[data-structure-action]").forEach((button) => button.addEventListener("click", () => changeStructure({
+      action: button.dataset.structureAction,
+      child_key: card.querySelector("[data-structure-target]").value,
+      option_key: card.querySelector("[data-structure-option]").value,
+      direction: button.dataset.direction,
+      key: "part_" + randomKey().slice(0, 32),
+    })));
+  });
+  const hasUnsavedSourceMapping = () => Array.from(review.querySelectorAll("[data-source-owner]")).some((select) =>
+    Array.from(select.selectedOptions, (option) => option.value).sort().join(",") !==
+    (select.dataset.initialOwners || "").split(",").filter(Boolean).sort().join(",")
+  );
+  window.addEventListener("beforeunload", (event) => {
+    if (!candidateCards().some(hasUnsavedCandidateEdits) && !hasUnsavedSourceMapping()) return;
+    candidateCards().forEach(cacheDraft);
+    event.preventDefault(); event.returnValue = "";
+  });
+  const saveAllDraftsBeforeReload = async () => {
+    if (hasUnsavedSourceMapping()) throw new Error("请先保存来源块归属调整，再执行需要刷新页面的操作。");
+    for (const card of candidateCards().filter(hasUnsavedCandidateEdits)) await saveCard(card, false);
+  };
   const reviewDraftExport = review.querySelector("[data-review-draft-export]");
   let exportingReviewDraft = false;
   reviewDraftExport?.addEventListener("click", async (event) => {
@@ -667,10 +829,8 @@
     const cards = candidateCards();
     const card = button.closest("[data-document-item]");
     const status = card.querySelector(".save-status");
-    if (hasUnsavedCandidateEdits(card)) {
-      setText(status, "请先保存当前草稿；拆分或合并只会读取服务端已保存版本。页面中的输入仍保留。 ");
-      return;
-    }
+    try { await saveAllDraftsBeforeReload(); }
+    catch (error) { setText(status, error.message); return; }
     let ids;
     const payload = {
       action,
@@ -844,6 +1004,7 @@
     if (!selected.length) { setText(status, "请先勾选至少一道题。"); return; }
     confirmButton.disabled = true;
     try {
+      await saveAllDraftsBeforeReload();
       for (const card of selected) {
         const saved = await saveCard(card, false);
         card.dataset.revision = String(saved.review_revision);

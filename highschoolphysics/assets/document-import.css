@@ -581,3 +581,13 @@
     width: 100%;
   }
 }
+.question-structure-tools fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem;
+  margin: .75rem 0;
+  padding: .75rem;
+}
+.question-structure-tools label { display: grid; gap: .25rem; }
+.question-structure-tools p { flex-basis: 100%; margin: 0; }

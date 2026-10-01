@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261001-whole-question-assembly"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
-DOCUMENT_ASSET_VERSION = "20260930-http-sha256-upload-fallback"
+DOCUMENT_ASSET_VERSION = "20261001-review-content-fixes"
 
 
 def ensure_database(path, demo_mode=False):
@@ -4656,7 +4656,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 item_id, operation = match.groups()
                 task_id = payload.get("task_id")
                 if operation == "preview":
-                    result = document_ingestion.preview_candidate(conn, user, item_id, task_id, payload.get("markdown", ""), self._base_path())
+                    result = document_ingestion.preview_candidate(
+                        conn, user, item_id, task_id, payload.get("markdown", ""), self._base_path(),
+                        structure_operations=payload.get("structure_operations"),
+                        structure_action=payload.get("structure_action"),
+                    )
                 else:
                     result = document_ingestion.save_candidate(conn, user, item_id, payload)
                 self._send_json({"ok": True, "result": result})
