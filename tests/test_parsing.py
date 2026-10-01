@@ -51,6 +51,20 @@ class ParsingTests(unittest.TestCase):
         )
         self.assertIn("low_confidence", normalized["items"][0]["warnings"])
 
+    def test_normalizer_marks_duplicate_question_numbers_needs_review(self):
+        normalized = normalize_parser_output(
+            {
+                "items": [
+                    {"item_index": 1, "question_number": "3", "stem": "第一题", "confidence": 0.9},
+                    {"item_index": 2, "question_number": "3", "stem": "第二题", "confidence": 0.9},
+                ]
+            }
+        )
+        self.assertTrue(
+            all("duplicate_question_number" in item["warnings"] for item in normalized["items"])
+        )
+        self.assertTrue(all(item["review_status"] == "needs_review" for item in normalized["items"]))
+
     def test_run_parser_fail_closed_reports_missing_external_adapter(self):
         with self.assertRaises(ParseAdapterError):
             run_parser(

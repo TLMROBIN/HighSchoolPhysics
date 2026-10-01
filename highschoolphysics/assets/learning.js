@@ -33,6 +33,11 @@
   const preview=form.querySelector('[data-paper-preview]');
   const selectedCount=form.querySelector('[data-paper-selection-count]');
   const filterCount=form.querySelector('[data-question-filter-count]');
+  const pageInfo=form.querySelector('[data-question-page-info]');
+  const pagePrev=form.querySelector('[data-question-page-prev]');
+  const pageNext=form.querySelector('[data-question-page-next]');
+  const pageSize=12;
+  let currentPage=1;
   const order=[];
   const byKey=new Map(cards.map(card=>[card.dataset.groupKey,card]));
   const idsFor=card=>{try{return JSON.parse(card.dataset.questionIds||'[]');}catch{return[];}};
@@ -83,13 +88,22 @@
   };
   const applyFilters=()=>{
    const values={};filters?.querySelectorAll('[data-question-filter]').forEach(input=>values[input.dataset.questionFilter]=input.value.trim());
-   let visible=0;
-   cards.forEach(card=>{const show=Object.entries(values).every(([name,value])=>matches(card,name,value));card.hidden=!show;if(show)visible++;});
-   if(filterCount)filterCount.textContent=`显示 ${visible} / ${cards.length} 道大题`;
+   const matching=cards.filter(card=>Object.entries(values).every(([name,value])=>matches(card,name,value)));
+   const pageCount=Math.max(1,Math.ceil(matching.length/pageSize));
+   currentPage=Math.min(currentPage,pageCount);
+   const start=(currentPage-1)*pageSize;
+   const end=start+pageSize;
+   cards.forEach(card=>{const matchIndex=matching.indexOf(card);card.hidden=matchIndex<start||matchIndex>=end;});
+   if(filterCount)filterCount.textContent=`显示 ${matching.length} / ${cards.length} 道大题`;
+   if(pageInfo)pageInfo.textContent=`第 ${currentPage} / ${pageCount} 页`;
+   if(pagePrev)pagePrev.disabled=currentPage<=1;
+   if(pageNext)pageNext.disabled=currentPage>=pageCount;
   };
   cards.forEach(card=>card.querySelector('[data-group-toggle]')?.addEventListener('change',event=>{toggleCard(card,event.target.checked);renderOrder();}));
-  filters?.querySelectorAll('[data-question-filter]').forEach(input=>input.addEventListener(input.type==='search'?'input':'change',applyFilters));
-  filters?.querySelector('[data-question-filter-reset]')?.addEventListener('click',()=>{filters.querySelectorAll('[data-question-filter]').forEach(input=>input.value='');applyFilters();});
+  filters?.querySelectorAll('[data-question-filter]').forEach(input=>input.addEventListener(input.type==='search'?'input':'change',()=>{currentPage=1;applyFilters();}));
+  filters?.querySelector('[data-question-filter-reset]')?.addEventListener('click',()=>{filters.querySelectorAll('[data-question-filter]').forEach(input=>input.value='');currentPage=1;applyFilters();});
+  pagePrev?.addEventListener('click',()=>{if(currentPage>1){currentPage-=1;applyFilters();}});
+  pageNext?.addEventListener('click',()=>{currentPage+=1;applyFilters();});
   basket?.addEventListener('click',event=>{
    const button=event.target.closest('[data-basket-action]');if(!button)return;
    const index=order.indexOf(button.dataset.groupKey);if(index<0)return;

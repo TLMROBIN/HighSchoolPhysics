@@ -64,7 +64,10 @@ class LearningTests(unittest.TestCase):
   out=learning_views.student(self.repo,user,{'practice':[self.w['id']]})
   self.assertNotIn('李华',out);self.assertIn('首次作答记录',out);self.assertNotIn('我的得分',out)
   self.assertNotIn('correct_answer_json',out)
-  self.assertIn('教师工作台',learning_views.teacher(self.repo,self.admin,{}))
+  teacher_html=learning_views.teacher(self.repo,self.admin,{})
+  self.assertIn('教师工作台',teacher_html)
+  self.assertIn('data-question-pagination',teacher_html)
+  self.assertIn('展开题干与全部小问',teacher_html)
   with self.assertRaises(PermissionDenied):learning.submit(self.repo,'stu-1002',dict(wrong_id=self.w['id'],request_key='x',answer='B'))
  def test_fill_wrong_view_explains_parent_question_context(self):
   self.assertIn('完整填空题',learning_views.fill_question_context({'question_type':'fill'}))

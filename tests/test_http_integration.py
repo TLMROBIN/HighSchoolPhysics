@@ -403,6 +403,33 @@ class HttpIntegrationTests(unittest.TestCase):
         self.assertNotIn("高二二班权限测试", html)
         self.assertNotIn("赵同学", html)
 
+    def test_student_forbidden_pages_use_friendly_html(self):
+        _, cookie, _ = self.server.login("stu_1001", "student123")
+
+        status, headers, payload = self.server.request(
+            "GET",
+            "/admin",
+            headers={"Cookie": cookie},
+        )
+        html = payload.decode("utf-8")
+        self.assertEqual(status, 403)
+        self.assertIn("text/html", headers.get("Content-Type", ""))
+        self.assertIn("没有访问权限", html)
+        self.assertIn("返回我的学习", html)
+        self.assertNotIn('"error": "forbidden"', html)
+
+        status, headers, payload = self.server.request(
+            "GET",
+            "/exams?id=assess-week-1",
+            headers={"Cookie": cookie},
+        )
+        html = payload.decode("utf-8")
+        self.assertEqual(status, 403)
+        self.assertIn("text/html", headers.get("Content-Type", ""))
+        self.assertIn("你没有权限查看这份测评", html)
+        self.assertIn("返回我的学习", html)
+        self.assertNotIn('"error": "forbidden"', html)
+
     def test_teacher_cannot_export_unassigned_class(self):
         self._seed_other_class()
         _, cookie, _ = self.server.login("teacher_li", "teacher123")

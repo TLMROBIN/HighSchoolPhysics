@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261001-whole-question-assembly"
+ASSET_VERSION = "20261001-qa-followups-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
 DOCUMENT_ASSET_VERSION = "20261001-review-content-fixes"
 
@@ -1469,7 +1469,7 @@ def _render_mastery_analytics_table(items, include_students=False):
     if not items:
         return (
             "<table class='mastery-analytics-table'><tbody>"
-            "<tr><td>暂无已发布掌握度数据</td></tr>"
+            "<tr><td>暂无已发布掌握度数据（不代表正确率为 0%）</td></tr>"
             "</tbody></table>"
         )
     rows = []
@@ -1651,7 +1651,11 @@ def _render_admin_mastery_analytics(analytics):
                 scheduled_at=escape(item.get("scheduled_at") or ""),
                 class_count=item.get("class_count", 0),
                 student_count=item.get("student_count", 0),
-                rate=_percent(item.get("average_score_rate")),
+                rate=(
+                    "暂无有效评分"
+                    if item.get("score_status") == "no_score"
+                    else _percent(item.get("average_score_rate"))
+                ),
             )
         )
     if not trend_rows:
@@ -1674,6 +1678,7 @@ def _render_admin_mastery_analytics(analytics):
     trend_block = """
     <div class="analytics-block">
       <h3>年级掌握趋势</h3>
+      <p class="explain">“暂无有效评分”表示测评已发布但还没有形成可计算的评分结果，不等于真实得分率为 0%。</p>
       <table class="mastery-analytics-table">
         <thead>
           <tr><th>年级</th><th>测评</th><th>时间</th><th>班级数</th><th>学生数</th><th>平均得分率</th></tr>
@@ -2563,17 +2568,31 @@ def render_admin_app(user, dashboard):
             }
         )
     )
+    runtime_status_labels = {
+        "ready": "已就绪",
+        "configured": "已配置，待检查",
+        "missing_configuration": "缺少配置",
+        "missing_credential": "缺少凭据",
+        "missing_dependency": "缺少依赖",
+        "missing_executable": "缺少命令",
+        "missing_models": "缺少模型",
+        "invalid_configuration": "配置无效",
+        "disabled": "未启用",
+        "degraded": "受限",
+        "failed": "检查失败",
+    }
     runtime_health_rows = "".join(
         """
         <article class="runtime-health-card" data-status="{status}">
           <strong>{label}</strong>
-          <span>{status}</span>
+          <span>{status_label}</span>
           <small>{version}</small>
           <p>{detail}</p>
           <small>{checked_at}</small>
         </article>
         """.format(
             status=escape(item["status"]),
+            status_label=escape(runtime_status_labels.get(item["status"], item["status"])),
             label=escape(item.get("label") or item["capability_id"]),
             version=escape(item.get("version") or "版本待检测"),
             detail=escape(item.get("detail") or ""),
@@ -3098,7 +3117,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 elif not document_ingestion_enabled():
                     self._send_error(HTTPStatus.NOT_FOUND, "整卷导入当前未启用")
                 elif user["role"] not in ("teacher", "admin"):
-                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能管理试卷导入")
+                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能管理试卷导入", user=user)
                 else:
                     tasks = document_ingestion.list_tasks(conn, user)
                     body = document_views.documents_home(user, tasks)
@@ -3109,7 +3128,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 elif not document_ingestion_enabled():
                     self._send_error(HTTPStatus.NOT_FOUND, "整卷导入当前未启用")
                 elif user["role"] not in ("teacher", "admin"):
-                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能复核导入题目")
+                    self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能复核导入题目", user=user)
                 else:
                     task_id = (parse_qs(parsed.query).get("task_id") or [""])[0]
                     task = document_ingestion.get_task(conn, user, task_id)
@@ -3128,11 +3147,18 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 else:
                     repo = PhysicsRepository(conn)
                     aid = (parse_qs(parsed.query).get("id") or [None])[0]
-                    if learning.enabled(conn):
-                        body = learning_views.exams(repo, user, aid, self._base_path())
-                        self._send_html(render_layout("考试与作答", user, body, "exams", question_math=True))
-                    else:
-                        self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams", question_math=True))
+                    try:
+                        if learning.enabled(conn):
+                            body = learning_views.exams(repo, user, aid, self._base_path())
+                            self._send_html(render_layout("考试与作答", user, body, "exams", question_math=True))
+                        else:
+                            self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams", question_math=True))
+                    except PermissionDenied as error:
+                        self._send_error(
+                            error.status,
+                            "你没有权限查看这份测评。请从“周测记录”进入你已发布的测评。",
+                            user=user,
+                        )
             elif path == "/exam-media":
                 if not user:
                     self._send_error(HTTPStatus.FORBIDDEN, "请先登录")
@@ -3175,7 +3201,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         teacher_page = teacher_page.replace("<main>", "<main>%s" % document_entry, 1)
                         self._send_html(teacher_page)
                 else:
-                    self._send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+                    self._send_error(HTTPStatus.FORBIDDEN, "教师或管理员账号才能进入教师工作台。", user=user)
             elif path == "/admin":
                 if not user:
                     self._redirect("/login")
@@ -3183,7 +3209,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     repo = PhysicsRepository(conn)
                     self._send_html(render_admin_app(user, repo.admin_dashboard(user["id"])))
                 else:
-                    self._send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+                    self._send_error(HTTPStatus.FORBIDDEN, "只有管理员账号才能进入管理员端。", user=user)
             elif path.startswith("/export/wrong-book/"):
                 if not user:
                     self._redirect("/login")
@@ -3218,7 +3244,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     )
             elif path == "/backup/download":
                 if not user or user["role"] != "admin":
-                    self._send_error(HTTPStatus.FORBIDDEN, "Forbidden")
+                    self._send_error(HTTPStatus.FORBIDDEN, "只有管理员账号才能下载备份。", user=user)
                 else:
                     repo = PhysicsRepository(conn)
                     self._send_json(repo.export_backup(user["id"]), filename="highschoolphysics-backup.json")
@@ -4206,8 +4232,34 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             payload["details"] = error.details
         self._send_json(payload, status=error.status)
 
-    def _send_error(self, status, message):
-        self._send_html(render_layout(str(status), None, "<section class='empty-state'>%s</section>" % escape(message)), status)
+    def _send_error(self, status, message, user=None):
+        status_value = int(status)
+        titles = {
+            HTTPStatus.FORBIDDEN: "没有访问权限",
+            HTTPStatus.NOT_FOUND: "页面不存在",
+            HTTPStatus.UNAUTHORIZED: "需要先登录",
+        }
+        title = titles.get(status, "请求无法完成")
+        if user:
+            target = self._home_for(user)
+            target_label = {
+                "student": "返回我的学习",
+                "teacher": "返回教师工作台",
+                "admin": "返回管理员端",
+            }.get(user.get("role"), "返回首页")
+        else:
+            target = "/login"
+            target_label = "返回登录页"
+        body = (
+            "<section class='empty-state error-state' role='alert' aria-labelledby='error-title'>"
+            "<p class='error-code'>HTTP %s</p>"
+            "<h1 id='error-title'>%s</h1>"
+            "<p>%s</p>"
+            "<div class='error-actions'><a class='button-primary' href='%s'>%s</a></div>"
+            "</section>"
+            % (status_value, escape(title), escape(message), escape(target), escape(target_label))
+        )
+        self._send_html(render_layout(title, user, body), status)
 
     def _redirect(self, target):
         # The production reverse proxy owns the public /physics prefix through

@@ -69,6 +69,21 @@ class QuestionSplitterTests(unittest.TestCase):
         self.assertEqual(len(result["questions"]), 2)
         self.assertTrue(any(issue["code"] == "inline_question_boundary_requires_review" for issue in result["questions"][1]["issues"]))
 
+    def test_duplicate_question_numbers_are_flagged_for_teacher_review(self):
+        document = fixture_ir()
+        document["blocks"] = [
+            dict(document["blocks"][1], markdown="1．第一道题，题干足够长。"),
+            dict(document["blocks"][2], id="duplicate-question", order=3, markdown="1．第二道题，题干也足够长。"),
+        ]
+        result = split_document_ir(document)
+        self.assertEqual(len(result["questions"]), 2)
+        self.assertTrue(
+            all(
+                any(issue["code"] == "duplicate_question_number" for issue in item["issues"])
+                for item in result["questions"]
+            )
+        )
+
     def test_answer_heading_in_document_title_stops_question_splitting(self):
         document = fixture_ir()
         document["blocks"] = [

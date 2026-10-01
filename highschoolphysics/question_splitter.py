@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections import Counter
 
 from .document_models import validate_document_ir, validate_question_document
 
@@ -435,9 +436,18 @@ def split_document_ir(document):
     answer_reasons = {block["id"]: block["_unassigned_reason"] for block in answer_blocks}
     leading, segments, inline = _separate_numbered_questions(question_blocks)
     inline_numbers = {item["number"] for item in inline}
+    number_counts = Counter(segment["number"] for segment in segments)
     candidates = []
     for index, segment in enumerate(segments):
         question = _candidate(segment, ir, ir["conversion_id"], [], segment["number"] in inline_numbers)
+        if number_counts[segment["number"]] > 1:
+            question["issues"].append({
+                "code": "duplicate_question_number",
+                "severity": "review",
+                "field": "number",
+                "message": "原卷题号 %s 在本份文档中出现 %d 次；请对照原卷核对或更正题号。"
+                % (segment["number"], number_counts[segment["number"]]),
+            })
         candidates.append({
             "item_index": index + 1,
             "document": question,

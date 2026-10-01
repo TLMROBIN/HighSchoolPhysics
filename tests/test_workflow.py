@@ -1414,8 +1414,8 @@ class WorkflowTests(unittest.TestCase):
             if item["capability_id"] == "mineru-api"
         )
 
-        self.assertEqual(mineru_api["status"], "ready")
-        self.assertIn("configured", mineru_api["detail"])
+        self.assertEqual(mineru_api["status"], "configured")
+        self.assertIn("complete the administrator connection check", mineru_api["detail"])
         self.assertNotIn("mineru-runtime-secret", json.dumps(mineru_api))
 
         recorded = self.repo.record_runtime_capability_checks("user-admin")
@@ -1424,7 +1424,14 @@ class WorkflowTests(unittest.TestCase):
             for item in recorded
             if item["capability_id"] == "mineru-api"
         )
-        self.assertEqual(recorded_mineru["status"], "ready")
+        self.assertEqual(recorded_mineru["status"], "configured")
+        dashboard = self.repo.production_readiness_dashboard("user-admin")
+        dashboard_mineru = next(
+            item
+            for item in dashboard["runtime_checks"]
+            if item["capability_id"] == "mineru-api"
+        )
+        self.assertTrue(dashboard_mineru.get("checked_at"))
 
     def test_admin_saves_provider_config_encrypted_and_masks_secret(self):
         config = self.repo.save_provider_config(

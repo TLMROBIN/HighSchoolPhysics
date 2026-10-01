@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from collections import Counter
 from pathlib import Path
 from urllib import request
 
@@ -150,6 +151,12 @@ def normalize_parser_output(raw):
             "ready" if item["confidence"] >= 0.8 and not warnings else "needs_review"
         )
         normalized["items"].append(item)
+    number_counts = Counter(item["question_number"] for item in normalized["items"])
+    for item in normalized["items"]:
+        if number_counts[item["question_number"]] > 1:
+            if "duplicate_question_number" not in item["warnings"]:
+                item["warnings"].append("duplicate_question_number")
+            item["review_status"] = "needs_review"
     return normalized
 
 

@@ -1,5 +1,5 @@
 """Accessible, outcome-only student and teacher workspaces."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 import hashlib
 import json
 from urllib.parse import quote
@@ -127,8 +127,24 @@ def _teacher_question_groups(repo, user):
         item["group_key"] = item.get("group_id") or item["id"]
         grouped.setdefault(item["group_key"], []).append(item)
 
+    def source_number(rows):
+        raw_document = rows[0].get("document_json")
+        try:
+            document = loads(raw_document, None) if raw_document else None
+        except (TypeError, ValueError):
+            document = None
+        return str(
+            (document or {}).get("number")
+            or next(
+                (row.get("original_question_number") for row in rows if row.get("original_question_number")),
+                "",
+            )
+            or ""
+        ).strip()
+
+    source_number_counts = Counter(source_number(rows) for rows in grouped.values())
     cards = []
-    for group_key, group_rows in grouped.items():
+    for group_index, (group_key, group_rows) in enumerate(grouped.items(), start=1):
         raw_document = group_rows[0].get("document_json")
         try:
             document = loads(raw_document, None) if raw_document else None
@@ -159,16 +175,20 @@ def _teacher_question_groups(repo, user):
         )
         content_verified = not document or group_rows[0].get("content_review_state") == "verified"
         selectable = complete and content_verified and tagged
-        number = (document or {}).get("number") or next(
-            (row.get("original_question_number") for row in group_rows if row.get("original_question_number")),
-            "",
-        )
-        title = ("第%s题" % number) if number else "未编号题目"
+        number = source_number(group_rows)
+        title = "题库题目 %02d" % group_index
+        source_label = "原卷题号：第%s题" % number if number else "原卷题号：待确认"
+        number_warning = ""
+        if not number:
+            number_warning = "题号待确认，入卷前请对照原卷补齐。"
+        elif source_number_counts[number] > 1:
+            number_warning = "原卷题号重复，答案导入可能无法唯一匹配；请对照原卷核对。"
+        stable_id = str(group_key)[-12:]
         child_count = len((document or {}).get("children", [])) or len(group_rows)
         type_ids = sorted({row["question_type"] for row in group_rows})
         type_text = "、".join(QUESTION_TYPE_LABELS.get(kind, kind) for kind in type_ids)
         all_text = " ".join(
-            [title]
+            [title, source_label, stable_id]
             + [row["stem"] for row in group_rows]
             + [tag["name"] for _, tags in by_question for tag in tags]
         )
@@ -189,6 +209,12 @@ def _teacher_question_groups(repo, user):
         else:
             disabled_reason = ""
 
+        warning_html = (
+            '<p class="question-pick-warning">%s</p>' % esc(number_warning)
+            if number_warning
+            else ""
+        )
+
         labels = "".join(
             '<li><strong>%s</strong><div class="question-tag-list">%s</div></li>'
             % (
@@ -208,8 +234,8 @@ def _teacher_question_groups(repo, user):
             'data-title="%s" data-child-count="%s" data-selectable="%s">'
             '<header class="question-pick-heading"><label class="question-pick-toggle-label">'
             '<input type="checkbox" data-group-toggle aria-label="将%s整题加入试卷" %s %s>'
-            '<span>整题加入试卷</span></label><div><h3>%s</h3><p>%s · %s 个小问</p></div></header>'
-            '<div class="question-pick-preview" data-question-preview-body>%s</div>'
+            '<span>整题加入试卷</span></label><div><h3>%s</h3><p>%s · %s · %s 个小问</p><p class="question-pick-meta">稳定 ID <code>%s</code></p></div></header>'
+            '%s<details class="question-pick-preview-details"><summary>展开题干与全部小问</summary><div class="question-pick-preview" data-question-preview-body>%s</div></details>'
             '<details class="question-tag-details"><summary>各小问标签</summary><ol class="question-tag-breakdown">%s</ol></details>'
             '<p class="question-pick-disabled"%s>%s</p>%s</article>'
             % (
@@ -220,15 +246,18 @@ def _teacher_question_groups(repo, user):
                 esc(" ".join(sorted(tag_ids["literacy"]))),
                 esc(" ".join(type_ids)),
                 esc(json.dumps(question_ids, ensure_ascii=False)),
-                esc(title),
+                esc(title + " · " + source_label),
                 child_count,
                 "true" if selectable else "false",
                 esc(title),
                 "" if selectable else "disabled",
                 "" if selectable else "aria-describedby=\"pick-note-%s\"" % esc(group_key),
                 esc(title),
+                esc(source_label),
                 esc(type_text or "未分类"),
                 child_count,
+                stable_id,
+                warning_html,
                 preview,
                 labels,
                 "" if selectable else ' id="pick-note-%s"' % esc(group_key),
@@ -300,7 +329,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=1"><script src="assets/learning.js?v=20261001-evidence-3" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=1"><script src="assets/learning.js?v=20261001-qa-followups-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def student(repo,user,params,base_path=""):
@@ -430,6 +459,7 @@ def teacher(repo,user,params,document_import_enabled=False):
         + '<label>题型<select data-question-filter="type"><option value="">全部题型</option>%s</select></label>' %
         ''.join('<option value="%s">%s</option>'%(esc(key),esc(value)) for key,value in type_options)
         + '<div class="question-filter-actions"><span data-question-filter-count aria-live="polite">显示 %s 道大题</span><button type="button" class="secondary" data-question-filter-reset>清除筛选</button></div>' % len(question_cards)
+        + '<nav class="question-pagination" data-question-pagination aria-label="题库分页"><button type="button" class="secondary" data-question-page-prev disabled>上一页</button><span data-question-page-info aria-live="polite">第 1 页</span><button type="button" class="secondary" data-question-page-next disabled>下一页</button></nav>'
     )
     card_list=''.join(question_cards) or '<p class="teacher-empty-note">题库中还没有可展示的题目。先导入整卷或手动录入。</p>'
     body.append(
@@ -510,14 +540,14 @@ def exams(repo,user,aid=None,base_path=""):
         body.append(form('publish',hidden('assessment_id',aid)+'<button>核对完成，发布到错题本</button>'))
     groups=defaultdict(lambda:dict(total=0,wrong=0,blank=0,students=set(),affected=set()))
     included={p['student_id'] for p in participants if p['status']=='present'}
-    for question_group in question_groups:
+    for group_index, question_group in enumerate(question_groups):
         first=question_group[0]
         first_content=snapshot_content(c,first['id'],user['school_id'])
         document=first_content['document'] if first_content else {}
         question_number=(document or {}).get('number') or first['original_question_number'] or first['position']
         group_preview=question_fragment(c,first,user,base_path,whole_group=True)
-        body.append('<article class="assessment-question-group"><h3>第%s题 · %s个小问</h3>%s'%(
-            esc(question_number),len(question_group),group_preview
+        body.append('<article class="assessment-question-group"><details class="assessment-question-details"%s><summary><h3>测评题目 %02d · 原卷题号 第%s题 · %s个小问</h3><span>展开题干、作答记录与证据</span></summary>%s'%(
+            " open" if group_index == 0 else "", group_index + 1, esc(question_number), len(question_group), group_preview
         ))
         for q in question_group:
             content=snapshot_content(c,q['id'],user['school_id'])
@@ -551,7 +581,7 @@ def exams(repo,user,aid=None,base_path=""):
                     seen.add(key);g=groups[t['name']];g['total']+=1;g['wrong']+=r['outcome']=='wrong';g['blank']+=r['outcome']=='blank';g['students'].add(r['student_id'])
                     if r['outcome']!='correct':g['affected'].add(r['student_id'])
             body.append('</table></section>')
-        body.append('</article>')
+        body.append('</details></article>')
     if staff:
         body.append('<h2>标签统计（首次作答）</h2><p>错误率＝非空错误 / 已确认非空作答；空白率＝空白 / 已确认作答；受影响学生＝至少一次错误或空白 / 该标签已有确认作答的学生。缺失和待确认不进入分母。</p><table><tr><th>标签</th><th>错误率</th><th>空白率</th><th>受影响学生</th></tr>')
         for name,g in groups.items():

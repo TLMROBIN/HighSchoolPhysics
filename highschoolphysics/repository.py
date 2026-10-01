@@ -4064,6 +4064,7 @@ class PhysicsRepository:
                 a.scheduled_at,
                 count(distinct a.class_id) as class_count,
                 count(distinct r.student_id) as student_count,
+                count(r.score) as scored_response_count,
                 a.full_score,
                 sum(r.score) as score
             from assessment_sessions a
@@ -4077,6 +4078,7 @@ class PhysicsRepository:
         for row in rows:
             student_count = row["student_count"] or 0
             denominator = max(1, (row["full_score"] or 0) * max(1, student_count))
+            scored_response_count = row["scored_response_count"] or 0
             trends.append(
                 {
                     "grade": row["grade"],
@@ -4086,6 +4088,8 @@ class PhysicsRepository:
                     "class_count": row["class_count"] or 0,
                     "student_count": student_count,
                     "average_score_rate": round((row["score"] or 0) / denominator, 3),
+                    "scored_response_count": scored_response_count,
+                    "score_status": "scored" if scored_response_count else "no_score",
                 }
             )
         return trends
@@ -4722,7 +4726,11 @@ class PhysicsRepository:
             persisted = latest.get(check["capability_id"])
             resolved = persisted or check
             if check["capability_id"] == "mineru-api":
-                resolved = self._mineru_api_runtime_capability(actor) or resolved
+                provider_check = self._mineru_api_runtime_capability(actor)
+                if provider_check:
+                    resolved = {**resolved, **provider_check}
+                    if not provider_check.get("checked_at") and persisted:
+                        resolved["checked_at"] = persisted.get("checked_at", "")
             runtime_checks.append(resolved)
         return {"runtime_checks": runtime_checks}
 
@@ -4741,6 +4749,8 @@ class PhysicsRepository:
         ).fetchone()
         if row is None:
             return None
+        last_test_status = (row["last_test_status"] or "").strip().lower()
+        checked_at = row["updated_at"] if last_test_status else ""
         if not row["api_endpoint"]:
             return {
                 "capability_id": "mineru-api",
@@ -4748,6 +4758,7 @@ class PhysicsRepository:
                 "status": "missing_credential",
                 "detail": "MinerU API provider is missing endpoint",
                 "version": row["model_name"] or "",
+                "checked_at": checked_at,
             }
         if not row["secret_ciphertext"]:
             return {
@@ -4756,6 +4767,7 @@ class PhysicsRepository:
                 "status": "missing_credential",
                 "detail": "MinerU API provider is missing encrypted secret",
                 "version": row["model_name"] or "",
+                "checked_at": checked_at,
             }
         try:
             self._provider_secret_store().decrypt(row["secret_ciphertext"])
@@ -4766,14 +4778,33 @@ class PhysicsRepository:
                 "status": "failed",
                 "detail": "MinerU API provider secret cannot be decrypted",
                 "version": row["model_name"] or "",
+                "checked_at": checked_at,
             }
+        if last_test_status == "ready":
+            status = "ready"
+            detail = row["last_test_detail"] or (
+                "MinerU API provider configured for %s; saved connection check passed"
+                % row["provider_name"]
+            )
+        elif last_test_status in ("failed", "error"):
+            status = "failed"
+            detail = row["last_test_detail"] or (
+                "MinerU API provider %s failed its saved connection check"
+                % row["provider_name"]
+            )
+        else:
+            status = "configured"
+            detail = (
+                "MinerU API provider configured for %s; complete the administrator connection check"
+                % row["provider_name"]
+            )
         return {
             "capability_id": "mineru-api",
             "label": "MinerU API",
-            "status": "ready",
-            "detail": "MinerU API provider configured for %s"
-            % row["provider_name"],
+            "status": status,
+            "detail": detail,
             "version": row["model_name"] or "",
+            "checked_at": checked_at,
         }
 
     def _provider_secret_store(self):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from collections import Counter
 
 from .document_models import canonical_json
 from .question_content import serialize_question_md
@@ -219,9 +220,20 @@ def document_review_page(task, items, source_assets=()):
     cards = []
     source_url = "/api/documents/tasks/%s/preview" % _e(task["id"])
     reordering_locked = any(item.get("published_revision_id") for item in items) or int(task.get("item_count", len(items))) > len(items)
+    source_numbers = [
+        str((item.get("document") or {}).get("number") or "").strip()
+        for item in items
+    ]
+    source_number_counts = Counter(number for number in source_numbers if number)
     for index, item in enumerate(items):
         document = item.get("document") or {}
         item_id = item["id"]
+        source_number = str(document.get("number") or "").strip()
+        number_warning = ""
+        if not source_number:
+            number_warning = '<span class="question-number-warning">原卷题号待确认</span>'
+        elif source_number_counts[source_number] > 1:
+            number_warning = '<span class="question-number-warning">本卷题号重复，请核对</span>'
         markdown = serialize_question_md(document) if document else ""
         asset_url = lambda asset_id, tid=task["id"]: "/api/documents/assets/%s?task_id=%s" % (_e(asset_id), _e(tid))
         preview = render_question(document, asset_url=asset_url, include_solution=True) if document else "<p>没有可预览的可编辑题目内容。</p>"
@@ -264,7 +276,7 @@ def document_review_page(task, items, source_assets=()):
         )
         cards.append(
             """<article class="document-question-card" data-document-item="%s" data-revision="%s" data-published="%s">
-  <header class="question-card-heading"><label class="question-select"><input type="checkbox" data-publish-select %s>纳入本次批量入库</label><strong>第 <span data-question-number>%s</span> 题</strong><label class="question-number-field">题号<input type="text" maxlength="32" required data-question-number-edit value="%s" %s></label><span>复核版本 <span data-revision-label>%s</span></span><span class="publish-state">%s</span>%s</header>
+  <header class="question-card-heading"><label class="question-select"><input type="checkbox" data-publish-select %s>纳入本次批量入库</label><strong>候选题目 %s · 原卷题号 <span data-question-number>%s</span></strong>%s<label class="question-number-field">题号<input type="text" maxlength="32" required data-question-number-edit value="%s" %s></label><span>稳定 ID <code>%s</code></span><span>复核版本 <span data-revision-label>%s</span></span><span class="publish-state">%s</span>%s</header>
   <div class="question-source-link">%s%s</div>
   %s
   %s
@@ -278,9 +290,12 @@ def document_review_page(task, items, source_assets=()):
                 _e(item.get("review_revision", 1)),
                 "true" if published else "false",
                 "disabled checked" if published else "",
-                _e(document.get("number", "")),
-                _e(document.get("number", "")),
+                index + 1,
+                _e(source_number or "待确认"),
+                number_warning,
+                _e(source_number),
                 "disabled" if published else "",
+                _e(item_id[-12:]),
                 _e(item.get("review_revision", 1)),
                 "已入库" if published else "草稿",
                 order_controls,
