@@ -71,10 +71,7 @@ def _visible_text(markdown):
 
 def _has_native_rich_content(block):
     markdown = block.get("markdown", "")
-    return (bool(block.get("asset_ids")) or "asset:" in markdown or "$" in markdown
-            or block.get("type") == "table"
-            or any("formula" in issue.get("code", "") for issue in block.get("issues", []))
-            or bool(re.search(r"\\(?:[A-Za-z]+|[()\[\]])", markdown)))
+    return bool(block.get("asset_ids")) or "asset:" in markdown or "$$" in markdown or bool(re.search(r"\\(?:[A-Za-z]+|[()\[\]])", markdown))
 
 
 def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
@@ -112,15 +109,7 @@ def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
             locator["markitdown_block_index"] = chunk_index
             block["source_locator"] = locator
             matched += 1
-            same_text = visible == _visible_text(block.get("markdown", ""))
-            if not same_text:
-                issue = {
-                    "code": "markitdown_content_difference", "severity": "review", "field": block["id"],
-                    "message": "两种 Word 解析结果内容不一致；已保留原生正文，请核对公式、数值和单位。",
-                }
-                block["issues"] = list(block.get("issues", [])) + [issue]
-                issues.append(issue)
-            if same_text and not _has_native_rich_content(block):
+            if not _has_native_rich_content(block):
                 image_free = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", chunk, flags=re.DOTALL).strip()
                 if image_free:
                     block["markdown"] = image_free

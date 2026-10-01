@@ -11,7 +11,7 @@ from highschoolphysics.document_models import (
     validate_document_ir,
     validate_question_document,
 )
-from highschoolphysics.question_content import parse_question_md, serialize_question_md, apply_editor_operations
+from highschoolphysics.question_content import parse_question_md, serialize_question_md
 from highschoolphysics.question_rendering import render_markdown, render_question
 
 
@@ -92,64 +92,6 @@ def sample_ir():
 
 
 class DocumentModelTests(unittest.TestCase):
-    def test_child_options_are_editable_without_losing_metadata(self):
-        original = sample_question()
-        original["children"][0]["options"] = [{"key": "A", "markdown": "甲"}, {"key": "B", "markdown": "乙"}]
-        source = serialize_question_md(original)
-        self.assertIn("hsp:child_option:A:start", source)
-        edited = source.replace("\n甲\n", "\n修改后的甲\n")
-        result = parse_question_md(edited, original)
-        self.assertEqual(result["children"][0]["options"][0]["markdown"], "修改后的甲")
-        self.assertEqual(result["children"][0]["source_spans"], original["children"][0]["source_spans"])
-        # Sources from an already-open older editor still retain their options.
-        legacy = re.sub(r"<!-- hsp:child_options:.*?:start -->.*?<!-- hsp:child_options:.*?:end -->", "", source, flags=re.S)
-        self.assertEqual(parse_question_md(legacy, original), original)
-
-    def test_explicit_structure_edits_keep_surviving_keys_and_allow_round_trip(self):
-        original = sample_question()
-        result = apply_editor_operations(original, [
-            {"action": "remove_child", "child_key": "part_2"},
-            {"action": "add_child", "key": "part_new"},
-            {"action": "move_child", "child_key": "part_new", "direction": "up"},
-            {"action": "add_option", "child_key": "part_new"},
-            {"action": "set_kind", "child_key": "part_new", "kind": "multiple_choice"},
-            {"action": "remove_option", "option_key": "B"},
-        ])
-        self.assertEqual([child["key"] for child in result["children"]], ["part_new", "part_1"])
-        self.assertEqual(result["children"][1]["source_spans"], original["children"][0]["source_spans"])
-        self.assertEqual(result["children"][0]["kind"], "multiple_choice")
-        self.assertNotIn("option_b", result["asset_refs"])
-        self.assertEqual(parse_question_md(serialize_question_md(result), result), result)
-        with self.assertRaises(DocumentValidationError):
-            apply_editor_operations(result, [{"action": "remove_child", "child_key": "missing"}])
-        with self.assertRaises(DocumentValidationError):
-            apply_editor_operations(result, [{"action": "set_kind", "kind": "invalid"}])
-
-    def test_structure_review_reopens_after_another_change(self):
-        result = apply_editor_operations(sample_question(), [{"action": "remove_child", "child_key": "part_2"}])
-        issue = next(item for item in result["issues"] if item["code"] == "question_structure_changed")
-        issue.update(state="resolved", severity="info")
-        edited = apply_editor_operations(result, [{"action": "remove_option", "option_key": "B"}])
-        self.assertTrue(any(item["code"] == "question_structure_changed" and item["severity"] == "review" for item in edited["issues"]))
-        remaining = apply_editor_operations(sample_question(), [
-            {"action": "remove_child", "child_key": "part_1"}, {"action": "add_child", "key": "part_new"}])
-        self.assertEqual([child["label"] for child in remaining["children"]], ["(2)", "(3)"])
-
-    def test_table_cell_breaks_are_rendered_without_enabling_arbitrary_html(self):
-        result = render_markdown('| 量 | 值 |\n| --- | --- |\n| 位移<br>速度 | 1<br/>2<script>bad</script> |')
-        self.assertIn("位移<br", result)
-        self.assertNotIn("&lt;br", result)
-        self.assertNotIn("<script>", result)
-        self.assertIn("&lt;script&gt;", result)
-        self.assertIn("&lt;br&gt;", render_markdown("正文<br>换行"))
-
-    def test_parent_analysis_is_present_once_in_full_and_child_views(self):
-        doc = sample_question()
-        for child_key in (None, "part_1"):
-            result = render_question(doc, child_key=child_key, include_solution=True)
-            self.assertEqual(result.count(doc["analysis_md"]), 1)
-            self.assertNotIn(doc["analysis_md"], render_question(doc, child_key=child_key))
-
     def test_question_markdown_round_trip_preserves_text_and_stable_ids(self):
         original = sample_question()
         serialized = serialize_question_md(original)

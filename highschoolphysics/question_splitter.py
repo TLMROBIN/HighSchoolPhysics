@@ -21,7 +21,7 @@ ANSWER_HEADING_RE = re.compile(r"^(?:参考答案|答案(?:与解析|及解析)?
 ANSWER_SECTION_TITLE_RE = re.compile(r"(?:参考答案|答案与解析|答案及解析|答案和解析)\s*(?:[|｜].*)?$", re.IGNORECASE)
 ANSWER_CARD_TITLE_RE = re.compile(r"(?:答题卡|答题纸)\s*$")
 SECTION_HEADING_RE = re.compile(
-    r"^[一二三四五六七八九十]+[、．.]\s*(?:选择题|单选题|多选题|单项选择题|多项选择题|填空题|实验题|解答题|计算题|综合题)(?:\s*[（(].*)?$"
+    r"^[一二三四五六七八九十]+[、．.]\s*(?:选择题|单选题|多选题|填空题|实验题|解答题|计算题|综合题)(?:\s*[（(].*)?$"
 )
 HEADER_TYPES = {"header", "footer"}
 
@@ -79,7 +79,6 @@ def _starts_answer_card(block):
 
 def _is_section_heading(block):
     text = (block.get("markdown") or "").strip()
-    text = re.sub(r"^#{1,6}\s*", "", text)
     return bool(SECTION_HEADING_RE.fullmatch(text))
 
 
@@ -106,12 +105,8 @@ def _separate_numbered_questions(blocks):
     leading = []
     current = None
     inline_boundaries = []
-    section_kind = None
     for block in blocks:
         text = block.get("markdown", "")
-        if _is_section_heading(block):
-            section_kind = ("multiple_choice" if "多选" in text or "多项选择" in text
-                            else "single_choice" if "选择" in text or "单选" in text else None)
         matches = _question_starts(text)
         if not matches:
             if current is None or _is_section_heading(block):
@@ -151,7 +146,7 @@ def _separate_numbered_questions(blocks):
             else:
                 body_block["markdown"] = body
                 body_block["source_locator"] = dict(block.get("source_locator") or {}, start=body_start, end=end)
-            current = {"number": item["number"], "blocks": [body_block], "section_kind": section_kind}
+            current = {"number": item["number"], "blocks": [body_block]}
     if current is not None:
         segments.append(current)
     return leading, segments, inline_boundaries
@@ -351,10 +346,10 @@ def _assets_in(markdown):
     return sorted(set(re.findall(r"!\[[^\]]*\]\(asset:([A-Za-z0-9_-]+)(?:\s+[^)]*)?\)", markdown or "")))
 
 
-def _kind_for(stem, options, children, section_kind=None):
+def _kind_for(stem, options, children):
     text = stem
     if options:
-        return "multiple_choice" if section_kind == "multiple_choice" or "多选" in text or "不定项" in text else "single_choice"
+        return "multiple_choice" if "多选" in text or "不定项" in text else "single_choice"
     if "实验" in text or "探究" in text:
         return "experiment"
     if re.search(r"_{2,}|（\s*）|\(\s*\)", text):
@@ -382,8 +377,7 @@ def _candidate(segment, document, conversion_id, parent_spans, inline_boundary=F
         children.append({
             "key": child["key"],
             "label": child["label"],
-            "kind": (_kind_for(child_stem, child_options, [], segment.get("section_kind")) if child_options
-                     else "fill" if re.search(r"_{2,}|（\s*）|\(\s*\)", child_stem) else "short_answer"),
+            "kind": "fill" if re.search(r"_{2,}|（\s*）|\(\s*\)", child_stem) else "short_answer",
             "stem_md": child_stem,
             "options": child_options,
             "answer_md": "",
@@ -409,7 +403,7 @@ def _candidate(segment, document, conversion_id, parent_spans, inline_boundary=F
         all_markdown.append(child["stem_md"])
         all_markdown.extend(option["markdown"] for option in child["options"])
     asset_refs = sorted({asset_id for text in all_markdown for asset_id in _assets_in(text)})
-    kind = _kind_for(stem_md, options, children, segment.get("section_kind"))
+    kind = _kind_for(stem_md, options, children)
     question = {
         "schema_version": 1,
         "number": number,

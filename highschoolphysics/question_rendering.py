@@ -5,35 +5,10 @@ import re
 from urllib.parse import urlsplit
 
 from markdown_it import MarkdownIt
-from markdown_it.token import Token
 
 
 ASSET_URI_RE = re.compile(r"^asset:([A-Za-z0-9_-]{1,64})$")
 ALLOWED_LINK_SCHEMES = {"http", "https", "mailto"}
-
-
-def _table_cell_breaks(state):
-    """Allow only a bare line break inside table text; keep other HTML escaped."""
-    in_table = False
-    for token in state.tokens:
-        if token.type == "table_open":
-            in_table = True
-        elif token.type == "table_close":
-            in_table = False
-        elif in_table and token.type == "inline":
-            children = []
-            for child in token.children or []:
-                parts = re.split(r"<br\s*/?>", child.content, flags=re.I) if child.type == "text" else [child.content]
-                if len(parts) == 1:
-                    children.append(child)
-                    continue
-                for index, part in enumerate(parts):
-                    if index:
-                        children.append(Token("hardbreak", "br", 0))
-                    text = Token("text", "", 0)
-                    text.content = part
-                    children.append(text)
-            token.children = children
 
 
 def _math_inline_rule(state, silent):
@@ -112,7 +87,6 @@ def _make_markdown_parser(asset_url):
     # F_{1}. The bundled KaTeX auto-render pass consumes these intact delimiters.
     parser.inline.ruler.before("escape", "math_inline", _math_inline_rule)
     parser.add_render_rule("math_inline", _render_math_inline)
-    parser.core.ruler.after("inline", "table_cell_breaks", _table_cell_breaks)
 
     def render_image(_renderer, tokens, index, _options, _env):
         token = tokens[index]
@@ -237,7 +211,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
                     answer_parts.append(render_markdown(child["answer_md"], asset_url))
                 if child.get("analysis_md"):
                     answer_parts.append(render_markdown(child["analysis_md"], asset_url))
-        if document.get("analysis_md"):
+        if not children and document.get("analysis_md"):
             answer_parts.append(render_markdown(document["analysis_md"], asset_url))
         if answer_parts:
             parts.append('<section class="question-solution"><h3>参考答案与解析</h3>%s</section>' % "".join(answer_parts))

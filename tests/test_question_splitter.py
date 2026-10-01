@@ -25,21 +25,6 @@ def fixture_ir():
 
 
 class QuestionSplitterTests(unittest.TestCase):
-    def test_multiple_choice_section_is_inherited_and_resets_for_next_section(self):
-        ir = fixture_ir()
-        base = ir["blocks"][0]
-        ir["blocks"] = [dict(base, id="s1", order=1, markdown="## 二、多项选择题"),
-                        dict(base, id="q1", type="paragraph", order=2, markdown="8．下列说法正确的是。\nA．甲\nB．乙\nC．丙\nD．丁"),
-                        dict(base, id="s2", order=3, markdown="三、单选题"),
-                        dict(base, id="q2", type="paragraph", order=4, markdown="9．请选择正确选项。\nA．甲\nB．乙")]
-        questions = split_document_ir(ir)["questions"]
-        self.assertEqual([item["document"]["kind"] for item in questions], ["multiple_choice", "single_choice"])
-
-    def test_experiment_child_with_options_is_a_choice_question(self):
-        ir = fixture_ir()
-        ir["blocks"] = [dict(ir["blocks"][1], markdown="13．某实验装置如下。\n（1）请选择正确操作。\nA．甲\nB．乙\n（2）多选：请选择正确操作。\nA．丙\nB．丁")]
-        children = split_document_ir(ir)["questions"][0]["document"]["children"]
-        self.assertEqual([child["kind"] for child in children], ["single_choice", "multiple_choice"])
     def test_numbers_options_children_and_source_assets_are_preserved(self):
         result = split_document_ir(fixture_ir())
         self.assertEqual([item["document"]["number"] for item in result["questions"]], ["1", "2"])
