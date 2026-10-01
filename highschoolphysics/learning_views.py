@@ -299,7 +299,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<script src="assets/learning.js?v=20261001-evidence-2" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=1"><script src="assets/learning.js?v=20261001-evidence-3" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def student(repo,user,params,base_path=""):
@@ -519,7 +519,7 @@ def exams(repo,user,aid=None,base_path=""):
                     or '<p>%s</p>' % esc(loads(q['grading_rule_json'],{}).get('answer'))
                 ) if staff else ''
             ))
-            body.append('<table><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>原图 / 复核</th></tr>')
+            body.append('<table class="response-table"><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>原图 / 复核</th></tr>')
             for r in rows:
                 media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
                 correction_note = ('<p>经更正的作答：%s</p>' % (esc(r['final_answer']) or '空白')) if r['initial_answer']!=r['final_answer'] else ''
@@ -530,7 +530,7 @@ def exams(repo,user,aid=None,base_path=""):
                     latest=c.execute('select method,reason from response_decisions where id=?',(r['effective_decision_id'],)).fetchone()
                     if latest and latest['method']=='teacher_correction':
                         correction_note += '<p>教师更正说明：%s</p>' % esc(latest['reason'])
-                body.append('<tr><td>%s</td><td>%s%s</td><td>%s</td><td>%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',correction_note,LABELS[r['outcome']],operations))
+                body.append('<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="核对与证据">%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',correction_note,LABELS[r['outcome']],operations))
                 if r['outcome']=='pending': continue
                 seen=set()
                 for t in loads(q['tag_snapshot_json'],[]):

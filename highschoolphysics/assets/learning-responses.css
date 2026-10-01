@@ -1,0 +1,11 @@
+.response-history-output { overflow-wrap: anywhere; }
+.response-table details .learning-form { min-width: 0; }
+.response-table textarea, .response-table select { max-width: 100%; }
+@media (max-width: 700px) {
+  .response-table, .response-table tbody, .response-table tr, .response-table td { display: block; width: 100%; }
+  .response-table tr:first-child { display: none; }
+  .response-table tr { margin: 12px 0; padding: 12px; border: 1px solid #dbe5eb; border-radius: 12px; background: white; box-sizing: border-box; }
+  .response-table td { border: 0; padding: 8px 0; box-sizing: border-box; }
+  .response-table td::before { content: attr(data-label); display: block; color: #48606f; font-weight: 600; margin-bottom: 5px; }
+  .response-table td p { margin: 7px 0; }
+}
