@@ -37,12 +37,12 @@
 
 U3 的固定答题卡识别尚未实施；需真实模板与独立真值样本。U4 单位换算、安全表达式、AI 建议尚未实施。直接 XLSX、第三方凭据开放、标准答案批量修订、主观题与细分诊断不作为本批已完成能力。
 
-本批与现场另一批 DOCX/题目渲染改动隔离提交，并以独立检出运行发布回归。本批最终运行版本只包含作答升级。
+本批作答升级在独立检出上完成回归。另一项已获用户授权的 DOCX/题目渲染修复随后独立提交为 `61aa49c5`；最终 main 同时包含两批功能，需补做集成回归。
 
 
 ## 最终工程发布记录（2026-10-01）
 
-- 功能代码提交：`d6e5d901`（证据/导入/复核/更正）、`80cc3233`（手机卡片与中文来源）、`42116b41`（排除导入后改为缺考的作答）。其他导题内容工作保留在原工作树，不纳入本批最终运行版本。
+- 功能代码提交：`d6e5d901`（证据/导入/复核/更正）、`80cc3233`（手机卡片与中文来源）、`42116b41`（排除导入后改为缺考的作答）。导题修复由另一任务单独提交，不计入本批作答升级的功能范围。
 - 在独立 managed worktree 上，最终 `42116b41` 通过 `PATH=/tmp/hsp-doc-test-env/bin:$PATH PYTHON_BIN=/tmp/hsp-doc-test-env/bin/python VERIFY_TARGET=local bash scripts/hsp_release_check.sh`：374 tests、1 skipped；compileall、四份脚本 Node 语法、runtime 报告、diff 检查通过。先前独立回归的 MinerU 模拟器失败来自子进程 PATH Python 缺 PIL；统一虚拟环境后单项和最终全量通过。
 - 生产最终备份：`data/backups/school-response-predeploy-20261001T025846Z.sqlite3`，SHA-256 `32315f54b1e65cff7e5b6f0255a2ee3406ba63b3ed495b0686ac3234dcdc20b0`；文档/资源备份 `data/backups/response-resources-20261001T025846Z.tar.gz`，SHA-256 `6d4a10997f8190cb1c9e1953d95cc4828990f7fe13a8aacf6448bcb928f9e8fc`。二者权限 600。
 - GitHub 推送成功。远端 HTTPS fetch 卡住时，临时停止 user-level 自动更新 timer/service，以已校验 Git bundle 快进到同一 GitHub 提交，重启 app 与 document worker 后恢复 timer；未改 Nginx、网络或 systemd 持久配置。
@@ -54,4 +54,8 @@ U3 的固定答题卡识别尚未实施；需真实模板与独立真值样本�
 
 工程第一批已可使用，U2 的真实班级试用门禁仍未通过。U3/U4 及课堂观察不因这次发布自动标完成；后续班级与测评选择待教师明确。
 
-- 提交范围修正：验收文档提交 `ec5600be` 曾带入并行任务的已暂存导题改动。远端当时仍为 `42116b41`，在自动部署前暂停 timer/service；通过追加修正提交恢复最终代码树，保留并行任务的工作文件及暂存内容，不强推、不覆盖该任务。最终范围应与 `42116b41` 的代码树一致，仅验收文档增加；随后重新恢复 timer 并验远端。
+- 提交范围修正：验收文档提交 `ec5600be` 曾带入并行任务的已暂存导题改动。远端当时仍为 `42116b41`，在自动部署前暂停 timer/service；通过追加修正提交恢复最终代码树，保留并行任务的工作文件及暂存内容，不强推、不覆盖该任务。修正后作答功能代码与 `42116b41` 一致；另一任务随后按其用户授权独立提交 `61aa49c5`。远端已快进至该集成版本，timer 已恢复 active；追加集成门禁验证见后续记录。
+
+## 合并后补充核验
+
+`61aa49c5` 集成版本已通过独立检出的完整本地发布门禁（384 tests、1 skipped），以及正式 `REQUIRE_REMOTE_HEAD_MATCH=1` 远端门禁。远端 checkout、本机 HEAD、GitHub main 一致，应用/文档 worker 正常，作答证据 feature v14 和数据库完整性通过；自动更新 timer 已恢复 active。两批代码的提交归属与功能范围分别保留。集成日志保存于 `output/response-evidence-20261001/`。
