@@ -28,3 +28,11 @@
 发布门禁与最终提交证据在本记录后续补充。测试数据库和会话凭据不提交仓库。
 
 本地最终门禁通过：393 tests、1 skipped，compileall、四份前端脚本语法、runtime 与 diff 检查通过；另有 41 项领域定向测试通过。生产预发布一致性备份：`data/backups/school-before-fill-rules-20261001T033413Z.sqlite3`，完整性 ok。正式发布尚待下节远端证据。
+
+## 正式发布结果
+
+功能提交 `6ab64047` 已推送 GitHub 并部署。`REQUIRE_REMOTE_HEAD_MATCH=1 bash scripts/hsp_release_check.sh` 通过，本机/GitHub/远端代码一致，app 与 document worker active，自动更新 timer active。正式浏览器 `/physics/exams` 到登录页，新 learning.js 与样式 HTTP 200 且哈希等于发布文件；未登录证据接口 401，页面错误 0。
+
+远端已安装 outcome-2，在只读 smoke 中 36 km/h 与 10 m/s 等价、-10 m/s 不等价。部署前后 8 张核心作答/证据/快照表整表指纹一致：3148 条作答、1480 条错题、89 条题目快照、3148 条证据与判定不变；历史重做 0，未创建生产导入或发布记录。integrity=ok、外键错误 0，核验摘要 `data/backups/fill-rules-postdeploy.json`。
+
+本地验收日志、隔离教师页面截图、正式未登录入口检查摘要存于 `output/fill-rules-evidence-20261001/`，生产数据库与测试会话凭据不提交。正式教师 SSO、Android 真机与课堂效果仍不以工程测试代替。
