@@ -1143,7 +1143,7 @@
       const failed = tagging.some((item) => item.status === "failed");
       const tagStatus = skipped ? "；未配置可用大模型，题目已入库但尚未自动标注" : failed ? "；部分自动标签调用失败，请在题库中重试" : queued ? `；${queued} 道已进入后台自动标注队列` : `；自动标签完成 ${tagged} 道`;
       setText(status, `批量入库完成：${(result.published || []).length} 道完整大题${tagStatus}。`);
-      window.location.reload();
+      window.location.href = url("/teacher#assembly");
     } catch (error) {
       setText(status, error.message || "草稿修改已保存；本次正式入库未部分写入。请检查复核事项后重试。");
     } finally {

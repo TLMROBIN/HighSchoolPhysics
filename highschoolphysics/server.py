@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261001-qa-followups-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
-DOCUMENT_ASSET_VERSION = "20261006-publish-select-all"
+DOCUMENT_ASSET_VERSION = "20261006-publish-to-bank"
 
 
 def ensure_database(path, demo_mode=False):
