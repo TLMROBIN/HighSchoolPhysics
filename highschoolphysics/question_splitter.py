@@ -81,6 +81,7 @@ def _starts_answer_card(block):
 def _is_section_heading(block):
     text = (block.get("markdown") or "").strip()
     text = re.sub(r"^#{1,6}\s*", "", text)
+    text = text.strip("*_ ")
     return bool(SECTION_HEADING_RE.fullmatch(text))
 
 

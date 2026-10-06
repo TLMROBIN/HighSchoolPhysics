@@ -37,7 +37,7 @@ MAX_OLE_OBJECTS = 512
 MAX_OLE_OBJECT_BYTES = 5 * 1024 * 1024
 MAX_OLE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_MTEF_OUTPUT_BYTES = 8 * 1024 * 1024
-DOCX_ADAPTER_VERSION = "1.4.0"
+DOCX_ADAPTER_VERSION = "1.5.0"
 
 
 def _run_markitdown(source_path):
@@ -86,7 +86,12 @@ def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
     matched = 0
     replaced = 0
     unmatched = 0
-    native_joined = _visible_text("\n".join(block.get("markdown", "") for block in native_blocks))
+    # Compare text with math removed as well: MarkItDown cannot read many
+    # MathType objects and may combine several OOXML paragraphs into one chunk.
+    native_plain = "\n".join(re.sub(r"\$[^$]*\$", "", block.get("markdown", "")) for block in native_blocks)
+    native_joined = _visible_text(native_plain)
+    native_full = _visible_text("\n".join(block.get("markdown", "") for block in native_blocks))
+
 
     for chunk_index, chunk in enumerate(chunks, 1):
         visible = _visible_text(chunk)
@@ -138,7 +143,15 @@ def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
             cursor = best_index + 1
             continue
 
-        if visible not in native_joined:
+        # Word list numbering may turn an A option into "1." in Markdown.
+        # Only suppress it when its text matches an actual native option.
+        numbered = re.match(r"^\s*\d+[.)．]\s+(.+)$", chunk, re.DOTALL)
+        native_option_match = numbered and any(
+            re.match(r"^\s*[A-H][.．、)]", block.get("markdown", ""))
+            and _visible_text(numbered.group(1)) == _visible_text(re.sub(r"^\s*[A-H][.．、)]\s*", "", re.sub(r"\$[^$]*\$", "", block.get("markdown", ""))))
+            for block in native_blocks[cursor:search_end]
+        )
+        if not native_option_match and visible not in native_full and visible not in native_joined:
             clean = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", chunk, flags=re.DOTALL).strip()
             if clean:
                 block_id = "md%06d" % chunk_index

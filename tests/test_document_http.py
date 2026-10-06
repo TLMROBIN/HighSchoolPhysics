@@ -1145,7 +1145,7 @@ class DocumentHTTPTests(unittest.TestCase):
             else:
                 texts = (
                     "1. 甲物体由静止开始运动。\nA. 选项甲\nB. 选项乙",
-                    "1. 另一道重复编号的题。\nA. 选项甲\nB. 选项乙",
+                    "4. 另一道题。\nA. 选项甲\nB. 选项乙",
                     "2. 乙物体做匀速直线运动。\nA. 选项甲\nB. 选项乙",
                     "3. 丙物体做匀加速直线运动。\nA. 选项甲\nB. 选项乙",
                 )
@@ -1174,6 +1174,15 @@ class DocumentHTTPTests(unittest.TestCase):
 
         status, _, page = self.server.request("GET", "/documents/review?task_id=%s" % paper["task_id"], headers={"Cookie": self.cookie})
         self.assertEqual(status, 200)
+        self.assertNotIn(b"data-answer-upload-form", page)
+        status, _, gated = self.post_document("/api/documents/tasks/%s/attach-answers" % paper["task_id"], {"answer_task_id": answers["task_id"]})
+        self.assertEqual(status, 409)
+        self.assertEqual(json.loads(gated)["error"], "paper_review_required")
+        status, _, item_payload = self.server.request("GET", "/api/documents/tasks/%s/items" % paper["task_id"], headers={"Cookie": self.cookie})
+        paper_items = json.loads(item_payload)["items"]
+        status, _, confirmed = self.post_document("/api/documents/tasks/%s/confirm-review" % paper["task_id"], {"request_key": "confirm-paper-for-answers", "items": [{"id": item["id"], "expected_revision": item["review_revision"]} for item in paper_items]})
+        self.assertEqual(status, 200, confirmed)
+        status, _, page = self.server.request("GET", "/documents/review?task_id=%s" % paper["task_id"], headers={"Cookie": self.cookie})
         self.assertIn(b"data-answer-upload-form", page)
         status, _, task_payload = self.server.request("GET", "/api/documents/tasks?limit=50", headers={"Cookie": self.cookie})
         self.assertEqual(status, 200)
@@ -1187,16 +1196,18 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         preview = json.loads(response)["result"]
         self.assertTrue(preview["preview"])
-        self.assertEqual([match["answer_number"] for match in preview["matches"]], ["2", "3"])
-        self.assertIn("答案：A", preview["matches"][0]["answer_markdown"])
-        self.assertEqual(preview["issues"], [{"answer_number": "1", "code": "question_match_not_unique", "count": 2}])
+        self.assertEqual([match["answer_number"] for match in preview["matches"]], ["1", "2", "3"])
+        self.assertIn("答案：A", preview["matches"][1]["answer_markdown"])
+        self.assertEqual(preview["issues"], [])
+        self.assertIn("question-content", preview["matches"][1]["question_html"])
+        self.assertIn("<p>", preview["matches"][1]["answer_html"])
 
         request = {
             "answer_task_id": answers["task_id"],
             "mappings": [{
-                "item_id": preview["matches"][0]["item_id"],
+                "item_id": preview["matches"][1]["item_id"],
                 "answer_number": "2",
-                "expected_revision": preview["matches"][0]["expected_revision"],
+                "expected_revision": preview["matches"][1]["expected_revision"],
             }],
             "request_key": "attach-answer-q1-0001",
         }
@@ -1204,7 +1215,7 @@ class DocumentHTTPTests(unittest.TestCase):
             "answer_task_id": answers["task_id"],
             "mappings": [
                 dict(request["mappings"][0]),
-                {"item_id": preview["matches"][1]["item_id"], "answer_number": "3", "expected_revision": 99},
+                {"item_id": preview["matches"][2]["item_id"], "answer_number": "3", "expected_revision": 99},
             ],
             "request_key": "attach-answer-rollback",
         }
@@ -1236,8 +1247,8 @@ class DocumentHTTPTests(unittest.TestCase):
         conn = connect(self.server.db_path)
         try:
             attached = conn.execute("select document_json,review_revision from parsed_question_items where id=?", (request["mappings"][0]["item_id"],)).fetchone()
-            untouched = conn.execute("select document_json,review_revision from parsed_question_items where id=?", (preview["matches"][1]["item_id"],)).fetchone()
-            ambiguous = conn.execute("select document_json,review_revision from parsed_question_items where parse_task_id=? and question_number='1' order by item_index", (paper["task_id"],)).fetchall()
+            untouched = conn.execute("select document_json,review_revision from parsed_question_items where id=?", (preview["matches"][2]["item_id"],)).fetchone()
+            ambiguous = conn.execute("select document_json,review_revision from parsed_question_items where parse_task_id=? and question_number='4' order by item_index", (paper["task_id"],)).fetchall()
             published = conn.execute("select count(*) from import_item_publications where parsed_item_id=?", (request["mappings"][0]["item_id"],)).fetchone()[0]
             document = json.loads(attached["document_json"])
             self.assertEqual(attached["review_revision"], 2)
@@ -1246,7 +1257,7 @@ class DocumentHTTPTests(unittest.TestCase):
             self.assertIn("attached_answer_requires_review", [issue["code"] for issue in document["issues"]])
             self.assertEqual(untouched["review_revision"], 1)
             self.assertEqual(json.loads(untouched["document_json"])["answer_state"], "missing")
-            self.assertEqual(len(ambiguous), 2)
+            self.assertEqual(len(ambiguous), 1)
             self.assertTrue(all(json.loads(item["document_json"])["answer_state"] == "missing" for item in ambiguous))
             self.assertTrue(all(item["review_revision"] == 1 for item in ambiguous))
             self.assertEqual(published, 0)

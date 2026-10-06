@@ -116,6 +116,20 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issues[0]["code"], "markitdown_content_difference")
             self.assertEqual(native[0]["issues"], [])
 
+    def test_markitdown_combined_options_without_mathtype_are_not_extra_body(self):
+        texts = ["1．核衰变。", "A．高温加快 $^{210}_{84}Po$ 衰变", "B．$Po$ 衰变吸收能量", "C．方程为 $Po\\to Pb+He$", "D．生成 $Pb$ 的中子数"]
+        native = [{"id": "b%d" % i, "type": "paragraph", "markdown": text, "asset_ids": [], "issues": [], "source_locator": {}} for i, text in enumerate(texts)]
+        converted = "1．核衰变。\n\nA．高温加快 衰变\nB．衰变吸收能量\nC．方程为\nD．生成 的中子数"
+        blocks, counts, _ = _reconcile_markitdown_blocks(native, converted)
+        self.assertEqual([block["markdown"] for block in blocks], texts)
+        self.assertEqual(counts["unmapped_text_block_count"], 0)
+
+    def test_word_numbered_list_does_not_split_an_option_into_question_one(self):
+        native = [{"id": "b1", "type": "paragraph", "markdown": "5．波形如图。", "asset_ids": [], "issues": [], "source_locator": {}}, {"id": "b2", "type": "paragraph", "markdown": "A．该绳波传播速度为 $16m/s$", "asset_ids": [], "issues": [], "source_locator": {}}]
+        blocks, counts, _ = _reconcile_markitdown_blocks(native, "5．波形如图。\n\n1. 该绳波传播速度为")
+        self.assertEqual([block["id"] for block in blocks], ["b1", "b2"])
+        self.assertEqual(counts["unmapped_text_block_count"], 0)
+
     def _run_long_lived_mineru_fixture(self, *, timeout_seconds, cancel_event=None):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(root, ignore_errors=True))
@@ -218,7 +232,7 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issue["details"]["shape_name"], "矩形 6")
             self.assertEqual(issue["details"]["geometry"], "rect")
             self.assertEqual(issue["details"]["extent_emu"], {"cx": "6330950", "cy": "3599180"})
-            self.assertEqual(result["manifest"]["adapter_version"], "1.4.0")
+            self.assertEqual(result["manifest"]["adapter_version"], "1.5.0")
 
     def test_docx_counts_each_embedded_ole_object_once(self):
         with tempfile.TemporaryDirectory() as directory:

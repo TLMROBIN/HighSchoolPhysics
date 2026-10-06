@@ -69,26 +69,9 @@ def documents_home(user, tasks):
 
 def _issue_list(item):
     issues = item.get("issues", [])
-    if not issues:
-        return "<p class='issue-clear'>当前没有已知复核事项。</p>"
-    entries = []
-    for issue in issues:
-        severity = issue.get("severity", "review")
-        resolved = issue.get("state") == "resolved" or severity == "info"
-        checkbox = "" if resolved else (
-            '<label class="issue-resolve"><input type="checkbox" data-issue-id="%s">已对照原卷核对</label>' % _e(_issue_identity(issue))
-        )
-        entries.append(
-            '<li class="issue issue-%s %s"><strong>%s</strong><span>%s</span>%s</li>'
-            % (
-                _e(severity),
-                "issue-resolved" if resolved else "",
-                _e("已记录核对" if resolved else "需核对" if severity == "review" else "需修正" if severity == "blocking" else "提示"),
-                _e(issue.get("message") or issue.get("code", "")),
-                checkbox,
-            )
-        )
-    return "<ul class='document-issues'>%s</ul>" % "".join(entries)
+    if not any(issue.get("severity") in ("review", "blocking") and issue.get("state") != "resolved" for issue in issues):
+        return ""
+    return "<p class='document-issues'>题目解析可能有问题，需对照原卷核对。</p>"
 
 
 def _source_pages(document):
@@ -279,11 +262,13 @@ def document_review_page(task, items, source_assets=()):
   <header class="question-card-heading"><label class="question-select"><input type="checkbox" data-publish-select %s>纳入本次批量入库</label><strong>候选题目 %s · 原卷题号 <span data-question-number>%s</span></strong>%s<label class="question-number-field">题号<input type="text" maxlength="32" required data-question-number-edit value="%s" %s></label><span>稳定 ID <code>%s</code></span><span>复核版本 <span data-revision-label>%s</span></span><span class="publish-state">%s</span>%s</header>
   <div class="question-source-link">%s%s</div>
   %s
+  <button type="button" data-edit-question aria-expanded="false">编辑题目</button>
+  <div class="question-editor" hidden>
   %s
   <label class="markdown-editor-label">整题 Markdown（含稳定选项和小问 ID）<textarea class="question-markdown" rows="18" spellcheck="false" %s>%s</textarea></label>
-  <label class="review-note-label">复核记录<textarea class="review-note" rows="2" placeholder="标记识别事项已核对时，说明对照了原卷的哪一处。"></textarea></label>
   <div class="question-card-actions"><button type="button" data-preview-item>更新预览</button><button type="button" data-save-item>保存草稿</button>%s%s<span class="save-status" aria-live="polite"></span></div>
-  <div class="question-preview"><h3>渲染预览</h3><div data-preview-body>%s</div></div>
+  </div>
+  <div class="question-preview"><h3>题目</h3><div data-preview-body>%s</div></div>
 </article>"""
             % (
                 _e(item_id),
@@ -315,10 +300,10 @@ def document_review_page(task, items, source_assets=()):
     else:
         source_panel = '<iframe title="原卷 PDF 预览" name="document-source-preview" src="%s" loading="lazy"></iframe>' % source_url
     answer_attachment = ""
-    if task.get("document_role") == "paper" and task.get("original_paper_id"):
+    if task.get("document_role") == "paper" and task.get("original_paper_id") and task.get("paper_review_confirmed"):
         answer_attachment = """<section class="answer-attachment" data-answer-attachment data-paper-id="%s">
   <h2>关联独立答案或解析文件</h2>
-  <p>先上传答案文件。系统只提出题号唯一且答案为空的草稿匹配；逐条查看 Markdown 并勾选确认后，答案会以“待复核”状态写入，不会自动发布或判分。</p>
+  <p>整卷题目已确认。上传答案解析后，按题号左右对照题目与解析结果，再勾选确认。</p>
   <form data-answer-upload-form><label>答案/解析文件<input type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label><button type="submit">上传答案文件</button></form>
   <label class="answer-task-select-label">已上传的本卷答案任务<select data-answer-task-select><option value="">正在查找可用答案任务…</option></select></label>
   <button type="button" data-answer-preview-existing>读取所选答案任务</button>
@@ -341,10 +326,11 @@ def document_review_page(task, items, source_assets=()):
         "自动标签：%d 道处理中，%d 道已完成，%d 道失败" % (tag_pending, tag_done, tag_failed)
         if tag_jobs else ""
     )
+    publication_disabled = "" if task.get("paper_review_confirmed") else " disabled"
     return """<section class="document-review-page" data-document-review data-task-id="%s" data-task-status="%s" data-candidate-count="%s">
-  <header class="review-heading"><div><a href="/documents">← 返回导入任务</a><p class="eyebrow">%s · %s</p><h1>整卷复核</h1><p>候选完整大题 %s 道；请核对题干、公式、选项、小问和图片，再勾选要入库的题。</p></div><a class="button-secondary" href="/api/documents/tasks/%s/source">下载原文件</a></header>
+  <header class="review-heading"><div><a href="/documents">← 返回导入任务</a><p class="eyebrow">%s · %s</p><h1>整卷复核</h1><p>候选完整大题 %s 道；请核对题干、公式、选项、小问和图片，确认整卷无误后，再上传并核对答案解析。</p></div><a class="button-secondary" href="/api/documents/tasks/%s/source">下载原文件</a></header>
   %s
-  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><button type="button" data-confirm-items>批量入库选中题目</button><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s%s<div class="question-card-list">%s</div></section></div>
+  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><button type="button" data-confirm-paper>确认整卷题目无误，进入答案核对</button><button type="button" data-confirm-items%s>确认题目与答案，入库选中题目</button><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s%s<div class="question-card-list">%s</div></section></div>
 </section>
 """ % (
         _e(task["id"]),
@@ -356,6 +342,7 @@ def document_review_page(task, items, source_assets=()):
         _e(task["id"]),
         answer_attachment,
         source_panel,
+        publication_disabled,
         _e(tag_status),
         ('<a class="button-secondary" href="/api/documents/tasks/%s/export.zip">下载已入库整卷包</a> · <a class="button-secondary" href="/api/documents/tasks/%s/export.zip?include_solution=1">含答案整卷包</a>' % (_e(task["id"]), _e(task["id"]))) if task.get("published_count") else "",
         review_export_link,

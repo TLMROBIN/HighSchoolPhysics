@@ -564,6 +564,56 @@ def list_tasks(conn, actor, limit=25, cursor=None):
     return [dict(row) for row in rows]
 
 
+def _paper_review_snapshot(conn, task_id):
+    rows = conn.execute("select id,document_json,review_revision from parsed_question_items where parse_task_id=? and disposition='active' order by item_index,id", (task_id,)).fetchall()
+    contents = []
+    for row in rows:
+        document = loads(row["document_json"], {})
+        content = {key: document.get(key) for key in ("number", "kind", "stem_md", "options", "asset_refs")}
+        content["children"] = [{key: child.get(key) for key in ("key", "label", "kind", "stem_md", "options")} for child in document.get("children", [])]
+        # Answer attachments may add resources without altering the question.
+        content.pop("asset_refs", None)
+        contents.append({"id": row["id"], "content": content})
+    return rows, hashlib.sha256(canonical_json(contents).encode()).hexdigest()
+
+
+def _paper_review_confirmed(conn, actor, task_id):
+    rows, fingerprint = _paper_review_snapshot(conn, task_id)
+    confirmations = conn.execute("select result_json from content_operation_keys where school_id=? and actor_id=? and operation='confirm_paper_review'", (actor["school_id"], actor["id"])).fetchall()
+    return bool(rows) and any(loads(row["result_json"], {}).get("task_id") == task_id and loads(row["result_json"], {}).get("fingerprint") == fingerprint for row in confirmations)
+
+
+def confirm_paper_review(conn, actor, task_id, payload):
+    """Record whole-paper confirmation independently of final publication."""
+    _require_teacher(actor)
+    task = _task_for_actor(conn, actor, task_id, allow_admin=False)
+    if task["status"] not in ("parsed", "partially_parsed"):
+        raise IngestionError("paper_task_not_ready", "题卷尚未转换完成", 409)
+    request_key = _validate_request_key(payload.get("request_key"))
+    selected = payload.get("items")
+    request_hash = hashlib.sha256(canonical_json({"task_id": task_id, "items": selected}).encode()).hexdigest()
+    cached = _operation_result(conn, actor, "confirm_paper_review", request_key, request_hash)
+    if cached is not None:
+        return cached
+    conn.execute("begin immediate")
+    try:
+        rows, fingerprint = _paper_review_snapshot(conn, task_id)
+        expected = [{"id": row["id"], "expected_revision": row["review_revision"]} for row in rows]
+        if not isinstance(selected, list) or any(not isinstance(entry, dict) or type(entry.get("expected_revision")) is not int for entry in selected) or not rows or selected != expected:
+            raise IngestionError("revision_conflict", "请加载并保存整卷最新题目后再确认", 409)
+        numbers = [str(loads(row["document_json"], {}).get("number") or "").strip() for row in rows]
+        if not all(numbers) or len(numbers) != len(set(numbers)):
+            raise IngestionError("question_numbers_require_review", "题号缺失或重复，请更正后再确认整卷", 422)
+        result = {"task_id": task_id, "fingerprint": fingerprint, "paper_review_confirmed": True}
+        conn.execute("insert into content_operation_keys(school_id,actor_id,operation,request_key,request_hash,result_json) values(?,?,?,?,?,?)", (actor["school_id"], actor["id"], "confirm_paper_review", request_key, request_hash, json.dumps(result)))
+        _audit(conn, actor, "document_paper_review_confirmed", "document_parse_task", task_id, {"fingerprint": fingerprint, "item_count": len(rows)})
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def get_task(conn, actor, task_id):
     row = _task_for_actor(conn, actor, task_id)
     file_row = conn.execute(
@@ -584,6 +634,7 @@ def get_task(conn, actor, task_id):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+    result["paper_review_confirmed"] = _paper_review_confirmed(conn, actor, task_id)
     result["item_count"] = conn.execute("select count(*) from parsed_question_items where parse_task_id=? and disposition='active'", (task_id,)).fetchone()[0]
     result["published_count"] = conn.execute("select count(*) from import_item_publications pub join parsed_question_items item on item.id=pub.parsed_item_id where item.parse_task_id=?", (task_id,)).fetchone()[0]
     tag_jobs = conn.execute(
@@ -744,7 +795,7 @@ def _answer_groups(conn, actor, answer_task_id, db_path=None, document_root=None
     return groups
 
 
-def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_root=None):
+def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_root=None, base_path=""):
     """Preview exact question-number matches, then attach selected answers for review."""
     _require_teacher(actor)
     paper_task = _task_for_actor(conn, actor, paper_task_id)
@@ -762,6 +813,9 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
     answer_task = _task_for_actor(conn, actor, answer_task_id)
     if answer_task["original_paper_id"] != paper_task["original_paper_id"]:
         raise ResourceNotFound("答案文件与当前原卷不匹配")
+    if not _paper_review_confirmed(conn, actor, paper_task_id):
+        raise IngestionError("paper_review_required", "请先确认整卷题目无误，再核对答案解析", 409)
+    from .question_rendering import render_question, render_markdown
     groups = _answer_groups(conn, actor, answer_task_id, db_path, document_root)
     items = conn.execute(
         """select item.id,item.question_number,item.document_json,item.review_revision,item.disposition,
@@ -802,6 +856,8 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
             "answer_number": number,
             "expected_revision": target["review_revision"],
             "answer_markdown": entry["markdown"],
+            "question_html": render_question(document, asset_url=lambda aid: "%s/api/documents/assets/%s?task_id=%s" % (base_path.rstrip("/"), aid, paper_task_id)),
+            "answer_html": render_markdown(entry["markdown"], asset_url=lambda aid: "%s/api/documents/assets/%s?task_id=%s" % (base_path.rstrip("/"), aid, answer_task_id)),
             "source_spans": entry["source_spans"],
             "asset_refs": entry["asset_refs"],
         })
@@ -1216,6 +1272,8 @@ def confirm_candidates(conn, actor, task_id, payload):
     _require_teacher(actor)
     task = _task_for_actor(conn, actor, task_id, allow_admin=False)
     request_key = _validate_request_key(payload.get("request_key"))
+    if payload.get("reviewed") is True and not _paper_review_confirmed(conn, actor, task_id):
+        raise IngestionError("paper_review_required", "请先确认整卷题目无误，再进行入库", 409)
     selected = payload.get("items")
     if not isinstance(selected, list) or not selected:
         raise IngestionError("empty_publication", "Select at least one question to publish")
@@ -1244,12 +1302,14 @@ def confirm_candidates(conn, actor, task_id, payload):
             "expected_revision": entry["expected_revision"],
             "reuse_question_ids": reuse_question_ids,
         })
-    request_hash = hashlib.sha256(canonical_json({"task_id": task_id, "items": clean_items}).encode()).hexdigest()
+    request_hash = hashlib.sha256(canonical_json({"task_id": task_id, "items": clean_items, "reviewed": payload.get("reviewed") is True}).encode()).hexdigest()
     cached = _operation_result(conn, actor, "confirm_candidates", request_key, request_hash)
     if cached is not None:
         return cached
     conn.execute("begin immediate")
     try:
+        if payload.get("reviewed") is True and not _paper_review_confirmed(conn, actor, task_id):
+            raise IngestionError("paper_review_required", "题目已改变，请重新确认整卷", 409)
         results = []
         for entry in clean_items:
             item = conn.execute(
@@ -1279,6 +1339,12 @@ def confirm_candidates(conn, actor, task_id, payload):
                 conn.rollback()
                 raise IngestionError("invalid_candidate", str(exc), 422) from exc
             unresolved = [issue for issue in document.get("issues", []) if issue.get("severity") in ("blocking", "review") and issue.get("state") != "resolved"]
+            if unresolved and payload.get("reviewed") is True:
+                for issue in unresolved:
+                    issue.update({"severity": "info", "state": "resolved", "reviewed_by": actor["id"], "reviewed_at": _now(), "resolution_note": "教师确认题目与答案无误并入库"})
+                conn.execute("update parsed_question_items set document_json=?,issues_json=? where id=?", (json.dumps(document, ensure_ascii=False), json.dumps(document.get("issues", []), ensure_ascii=False), item["id"]))
+                _audit(conn, actor, "document_review_confirmed", "parsed_question_item", item["id"], {"review_revision": item["review_revision"], "issue_count": len(unresolved)})
+                unresolved = []
             if unresolved:
                 conn.rollback()
                 raise IngestionError("review_required", "Resolve or explicitly review all open items before publishing", 422, {"issue_count": len(unresolved)})

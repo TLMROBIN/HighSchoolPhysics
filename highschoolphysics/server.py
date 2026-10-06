@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261001-qa-followups-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
-DOCUMENT_ASSET_VERSION = "20261001-review-content-fixes"
+DOCUMENT_ASSET_VERSION = "20261006-staged-review"
 
 
 def ensure_database(path, demo_mode=False):
@@ -4686,7 +4686,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     result = document_ingestion.cancel_upload(conn, user, upload_id, self.db_path, root)
                 self._send_json({"ok": True, "result": result}, HTTPStatus.ACCEPTED if operation == "complete" else HTTPStatus.OK)
                 return
-            match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(cancel|delete|retry|confirm|reorder|sources|restructure|attach-answers)", path)
+            match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(cancel|delete|retry|confirm|reorder|sources|restructure|attach-answers|confirm-review)", path)
             if match:
                 task_id, operation = match.groups()
                 if operation == "cancel":
@@ -4704,8 +4704,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 elif operation == "restructure":
                     from .document_restructure import restructure_candidates
                     result = restructure_candidates(conn, user, task_id, payload)
+                elif operation == "confirm-review":
+                    result = document_ingestion.confirm_paper_review(conn, user, task_id, payload)
                 elif operation == "attach-answers":
-                    result = document_ingestion.attach_answers(conn, user, task_id, payload, self.db_path, root)
+                    result = document_ingestion.attach_answers(conn, user, task_id, payload, self.db_path, root, self._base_path())
                 else:
                     result = document_ingestion.confirm_candidates(conn, user, task_id, payload)
                 self._send_json({"ok": True, "result": result})

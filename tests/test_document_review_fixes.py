@@ -69,6 +69,34 @@ class DocumentReviewFixTests(unittest.TestCase):
         parsed = json.loads(body)
         return parsed.get("result", parsed)
 
+    def test_whole_paper_confirmation_tracks_question_edits_and_rejects_duplicate_numbers(self):
+        endpoint = "/api/documents/tasks/%s/confirm-review" % self.task_id
+        selected = [{"id": item["id"], "expected_revision": item["review_revision"]} for item in self.items]
+        self.post(endpoint, {"request_key": "whole-review-confirm", "items": selected})
+        status, _, body = self.server.request("GET", "/api/documents/tasks/%s" % self.task_id, headers={"Cookie": self.cookie})
+        self.assertTrue(json.loads(body)["paper_review_confirmed"])
+        item = self.items[1]
+        document = dict(item["document"])
+        document["stem_md"] += "修改条件。"
+        self.post("/api/documents/items/%s/save" % item["id"], {"request_key": "whole-review-edit", "expected_revision": 1, "document": document})
+        status, _, body = self.server.request("GET", "/api/documents/tasks/%s" % self.task_id, headers={"Cookie": self.cookie})
+        self.assertFalse(json.loads(body)["paper_review_confirmed"])
+        document["number"] = self.items[0]["document"]["number"]
+        self.post("/api/documents/items/%s/save" % item["id"], {"request_key": "whole-review-duplicate", "expected_revision": 2, "document": document})
+        selected[1]["expected_revision"] = 3
+        result = self.post(endpoint, {"request_key": "whole-review-reconfirm", "items": selected}, expected=422)
+        self.assertEqual(result["error"], "question_numbers_require_review")
+
+    def test_review_page_starts_rendered_without_issue_controls_or_notes(self):
+        status, _, body = self.server.request("GET", "/documents/review?task_id=%s" % self.task_id, headers={"Cookie": self.cookie})
+        self.assertEqual(status, 200)
+        page = body.decode()
+        self.assertIn('class="question-editor" hidden', page)
+        self.assertIn('data-edit-question', page)
+        self.assertNotIn('class="review-note"', page)
+        self.assertNotIn('data-issue-id', page)
+        self.assertNotIn('data-answer-upload-form', page)
+
     def test_structure_preview_replay_save_review_and_publication(self):
         item = self.items[0]
         child_key = item["document"]["children"][0]["key"]
