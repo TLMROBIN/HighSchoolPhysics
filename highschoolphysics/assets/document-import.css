@@ -649,3 +649,5 @@
 @media(max-width:560px) { .question-preview .choice-lower-layout, .answer-question-comparison .choice-lower-layout { grid-template-columns: minmax(0,2fr) minmax(0,1fr); } }
 
 .question-preview .choice-figures .question-content-image, .answer-question-comparison .choice-figures .question-content-image { max-width: 100%; }
+
+.document-upload-form label[hidden] { display: none; }

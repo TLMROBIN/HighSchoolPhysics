@@ -1172,6 +1172,17 @@ class DocumentHTTPTests(unittest.TestCase):
         answers = create_task("answer-sheet.pdf", "answers", b"%PDF-1.7\nanswers", "answer-sheet", paper["original_paper_id"])
         self.assertEqual(run_once(self.server.db_path, converter=converter)["status"], "parsed")
 
+        status, _, answer_page = self.server.request("GET", "/documents/review?task_id=%s" % answers["task_id"], headers={"Cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertNotIn(b"data-confirm-paper", answer_page)
+        self.assertNotIn(b"data-confirm-items", answer_page)
+        self.assertIn("第 1 题答案与解析".encode(), answer_page)
+        status, _, home_page = self.server.request("GET", "/documents", headers={"Cookie": self.cookie})
+        self.assertEqual(status, 200)
+        self.assertIn(b'id="document-role"', home_page)
+        self.assertIn(b'value="answers"', home_page)
+        self.assertIn(b'id="document-paper"', home_page)
+
         status, _, page = self.server.request("GET", "/documents/review?task_id=%s" % paper["task_id"], headers={"Cookie": self.cookie})
         self.assertEqual(status, 200)
         self.assertNotIn(b"data-answer-upload-form", page)

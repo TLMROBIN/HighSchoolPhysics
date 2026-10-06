@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261001-qa-followups-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
-DOCUMENT_ASSET_VERSION = "20261006-bottom-review"
+DOCUMENT_ASSET_VERSION = "20261006-answer-role"
 
 
 def ensure_database(path, demo_mode=False):
@@ -3121,7 +3121,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 else:
                     tasks = document_ingestion.list_tasks(conn, user)
                     body = document_views.documents_home(user, tasks)
-                    self._send_html(render_layout("导入整份试卷", user, body, "teacher"))
+                    self._send_html(render_layout("导入试卷或答案", user, body, "teacher"))
             elif path == "/documents/review":
                 if not user:
                     self._redirect("/login")
@@ -3134,7 +3134,14 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     task = document_ingestion.get_task(conn, user, task_id)
                     items = document_ingestion.get_task_items(conn, user, task_id, limit=500)
                     source_assets = document_ingestion.get_task_source_assets(conn, user, task_id)
-                    self._send_html(render_layout("整卷复核", user, document_views.document_review_page(task, items, source_assets), "teacher", question_math=True))
+                    answer_groups = None
+                    linked_paper_task = None
+                    if task["document_role"] in ("answers", "rubric"):
+                        if task["status"] in ("parsed", "partially_parsed"):
+                            answer_groups = document_ingestion._answer_groups(conn, user, task_id, db_path=self.db_path)
+                        linked_paper_task = next((entry["id"] for entry in document_ingestion.list_tasks(conn, user) if entry.get("document_role") == "paper" and entry["original_paper_id"] == task["original_paper_id"]), None)
+                    title = "答案与解析" if task["document_role"] in ("answers", "rubric") else "整卷复核"
+                    self._send_html(render_layout(title, user, document_views.document_review_page(task, items, source_assets, answer_groups, linked_paper_task), "teacher", question_math=True))
             elif path.startswith("/api/documents/"):
                 self._handle_documents_get(conn, user, path, parse_qs(parsed.query))
             elif path.startswith("/api/question-assets/"):

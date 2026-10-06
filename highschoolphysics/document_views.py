@@ -37,9 +37,10 @@ def documents_home(user, tasks):
         task_id = task["id"]
         review = '<a href="/documents/review?task_id=%s">打开复核</a> <button type="button" class="document-task-delete" data-task-id="%s" data-file-name="%s">删除任务</button>' % (_e(task_id), _e(task_id), _e(task["file_name"]))
         rows.append(
-            "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
+            "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
             % (
                 _e(task["file_name"]),
+                "试卷" if task.get("document_role", "paper") == "paper" else "答案与解析",
                 _e(_status(task["status"])),
                 _e(task.get("phase", "")),
                 _e(task.get("created_at", "")),
@@ -47,16 +48,18 @@ def documents_home(user, tasks):
             )
         )
     task_table = (
-        "<table class='document-task-table'><thead><tr><th>文件</th><th>状态</th><th>阶段</th><th>创建时间</th><th></th></tr></thead><tbody>%s</tbody></table>"
+        "<table class='document-task-table'><thead><tr><th>文件</th><th>类别</th><th>状态</th><th>阶段</th><th>创建时间</th><th></th></tr></thead><tbody>%s</tbody></table>"
         % "".join(rows)
         if rows
         else "<p class='document-empty'>还没有导入任务。</p>"
     )
     return """<section class="document-page" data-document-home data-actor-id="%s">
-  <div class="document-heading"><div><p class="eyebrow">题库内容入库</p><h1>导入整份试卷</h1><p>选择 Word 或 PDF 原件。系统保存原卷，自动转换和拆题，再由教师集中复核。</p></div><a class="button-secondary" href="/teacher">返回教师工作台</a></div>
+  <div class="document-heading"><div><p class="eyebrow">题库内容入库</p><h1>导入试卷或答案</h1><p>选择 Word 或 PDF 原件。系统保存原卷，自动转换和拆题，再由教师集中复核。</p></div><a class="button-secondary" href="/teacher">返回教师工作台</a></div>
   <form class="document-upload-form" id="document-upload-form">
-    <label>试卷文件<input id="document-file" type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>
-    <label>试卷名称<input id="document-title" type="text" maxlength="240" placeholder="可留空，使用文件名"></label>
+    <label>导入类别<select id="document-role"><option value="paper">试卷</option><option value="answers">答案与解析</option></select></label>
+    <label id="document-paper-label" hidden>对应试卷<select id="document-paper"><option value="">请选择对应试卷</option>%s</select></label>
+    <label>文档文件<input id="document-file" type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>
+    <label>文档名称<input id="document-title" type="text" maxlength="240" placeholder="可留空，使用文件名"></label>
     <label>PDF 解析方式<select id="document-parser-mode" name="parser_mode"><option value="mineru_api" selected>MinerU 云端 API（推荐）</option><option value="mineru_local">服务器本地 MinerU</option></select></label>
     <p class="document-parser-help">DOCX 继续使用可编辑正文解析；PDF 云端模式会将原文件发送至 MinerU 官方 API。</p>
     <button type="submit">上传并开始转换</button>
@@ -64,7 +67,7 @@ def documents_home(user, tasks):
   </form>
   <section class="document-task-section"><h2>我的导入任务</h2><div id="document-task-list">%s</div></section>
   <p class="document-limits">支持 DOCX、旧 DOC、PDF；单文件最大 50 MiB。DOCX 在本机服务器转换；PDF 可选官方云端 API 或本机 MinerU，云端解析会把文件发送到 MinerU，且仅在明确选择后使用。解析失败会显示错误，不会改用另一条识别路径。</p>
-</section>""" % (_e(user.get("id", "")), task_table)
+</section>""" % (_e(user.get("id", "")), "".join('<option value="%s">%s</option>' % (_e(t["original_paper_id"]), _e(t["file_name"])) for t in tasks if t.get("document_role", "paper") == "paper"), task_table)
 
 
 def _issue_list(item):
@@ -199,7 +202,16 @@ def _structure_controls(document, published):
       </fieldset></details>''' % (_e(json.dumps(structure, ensure_ascii=False)), "disabled" if published else "")
 
 
-def document_review_page(task, items, source_assets=()):
+def document_review_page(task, items, source_assets=(), answer_groups=None, linked_paper_task=None):
+    if task.get("document_role") in ("answers", "rubric"):
+        asset_url = lambda asset_id: "/api/question-assets/%s" % asset_id
+        entries = []
+        for number, groups in (answer_groups or {}).items():
+            for group in groups:
+                entries.append('<article class="question-card"><h3>第 %s 题答案与解析</h3><div class="question-preview">%s</div></article>' % (_e(number), render_markdown(group["markdown"], asset_url)))
+        link = ('<a class="button-secondary" href="/documents/review?task_id=%s#answer-review">前往对应试卷核对、编辑答案与解析</a>' % _e(linked_paper_task)) if linked_paper_task else '<p>上传答案后，请在对应试卷的答案核对区选择本任务，核对和编辑解析。</p>'
+        return '<section class="document-review-page" data-answer-document-task="%s" data-task-status="%s"><header class="review-heading"><div><a href="/documents">← 返回导入任务</a><h1>答案与解析</h1><p>%s · %s</p>%s</div><a href="/api/documents/tasks/%s/source">下载原文件</a></header><div class="document-review-workspace"><section class="source-panel"><h2>答案原件</h2><iframe title="答案原件 PDF 预览" src="/api/documents/tasks/%s/preview"></iframe></section><section class="candidate-panel"><h2>解析结果</h2>%s</section></div></section>' % (_e(task["id"]), _e(task["status"]), _e(task["file_name"]), _e(_status(task["status"])), link, _e(task["id"]), _e(task["id"]), "".join(entries) or '<p class="document-empty">尚未生成答案解析结果，请转换完成后刷新页面。</p>')
+
     cards = []
     source_url = "/api/documents/tasks/%s/preview" % _e(task["id"])
     reordering_locked = any(item.get("published_revision_id") for item in items) or int(task.get("item_count", len(items))) > len(items)
@@ -301,7 +313,7 @@ def document_review_page(task, items, source_assets=()):
         source_panel = '<iframe title="原卷 PDF 预览" name="document-source-preview" src="%s" loading="lazy"></iframe>' % source_url
     answer_attachment = ""
     if task.get("document_role") == "paper" and task.get("original_paper_id") and task.get("paper_review_confirmed"):
-        answer_attachment = """<section class="answer-attachment" data-answer-attachment data-paper-id="%s">
+        answer_attachment = """<section class="answer-attachment" id="answer-review" data-answer-attachment data-paper-id="%s">
   <h2>上传并核对答案解析</h2>
   <p>整卷题目已确认。上传答案解析后，按题号左右对照题目与解析结果，再勾选确认。</p>
   <form data-answer-upload-form><label>答案/解析文件<input type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label><button type="submit">上传答案文件</button></form>

@@ -143,6 +143,14 @@
   if (uploadForm) {
     const fileInput = document.getElementById("document-file");
     const titleInput = document.getElementById("document-title");
+    const roleInput = document.getElementById("document-role");
+    const paperInput = document.getElementById("document-paper");
+    const paperLabel = document.getElementById("document-paper-label");
+    roleInput.addEventListener("change", () => {
+      paperLabel.hidden = roleInput.value !== "answers";
+      paperInput.required = roleInput.value === "answers";
+      parserModeInput.disabled = roleInput.value === "answers";
+    });
     const parserModeInput = document.getElementById("document-parser-mode");
     const status = document.getElementById("document-upload-progress");
     uploadForm.addEventListener("submit", async (event) => {
@@ -157,8 +165,10 @@
         }
         setText(status, "正在计算文件校验值…");
         const digest = await fileHash(file);
-        const parserMode = /\.docx$/i.test(file.name) ? "mineru_local" : (parserModeInput ? parserModeInput.value : "mineru_local");
-        const resumed = findResumeRecord(file, digest, "paper", null, parserMode);
+        const role = roleInput.value;
+        const parserMode = role === "answers" || /\.docx$/i.test(file.name) ? "mineru_local" : (parserModeInput ? parserModeInput.value : "mineru_local");
+        const paperId = role === "answers" ? (paperInput.value || null) : null;
+        const resumed = findResumeRecord(file, digest, role, paperId, parserMode);
         const title = (titleInput.value.trim() || (resumed && resumed.title) || file.name.replace(/\.[^.]+$/, "")).trim().slice(0, 240);
         if (!titleInput.value.trim()) titleInput.value = title;
         const requestKey = resumed && resumed.title === title ? resumed.request_key : randomKey();
@@ -167,9 +177,9 @@
           file_size: file.size,
           sha256: digest,
           title,
-          role: "paper",
+          role,
           parser_mode: parserMode,
-          paper_id: null,
+          paper_id: paperId,
           request_key: requestKey,
           saved_at: Date.now(),
         };
@@ -179,7 +189,8 @@
           size: file.size,
           sha256: digest,
           title,
-          role: "paper",
+          role,
+          original_paper_id: paperId,
           parser_mode: parserMode,
           request_key: requestKey,
         });
@@ -212,7 +223,7 @@
       const file = fileInput.files && fileInput.files[0];
       if (!file) return;
       const previous = readResumeRecords().find((record) =>
-        record.file_name === file.name && record.file_size === file.size && record.role === "paper"
+        record.file_name === file.name && record.file_size === file.size && record.role === roleInput.value
       );
       if (previous) {
         if (!titleInput.value.trim()) titleInput.value = previous.title;
@@ -240,11 +251,11 @@
           const table = document.createElement("table");
           table.className = "document-task-table";
           const head = document.createElement("thead");
-          head.innerHTML = "<tr><th>文件</th><th>状态</th><th>阶段</th><th>创建时间</th><th></th></tr>";
+          head.innerHTML = "<tr><th>文件</th><th>类别</th><th>状态</th><th>阶段</th><th>创建时间</th><th></th></tr>";
           const body = document.createElement("tbody");
           tasks.forEach((task) => {
             const row = document.createElement("tr");
-            [task.file_name, task.status, task.phase, task.created_at].forEach((value) => {
+            [task.file_name, task.document_role === "paper" ? "试卷" : "答案与解析", task.status, task.phase, task.created_at].forEach((value) => {
               const cell = document.createElement("td");
               cell.textContent = value || "";
               row.append(cell);
@@ -294,6 +305,18 @@
     document.addEventListener("visibilitychange", refreshTasks);
   }
 
+  const answerDocument = document.querySelector("[data-answer-document-task]");
+  if (answerDocument && ["queued", "running"].includes(answerDocument.dataset.taskStatus)) {
+    const pollAnswer = async () => {
+      try {
+        const result = await request(`/api/documents/tasks/${encodeURIComponent(answerDocument.dataset.answerDocumentTask)}`);
+        const task = result.task || result;
+        if (!["queued", "running"].includes(task.status)) { window.location.reload(); return; }
+      } catch (_) { /* Retry transient polling failures. */ }
+      window.setTimeout(pollAnswer, 5000);
+    };
+    window.setTimeout(pollAnswer, 5000);
+  }
   const review = document.querySelector("[data-document-review]");
   if (!review) return;
   const taskId = review.dataset.taskId;
