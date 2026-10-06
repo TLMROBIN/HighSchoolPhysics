@@ -402,14 +402,15 @@ def post_api(repo,user,path,payload,agent_id=None):
 
 def page(user):
     staff(user)
-    return '''<section class="question-bank-page" data-question-bank>
-      <div class="bank-heading"><div><p class="eyebrow">备课与考试</p><h1>题库与试卷</h1><p>按导入批次管理题目，生成或调整标签，再选整卷或选题创建考试。</p></div><a href="/teacher">返回教师工作台</a></div>
+    from .teacher_workspace import navigation
+    return navigation('bank') + '''<section class="question-bank-page" data-question-bank>
+      <div class="bank-heading"><div><p class="eyebrow">备课与考试</p><h1>题库管理</h1><p>按导入批次管理题目，生成或调整标签，再选整卷或选题创建考试。</p></div><a href="/teacher">返回教师工作台</a></div>
       <div class="bank-filters"><label>导入批次<select data-bank-batch><option value="">全部批次与手工录题</option></select></label><label>试卷<select data-bank-paper><option value="">全部题目</option></select></label><label>题目搜索<input type="search" data-bank-search placeholder="题干或原题号"></label><button type="button" data-bank-filter>筛选</button></div>
       <div class="bank-actions"><button type="button" data-bank-select-all>选中当前范围全部题目</button><button type="button" data-bank-clear>清空选择</button><span data-bank-selected>已选 0 道小题</span>
       <button type="button" data-bank-ai-missing>AI 生成未标注题</button><button type="button" data-bank-ai>AI 重新生成所选题</button><button type="button" data-bank-save-ai hidden>采用所选 AI 建议</button></div>
       <p data-bank-status role="status" aria-live="polite"></p><div data-bank-results></div>
       <nav class="bank-pagination"><button data-bank-prev type="button">上一页</button><span data-bank-page></span><button data-bank-next type="button">下一页</button></nav>
-      <form data-bank-save-paper class="bank-save-paper"><h2>保存为一套试卷</h2><label>试卷名称<input name="title" required maxlength="240"></label><button type="submit">保存所选题目为试卷</button><a href="/teacher#new-exam">新建考试</a></form>
+      <form data-bank-save-paper class="bank-save-paper"><h2>保存为一套试卷</h2><label>试卷名称<input name="title" required maxlength="240"></label><button type="submit">保存所选题目为试卷</button><a href="/teacher?module=exams#new-exam">新建考试</a></form>
       <details class="bank-agent"><summary>外部 Agent 标签接口</summary><p>凭证绑定当前账号与学校，仅允许读取题目和修改标签，最长有效期 90 天。创建后仅显示一次，请交给需要接入的 Agent。</p>
       <form data-bank-token><label>Agent 名称<input name="name" required maxlength="100"></label><label>有效天数<input name="days" type="number" min="1" max="90" value="30" required></label><button type="submit">创建接入凭证</button></form>
       <div data-bank-token-result></div><div data-bank-tokens></div><a href="/question-bank/agent-guide">查看接口说明</a></details>
