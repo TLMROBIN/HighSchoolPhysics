@@ -1174,6 +1174,8 @@ class DocumentHTTPTests(unittest.TestCase):
 
         status, _, answer_page = self.server.request("GET", "/documents/review?task_id=%s" % answers["task_id"], headers={"Cookie": self.cookie})
         self.assertEqual(status, 200)
+        self.assertIn(b"/assets/document-import.js", answer_page)
+        self.assertIn(b"/assets/document-import.css", answer_page)
         self.assertNotIn(b"data-confirm-paper", answer_page)
         self.assertNotIn(b"data-confirm-items", answer_page)
         self.assertIn("第 1 题答案与解析".encode(), answer_page)

@@ -117,11 +117,11 @@ def render_layout(title, user, body, active="", question_math=False):
         math_scripts=math_scripts,
         document_styles=(
             '<link rel="stylesheet" href="/assets/document-import.css?v=%s">' % escape(DOCUMENT_ASSET_VERSION)
-            if 'data-document-home' in body or 'data-document-review' in body or 'document-entry' in body else ""
+            if 'data-document-home' in body or 'data-document-review' in body or 'data-answer-document-task' in body or 'document-entry' in body else ""
         ),
         document_scripts=(
             '<script defer src="/assets/document-import.js?v=%s"></script>' % escape(DOCUMENT_ASSET_VERSION)
-            if 'data-document-home' in body or 'data-document-review' in body else ""
+            if 'data-document-home' in body or 'data-document-review' in body or 'data-answer-document-task' in body else ""
         ),
     )
 
