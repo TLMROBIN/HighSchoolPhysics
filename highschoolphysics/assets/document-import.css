@@ -651,3 +651,8 @@
 .question-preview .choice-figures .question-content-image, .answer-question-comparison .choice-figures .question-content-image { max-width: 100%; }
 
 .document-upload-form label[hidden] { display: none; }
+
+.publication-selection { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; margin-bottom: .85rem; }
+.publication-selection label { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
+.publication-selection input[type="checkbox"] { width: 1.1rem; height: 1.1rem; margin: 0; }
+.publication-selection [data-publish-selection-count] { color: #52657b; }

@@ -1096,6 +1096,28 @@
     } catch (error) { setText(status, error.message); }
     finally { button.disabled = false; }
   });
+  const selectAll = review.querySelector("[data-publish-select-all]");
+  const selectAllButton = review.querySelector("[data-publish-select-all-button]");
+  const selectionCount = review.querySelector("[data-publish-selection-count]");
+  const publishCheckboxes = () => Array.from(review.querySelectorAll('[data-document-item][data-published="false"] [data-publish-select]:not(:disabled)'));
+  const syncPublicationSelection = () => {
+    const boxes = publishCheckboxes();
+    const count = boxes.filter((box) => box.checked).length;
+    selectAll.checked = boxes.length > 0 && count === boxes.length;
+    selectAll.indeterminate = count > 0 && count < boxes.length;
+    selectAll.disabled = selectAllButton.disabled = boxes.length === 0;
+    setText(selectionCount, `已选 ${count} / ${boxes.length} 道题`);
+  };
+  const selectPublicationItems = (checked) => {
+    publishCheckboxes().forEach((box) => { box.checked = checked; });
+    syncPublicationSelection();
+  };
+  selectAll.addEventListener("change", () => selectPublicationItems(selectAll.checked));
+  selectAllButton.addEventListener("click", () => selectPublicationItems(true));
+  review.addEventListener("change", (event) => {
+    if (event.target.matches("[data-publish-select]")) syncPublicationSelection();
+  });
+  syncPublicationSelection();
   const confirmButton = review.querySelector("[data-confirm-items]");
   confirmButton.addEventListener("click", async () => {
     const cards = Array.from(review.querySelectorAll("[data-document-item]"));

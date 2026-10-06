@@ -357,7 +357,7 @@ def document_review_page(task, items, source_assets=(), answer_groups=None, link
   <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s<div class="question-card-list">%s</div></section></div>
   <section class="paper-confirmation"><button type="button" data-confirm-paper>确认整卷题目无误，进入答案核对</button></section>
   %s
-  <section class="answer-publication"%s><button type="button" data-confirm-items%s>答案与解析对照无误，入库选中题目</button></section>
+  <section class="answer-publication"%s><div class="publication-selection"><label><input type="checkbox" data-publish-select-all>全选题目</label><button type="button" data-publish-select-all-button>全选</button><span data-publish-selection-count aria-live="polite"></span></div><button type="button" data-confirm-items%s>答案与解析对照无误，入库选中题目</button></section>
 </section>
 """ % (
         _e(task["id"]),
