@@ -16,6 +16,22 @@
   let listing, catalog, offset=0, jobIds=[], polling=false;
   const params=new URLSearchParams(location.search);
   let batch=params.get('batch_id') || '', paper=params.get('paper_id') || '';
+  let tagFamily='',tagId='',pageSize=20;
+  const renderTagTree=()=>{
+    const tree=$('tag-tree');tree.replaceChildren();
+    for(const [family,title] of [['knowledge','知识点'],['ability','能力'],['literacy','核心素养']]){
+      const category=node('details',undefined,'bank-tag-category');category.open=family==='knowledge';category.append(node('summary',title));
+      const tags=catalog[family],ids=new Set(tags.map(t=>t.id));
+      const branch=parent=>{const list=node('ul');for(const t of tags.filter(t=>(ids.has(t.parent_id)?t.parent_id:null)===parent)){
+        const item=node('li'),children=tags.some(c=>c.parent_id===t.id);
+        const pick=button(t.name,async()=>{tagFamily=family;tagId=t.id;offset=0;selected.clear();$('tag-current').textContent=t.path_text||t.name;tree.querySelectorAll('[data-tag-id]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tagId===tagId)));await load();});
+        pick.dataset.tagId=t.id;pick.setAttribute('aria-pressed','false');pick.title=t.path_text||t.name;
+        if(children){const folder=node('details'),summary=node('summary');summary.append(pick);pick.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();});folder.append(summary,branch(t.id));item.append(folder);}else item.append(pick);
+        list.append(item);
+      }return list;};
+      category.append(branch(null));tree.append(category);
+    }
+  };
   const refreshSelection = () => {
     $('selected').textContent=`已选 ${selected.size} 道小题`;
     root.querySelectorAll('[data-group-ids]').forEach(box=>{const ids=JSON.parse(box.dataset.groupIds); box.checked=ids.every(id=>selected.has(id)); box.indeterminate=!box.checked&&ids.some(id=>selected.has(id));});
@@ -71,13 +87,14 @@
     }
     const submit=node('button','保存题目修改');submit.type='submit';form.append(submit);
     form.addEventListener('submit',async e=>{e.preventDefault();submit.disabled=true;try{
-      await api('content',{question_id:data.question.id,question_version:data.question.version,expected_content_revision:data.content_revision_id,document:doc,fields});status('题目已保存；已有考试保留原题版本。');data.units.forEach(u=>{editors.delete(u.id);suggestions.delete(u.id);});await openGroup(data.question.id,container);
+      await api('content',{question_id:data.question.id,question_version:data.question.version,expected_content_revision:data.content_revision_id,document:doc,fields});status('题目已保存；已有考试保留原题版本。');data.units.forEach(u=>{editors.delete(u.id);suggestions.delete(u.id);});await load();
     }catch(err){status(err.message);}finally{submit.disabled=false;}});
     panel.append(form);return panel;
   };
   const openGroup=async(qid,container)=>{
     const data=await api('question?id='+encodeURIComponent(qid));container.replaceChildren();
-    const preview=node('div',undefined,'bank-question-preview');preview.innerHTML=data.html;container.append(preview);math(preview);
+    const answerSource=node('div');answerSource.innerHTML=data.html;const solution=answerSource.querySelector('.question-solution');if(solution){const answers=node('details',undefined,'bank-reference');answers.append(node('summary','参考答案与解析'),solution);container.append(answers);math(solution);}
+    const typeLabel=node('label','整题类型'),typeSelect=node('select');for(const [value,text] of [['single_choice','单选题'],['multiple_choice','多选题'],['experiment','实验题'],['solution','解答题'],['fill','填空题']])typeSelect.append(new Option(text,value));typeSelect.value=data.question.bank_type;typeSelect.setAttribute('aria-label','整题类型');typeLabel.append(typeSelect);container.append(typeLabel,button('保存整题类型',async()=>{await api('type',{question_id:qid,question_version:data.question.version,bank_type:typeSelect.value});await load();status('整题类型已保存，全部小问一起归类。');}));
     container.append(contentEditor(data,container));
     data.units.forEach(unit=>{
       if(unit.suggestion)suggestions.set(unit.id,unit.suggestion);
@@ -85,7 +102,7 @@
     });refreshSelection();
   };
   const load=async()=>{
-    const query=new URLSearchParams({batch_id:batch,paper_id:paper,search:$('search').value,offset:String(offset)});
+    const query=new URLSearchParams({batch_id:batch,paper_id:paper,search:$('search').value,offset:String(offset),page_size:String(pageSize),question_type:$('type').value,tag_family:tagFamily,tag_id:tagId});
     listing=await api('library?'+query);editors.clear();
     setOptions($('batch'),listing.batches.map(b=>({...b,title:b.title+' · '+(b.import_mode==='paper'?'整卷':'零散')})),'全部批次与手工录题',batch);
     setOptions($('paper'),listing.papers,'全部题目',paper);
@@ -93,24 +110,28 @@
     for(const g of listing.groups){
       const card=node('article',undefined,'bank-question-card'),header=node('div',undefined,'bank-card-heading');
       const label=node('label'),box=node('input');box.type='checkbox';box.dataset.groupIds=JSON.stringify(g.question_ids);box.addEventListener('change',()=>{g.question_ids.forEach(id=>box.checked?selected.add(id):selected.delete(id));refreshSelection();});
-      label.append(box,node('span',`原题号 ${g.number||'—'} · ${g.question_ids.length} 道小题 · ${g.tagged_count} 道已有标签`));header.append(label);card.append(header);
-      card.append(node('p',g.stem.slice(0,180)+(g.stem.length>180?'…':''),'bank-stem-excerpt'));
-      const details=node('details');details.append(node('summary','查看完整题目、编辑与标签管理'));const content=node('div');details.append(content);
+      label.append(box,node('span',`原题号 ${g.number||'—'} · ${g.type_label} · ${g.question_ids.length} 道小题 · ${g.tagged_count} 道已有标签`));header.append(label);card.append(header);
+      const preview=node('div',undefined,'bank-question-preview');preview.innerHTML=g.html;card.append(preview);math(preview);
+      const chips=node('div',undefined,'bank-tag-chips'),seen=new Set();for(const t of g.tags){if(seen.has(t.tag_id))continue;seen.add(t.tag_id);chips.append(node('span',t.name,'bank-tag-chip'));}card.append(chips);
+      const details=node('details');details.append(node('summary','编辑题目、题型与标签管理'));const content=node('div');details.append(content);
       details.addEventListener('toggle',async()=>{if(!details.open||details.dataset.loaded)return;details.dataset.loaded='1';content.textContent='正在加载…';try{await openGroup(g.question_ids[0],content);}catch(e){delete details.dataset.loaded;content.textContent=e.message;}});
       card.append(details);$('results').append(card);
     }
     if(!listing.groups.length)$('results').append(node('p','当前范围没有题目。可先导入并确认入库。'));
-    $('page').textContent=`第 ${Math.floor(offset/30)+1} / ${Math.max(1,Math.ceil(listing.total/30))} 页 · ${listing.total} 道大题`;
-    $('prev').disabled=offset===0;$('next').disabled=offset+30>=listing.total;refreshSelection();
+    $('page').textContent=`第 ${Math.floor(offset/pageSize)+1} / ${Math.max(1,Math.ceil(listing.total/pageSize))} 页 · ${listing.total} 道大题`;
+    $('prev').disabled=offset===0;$('next').disabled=offset+pageSize>=listing.total;refreshSelection();
   };
   const run=fn=>async()=>{try{await fn();}catch(e){status(e.message);}};
-  $('filter').addEventListener('click',run(async()=>{offset=0;await load();}));
+  $('filter').addEventListener('click',run(async()=>{offset=0;selected.clear();await load();}));
   $('batch').addEventListener('change',run(async()=>{batch=$('batch').value;paper='';offset=0;selected.clear();await load();}));
   $('paper').addEventListener('change',run(async()=>{paper=$('paper').value;batch='';offset=0;selected.clear();await load();}));
+  $('type').addEventListener('change',run(async()=>{offset=0;selected.clear();await load();}));
+  $('size').addEventListener('change',run(async()=>{pageSize=Number($('size').value);offset=0;await load();}));
+  $('tag-clear').addEventListener('click',run(async()=>{tagFamily='';tagId='';offset=0;selected.clear();$('tag-current').textContent='未限定标签';$('tag-tree').querySelectorAll('[aria-pressed]').forEach(b=>b.setAttribute('aria-pressed','false'));await load();}));
   $('select-all').addEventListener('click',()=>{selected.clear();listing.scope_question_ids.forEach(id=>selected.add(id));refreshSelection();});
   $('clear').addEventListener('click',()=>{selected.clear();refreshSelection();});
-  $('prev').addEventListener('click',run(async()=>{offset=Math.max(0,offset-30);await load();}));
-  $('next').addEventListener('click',run(async()=>{offset+=30;await load();}));
+  $('prev').addEventListener('click',run(async()=>{offset=Math.max(0,offset-pageSize);await load();}));
+  $('next').addEventListener('click',run(async()=>{offset+=pageSize;await load();}));
   const poll=async()=>{
     if(polling||!jobIds.length)return;polling=true;
     try{
@@ -146,5 +167,5 @@
   $('save-paper').addEventListener('submit',async e=>{e.preventDefault();try{const title=new FormData(e.currentTarget).get('title');const result=await api('paper',{title,question_ids:[...selected]});paper=result.paper.id;batch='';offset=0;await load();status('试卷已保存，可以前往教师工作台新建考试。');}catch(err){status(err.message);}});
   const loadTokens=async()=>{const result=await api('tokens');$('tokens').replaceChildren();for(const t of result.tokens){const row=node('p',t.name+' · '+t.expires_at+' · '+(t.revoked_at?'已撤销':'有效'));if(!t.revoked_at)row.append(button('撤销',async()=>{await api('tokens/revoke',{id:t.id});await loadTokens();}));$('tokens').append(row);}};
   $('token').addEventListener('submit',async e=>{e.preventDefault();try{const form=new FormData(e.currentTarget);const result=await api('tokens',{name:form.get('name'),days:Number(form.get('days'))});const output=$('token-result');output.replaceChildren(node('p','接入凭证（仅显示一次）：'));const input=node('input');input.value=result.token;input.readOnly=true;input.setAttribute('aria-label','Agent 接入凭证');output.append(input,button('复制凭证',async()=>navigator.clipboard.writeText(result.token)),button('隐藏凭证',async()=>output.replaceChildren()));await loadTokens();}catch(err){status(err.message);}});
-  (async()=>{try{catalog=await api('taxonomy');await load();await loadTokens();try{jobIds=JSON.parse(sessionStorage.getItem(jobStorageKey)||'[]');}catch{}if(jobIds.length)await poll();}catch(e){status(e.message);}})();
+  (async()=>{try{catalog=await api('taxonomy');renderTagTree();await load();await loadTokens();try{jobIds=JSON.parse(sessionStorage.getItem(jobStorageKey)||'[]');}catch{}if(jobIds.length)await poll();}catch(e){status(e.message);}})();
 })();

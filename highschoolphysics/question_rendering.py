@@ -168,21 +168,29 @@ def render_markdown(markdown, asset_url=None):
     return parser.render(safe_headings)
 
 
-def render_question(document, asset_url=None, include_solution=False, child_key=None, include_options=True):
+def render_question(document, asset_url=None, include_solution=False, child_key=None, include_options=True, compact_layout=False):
     """Render one full question or a child with shared parent conditions."""
     title = html.escape(str(document.get("number", "")))
     parts = ['<article class="question-content" data-question-number="%s">' % title]
     stem_html = render_markdown(document.get("stem_md", ""), asset_url)
     figures = []
-    if document.get("options") and include_options:
+    if compact_layout or (document.get("options") and include_options):
         def collect_figure(match):
             figures.append(match.group(0))
             return ""
         stem_html = re.sub(r'<img\b[^>]*class="question-content-image"[^>]*>', collect_figure, stem_html)
         stem_html = re.sub(r"<p>\s*</p>", "", stem_html)
+    child_html = {}
+    if compact_layout:
+        for child in document.get('children', []):
+            rendered = render_markdown(child['stem_md'], asset_url)
+            rendered = re.sub(r'<img\b[^>]*class="question-content-image"[^>]*>', collect_figure, rendered)
+            child_html[child['key']] = re.sub(r'<p>\s*</p>', '', rendered)
     parts.append('<div class="question-stem">%s</div>' % stem_html)
     if figures:
         parts.append('<div class="choice-lower-layout">')
+        if compact_layout:
+            parts.append('<div class="question-lower-text">')
 
     if include_options and document.get("options"):
         parts.append('<ol class="question-options">')
@@ -198,7 +206,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
             )
         parts.append("</ol>")
 
-    if figures:
+    if figures and not compact_layout:
         parts.append('<aside class="choice-figures">%s</aside></div>' % "".join(figures))
     children = document.get("children", [])
     selected = None
@@ -215,14 +223,14 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
                 % (
                     html.escape(child["key"], quote=True),
                     html.escape(child["label"]),
-                    render_markdown(child["stem_md"], asset_url),
+                    child_html.get(child['key'], '') if compact_layout else render_markdown(child["stem_md"], asset_url),
                 )
             )
             if include_options and child.get("options"):
                 parts.append('<ol class="question-options">')
                 for option in child["options"]:
                     parts.append(
-                        '<li data-option-key="%s"><span class="option-key">%s.</span>%s</li>'
+                        '<li data-option-key="%s"><span class="option-key">%s.</span><div>%s</div></li>'
                         % (
                             html.escape(option["key"], quote=True),
                             html.escape(option["key"]),
@@ -232,6 +240,9 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
                 parts.append("</ol>")
             parts.append("</li>")
         parts.append("</ol>")
+
+    if figures and compact_layout:
+        parts.append('</div><aside class="choice-figures">%s</aside></div>' % ''.join(figures))
 
     if include_solution:
         answer_parts = []

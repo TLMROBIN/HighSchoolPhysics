@@ -12,6 +12,7 @@ from .errors import InvalidRequest, PermissionDenied, ResourceNotFound, StateCon
 from .repository import loads, dumps
 from .document_models import canonical_sha256, validate_question_document
 from .question_rendering import render_question, render_markdown
+from .question_types import BANK_TYPES, bank_type as infer_bank_type
 
 
 def now():
@@ -89,8 +90,26 @@ def list_papers(repo, user):
         group by p.id order by p.created_at desc,p.id''', (user['school_id'],))]
 
 
-def library(repo, user, batch_id='', paper_id='', search='', offset=0):
+def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size=20, question_type='', tag_family='', tag_id='', base_path=''):
     staff(user)
+    try:
+        offset = max(0, int(offset))
+        page_size = int(page_size)
+    except (ValueError, TypeError):
+        raise InvalidRequest('分页参数无效')
+    if page_size not in (10, 20, 50) or (question_type and question_type not in BANK_TYPES):
+        raise InvalidRequest('请选择有效的题型和每页数量')
+    tag_ids = set()
+    if tag_id:
+        catalog = taxonomy(repo, user)
+        if tag_family not in catalog or tag_id not in {t['id'] for t in catalog[tag_family]}:
+            raise InvalidRequest('标签不属于当前学校的启用目录')
+        tag_ids.add(tag_id)
+        while True:
+            children = {t['id'] for t in catalog[tag_family] if t.get('parent_id') in tag_ids}
+            if children.issubset(tag_ids):
+                break
+            tag_ids.update(children)
     c = repo.conn
     batches = [dict(r) for r in c.execute('''select b.id,b.source_file_name,b.created_at,
         coalesce(i.import_mode,'questions') import_mode,i.paper_id,coalesce(i.title,b.source_file_name) title,
@@ -98,9 +117,9 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0):
         join questions q on q.import_batch_id=b.id and q.school_id=b.school_id
         left join question_bank_imports i on i.batch_id=b.id
         where b.school_id=? group by b.id order by b.created_at desc,b.id''', (user['school_id'],))]
-    rows = c.execute('''select q.id,q.stem,q.question_type,q.import_batch_id,q.original_question_number,q.version,
+    rows = c.execute('''select q.id,q.stem,q.question_type,q.bank_type,q.import_batch_id,q.original_question_number,q.version,
         b.group_id,b.child_key from questions q left join question_content_bindings b on b.question_id=q.id
-        where q.school_id=? order by q.created_at desc,q.id''', (user['school_id'],)).fetchall()
+        where q.school_id=? order by q.created_at desc,cast(q.original_question_number as integer),q.original_question_number,b.rowid,q.id''', (user['school_id'],)).fetchall()
     scoped_ids = None
     if batch_id:
         if batch_id not in {b['id'] for b in batches}:
@@ -116,15 +135,33 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0):
     groups = {}
     for row in ordered:
         key = row['group_id'] or row['id']
-        group = groups.setdefault(key, {'id': key, 'question_ids': [], 'number': row['original_question_number'] or '', 'stem': row['stem'], 'batch_id': row['import_batch_id'], 'types': [], 'tagged_count': 0})
+        group = groups.setdefault(key, {'id': key, 'question_ids': [], 'number': row['original_question_number'] or '', 'stem': row['stem'], 'batch_id': row['import_batch_id'], 'types': [], 'tagged_count': 0, 'search_text': '', 'tags': [], 'bank_type': row['bank_type'] if row['bank_type'] != 'unknown' else infer_bank_type(row['question_type'])})
         group['question_ids'].append(row['id'])
         group['types'].append(row['question_type'])
-        if repo.tags_for_question(row['id']):
+        group['search_text'] += ' ' + row['stem']
+        tags = repo.tags_for_question(row['id'])
+        group['tags'].extend(tags)
+        if tags:
             group['tagged_count'] += 1
-    matches = [g for g in groups.values() if not search or search.lower() in (g['stem'] + ' ' + g['number']).lower()]
-    offset = max(0, int(offset))
-    return {'batches': batches, 'papers': list_papers(repo, user), 'groups': matches[offset:offset+30],
-            'total': len(matches), 'offset': offset, 'scope_question_ids': [qid for g in matches for qid in g['question_ids']]}
+    matches = [g for g in groups.values()
+               if (not search or search.lower() in (g['search_text'] + ' ' + g['number']).lower())
+               and (not question_type or g['bank_type'] == question_type)
+               and (not tag_ids or any(t['tag_type'] == tag_family and t['tag_id'] in tag_ids for t in g['tags']))]
+    visible = matches[offset:offset+page_size]
+    for group in visible:
+        qid = group['question_ids'][0]
+        binding = content(c, qid, user['school_id'])
+        url = lambda aid: base_path+'/api/question-bank/assets/'+quote(aid)+'?question_id='+quote(qid)
+        if binding:
+            group['html'] = render_question(binding['document'], asset_url=url, compact_layout=True)
+        else:
+            q = repo.get_question(qid)
+            document = {'number': group['number'], 'stem_md': q['stem'], 'options': [{'key': k, 'markdown': v} for k,v in q['options'].items()], 'children': []}
+            group['html'] = render_question(document, compact_layout=True)
+        group['type_label'] = BANK_TYPES[group['bank_type']]
+        group.pop('search_text', None)
+    return {'batches': batches, 'papers': list_papers(repo, user), 'groups': visible,
+            'total': len(matches), 'offset': offset, 'page_size': page_size, 'scope_question_ids': [qid for g in matches for qid in g['question_ids']]}
 
 
 def taxonomy(repo, user):
@@ -141,7 +178,7 @@ def detail(repo, user, qid, base_path=''):
     binding = content(repo.conn, qid, user['school_id'])
     if binding:
         d = binding['document']
-        rendered = render_question(d, asset_url=lambda aid: base_path+'/api/question-bank/assets/'+quote(aid)+'?question_id='+quote(qid), include_solution=True)
+        rendered = render_question(d, asset_url=lambda aid: base_path+'/api/question-bank/assets/'+quote(aid)+'?question_id='+quote(qid), include_solution=True, compact_layout=True)
         rows = repo.conn.execute('select question_id,child_key from question_content_bindings where group_id=? order by rowid', (binding['group_id'],)).fetchall()
         units = []
         for row in rows:
@@ -328,6 +365,28 @@ def issue_token(repo,user,payload):
     return {'id':tid,'token':token,'expires_at':expiry}
 
 
+def save_type(repo, user, payload):
+    staff(user)
+    value = payload.get('bank_type')
+    if value not in BANK_TYPES or value == 'unknown':
+        raise InvalidRequest('请选择单选、多选、实验、解答或填空题')
+    c = repo.conn
+    c.execute('begin immediate')
+    try:
+        q = question(repo, user, payload.get('question_id'))
+        if type(payload.get('question_version')) is not int or q['version'] != payload['question_version']:
+            raise StateConflict('题目已变化，请刷新后调整题型')
+        binding = content(c, q['id'], user['school_id'])
+        ids = [r[0] for r in c.execute('select question_id from question_content_bindings where group_id=?', (binding['group_id'],))] if binding else [q['id']]
+        c.executemany('update questions set bank_type=?,version=version+1 where id=?', [(value, qid) for qid in ids])
+        repo.audit(user['id'], 'question_bank_type_saved', 'question', q['id'], {'bank_type': value, 'question_ids': ids})
+        c.commit()
+        return {'bank_type': value, 'question_ids': ids}
+    except Exception:
+        c.rollback()
+        raise
+
+
 def authenticate_agent(conn, bearer):
     row=conn.execute('''select t.id token_id,u.* from question_bank_agent_tokens t join users u on u.id=t.actor_id
         where t.token_hash=? and t.revoked_at is null and t.expires_at>? and t.school_id=u.school_id''',(hashlib.sha256(bearer.encode()).hexdigest(),now())).fetchone()
@@ -355,7 +414,8 @@ def revoke_token(repo,user,tid):
 def get_api(repo,user,path,params,base_path='',agent_id=None):
     value=lambda key: (params.get(key) or [''])[0]
     if path=='/api/question-bank/library':
-        return library(repo,user,value('batch_id'),value('paper_id'),value('search'),value('offset') or 0)
+        return library(repo,user,value('batch_id'),value('paper_id'),value('search'),value('offset') or 0,
+                       value('page_size') or 20,value('question_type'),value('tag_family'),value('tag_id'),base_path)
     if path=='/api/question-bank/taxonomy':
         return taxonomy(repo,user)
     if path=='/api/question-bank/question':
@@ -376,6 +436,8 @@ def post_api(repo,user,path,payload,agent_id=None):
         return queue_tags(repo,user,payload)
     if path=='/api/question-bank/content':
         return save_content(repo,user,payload.get('question_id'),payload)
+    if path=='/api/question-bank/type':
+        return save_type(repo,user,payload)
     if path=='/api/question-bank/tokens':
         return issue_token(repo,user,payload)
     if path=='/api/question-bank/tokens/revoke':
@@ -406,7 +468,8 @@ def page(user):
     return '''<section class="panel learning question-bank-page" data-question-bank>
       <h1>题库管理</h1>''' + navigation('bank') + '''
       <p class="section-intro">按导入批次管理题目，生成或调整标签，再选整卷或选题创建考试。</p>
-      <div class="bank-filters"><label>导入批次<select data-bank-batch><option value="">全部批次与手工录题</option></select></label><label>试卷<select data-bank-paper><option value="">全部题目</option></select></label><label>题目搜索<input type="search" data-bank-search placeholder="题干或原题号"></label><button type="button" data-bank-filter>筛选</button></div>
+      <div class="bank-layout"><aside class="bank-sidebar" aria-label="按标签筛选"><h2>标签筛选</h2><button type="button" data-bank-tag-clear>全部标签</button><p data-bank-tag-current>未限定标签</p><p>选择上级包含下级标签；匹配任一小问时保留完整大题。</p><div data-bank-tag-tree></div></aside><div class="bank-main">
+      <div class="bank-filters"><label>导入批次<select data-bank-batch><option value="">全部批次与手工录题</option></select></label><label>试卷<select data-bank-paper><option value="">全部题目</option></select></label><label>题型<select data-bank-type><option value="">全部题型</option><option value="single_choice">单选题</option><option value="multiple_choice">多选题</option><option value="experiment">实验题</option><option value="solution">解答题</option><option value="fill">填空题</option><option value="unknown">待确认</option></select></label><label>每页<select data-bank-size><option value="10">10 道题</option><option value="20" selected>20 道题</option><option value="50">50 道题</option></select></label><label>题目搜索<input type="search" data-bank-search placeholder="题干或原题号"></label><button type="button" data-bank-filter>筛选</button></div>
       <div class="bank-actions"><button type="button" data-bank-select-all>选中当前范围全部题目</button><button type="button" data-bank-clear>清空选择</button><span data-bank-selected>已选 0 道小题</span>
       <button type="button" data-bank-ai-missing>AI 生成未标注题</button><button type="button" data-bank-ai>AI 重新生成所选题</button><button type="button" data-bank-save-ai hidden>采用所选 AI 建议</button></div>
       <p data-bank-status role="status" aria-live="polite"></p><div data-bank-results></div>
@@ -415,13 +478,13 @@ def page(user):
       <details class="bank-agent"><summary>外部 Agent 标签接口</summary><p>凭证绑定当前账号与学校，仅允许读取题目和修改标签，最长有效期 90 天。创建后仅显示一次，请交给需要接入的 Agent。</p>
       <form data-bank-token><label>Agent 名称<input name="name" required maxlength="100"></label><label>有效天数<input name="days" type="number" min="1" max="90" value="30" required></label><button type="submit">创建接入凭证</button></form>
       <div data-bank-token-result></div><div data-bank-tokens></div><a href="/question-bank/agent-guide">查看接口说明</a></details>
-    </section>'''.replace('data-question-bank>', 'data-question-bank data-actor-id="'+html.escape(user['id'],quote=True)+'">')
+    </div></div></section>'''.replace('data-question-bank>', 'data-question-bank data-actor-id="'+html.escape(user['id'],quote=True)+'">')
 
 
 def agent_guide():
     return '''<section class="panel"><h1>Agent 标签接口</h1><a href="/question-bank">返回题库</a>
     <p>以部署地址下的 /api/question-bank/ 为接口根路径（学校代理地址需带 /physics 前缀）。请求使用 Authorization: Bearer &lt;接入凭证&gt;；POST 使用 application/json。</p>
-    <ol><li>GET library：列出批次、试卷与题目。可传 batch_id、paper_id、search、offset（每页 30 道大题）。scope_question_ids 提供当前筛选全部小题 ID。</li><li>GET taxonomy：读取启用的 knowledge、ability、literacy 标签 ID 和名称。</li><li>GET question?id=题目ID：读取完整题目 document、答案解析、units 中的小问标签及版本。</li><li>POST tags：原子批量保存三类标签。每次最多 500 道小题；每类最多 3 个标签，可为空。只接受当前学校启用的标签 ID。</li></ol>
+    <ol><li>GET library：列出批次、试卷与完整题目。可传 batch_id、paper_id、search、offset、page_size（10/20/50 道大题，默认 20）、question_type（single_choice/multiple_choice/experiment/solution/fill/unknown）、tag_family、tag_id。上级标签包含下级；匹配小问时保留完整大题。scope_question_ids 提供当前筛选全部小题 ID。</li><li>GET taxonomy：读取启用的 knowledge、ability、literacy 标签 ID、名称和 parent_id 层级。</li><li>GET question?id=题目ID：读取完整题目 document、答案解析、units 中的小问标签及版本。bank_type 为题库整题类型，question_type 为小问判分格式。</li><li>POST tags：原子批量保存三类标签。每次最多 500 道小题；每类最多 3 个标签，可为空。只接受当前学校启用的标签 ID。</li></ol>
     <pre>{"entries":[{"question_id":"题目ID","question_version":1,"expected_revision":0,"knowledge":["知识点ID"],"ability":["能力ID"],"literacy":["素养ID"]}]}</pre>
     <p>question_version 与 expected_revision 必须使用刚读取的值；返回 409 表示题目或标签已变化，请重新读取并判断后保存。保存只更新题库标签，已发布考试保持快照。返回 403 表示凭证无效、失效或账号无权限，404 表示资源不可访问。</p>
     <p>接入凭证不可编辑题目内容、调用内置模型、创建考试或读取学生数据。操作审计保留账号、凭证 ID 和题目范围；凭证可在题库页面撤销。</p></section>'''

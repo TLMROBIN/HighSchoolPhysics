@@ -276,6 +276,8 @@ class PhysicsRepository:
                 review_status,
             ),
         )
+        from .question_types import bank_type
+        self.conn.execute('update questions set bank_type=? where id=?', (bank_type(question_type, stem), question_id))
         self.audit(
             actor_id,
             "question_created",

@@ -204,6 +204,10 @@ def validate_question_document(document, known_asset_ids=None):
         errors.append("number is required")
     if document.get("answer_state") not in ANSWER_STATES:
         errors.append("answer_state is invalid")
+    if 'bank_type' in document:
+        from .question_types import BANK_TYPES
+        if document['bank_type'] not in BANK_TYPES:
+            errors.append('bank_type is invalid')
 
     options = document.get("options")
     option_keys = []

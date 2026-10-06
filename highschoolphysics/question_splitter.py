@@ -109,11 +109,16 @@ def _separate_numbered_questions(blocks):
     current = None
     inline_boundaries = []
     section_kind = None
+    choice_ranges = []
     for block in blocks:
         text = block.get("markdown", "")
         if _is_section_heading(block):
-            section_kind = ("multiple_choice" if "多选" in text or "多项选择" in text
-                            else "single_choice" if "选择" in text or "单选" in text else None)
+            heading = re.split(r'[（(]', text, maxsplit=1)[0]
+            section_kind = ("multiple_choice" if "多选" in heading or "多项选择" in heading
+                            else "single_choice" if "选择" in heading or "单选" in heading
+                            else "experiment" if "实验" in heading else None)
+            choice_ranges = [(int(start), int(end), 'multiple_choice' if label.startswith('多') else 'single_choice')
+                             for start, end, label in re.findall(r'(\d+)\s*[-—–~～至]\s*(\d+)\s*(?:题|为|是|均为|均是|为\s*单项)?\s*(单选|多选|单项选择|多项选择)', text)]
         matches = _question_starts(text)
         if not matches:
             if current is None or _is_section_heading(block):
@@ -153,7 +158,8 @@ def _separate_numbered_questions(blocks):
             else:
                 body_block["markdown"] = body
                 body_block["source_locator"] = dict(block.get("source_locator") or {}, start=body_start, end=end)
-            current = {"number": item["number"], "blocks": [body_block], "section_kind": section_kind}
+            current_kind = next((kind for start, end, kind in choice_ranges if str(item['number']).isdigit() and start <= int(item['number']) <= end), section_kind)
+            current = {"number": item["number"], "blocks": [body_block], "section_kind": current_kind}
     if current is not None:
         segments.append(current)
     return leading, segments, inline_boundaries
@@ -357,6 +363,8 @@ def _kind_for(stem, options, children, section_kind=None):
     text = stem
     if options:
         return "multiple_choice" if section_kind == "multiple_choice" or "多选" in text or "不定项" in text else "single_choice"
+    if section_kind == 'experiment':
+        return 'experiment'
     if "实验" in text or "探究" in text:
         return "experiment"
     if re.search(r"_{2,}|（\s*）|\(\s*\)", text):

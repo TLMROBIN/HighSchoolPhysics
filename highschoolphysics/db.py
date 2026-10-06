@@ -247,6 +247,27 @@ def initialize_database(conn):
             conn.rollback()
             raise
 
+    filter_version = conn.execute("select version from app_schema_migrations where feature='question_bank_filters'").fetchone()
+    if filter_version and filter_version[0] > 16:
+        raise RuntimeError('Question bank filters schema is newer than this application')
+    if not filter_version or filter_version[0] < 16:
+        try:
+            conn.execute('begin immediate')
+            _ensure_column(conn, 'questions', "bank_type text not null default 'unknown' check(bank_type in ('single_choice','multiple_choice','experiment','solution','fill','unknown'))")
+            from .question_types import bank_type
+            rows = conn.execute('''select q.id,q.question_type,q.stem,r.document_json from questions q
+                left join question_content_bindings b on b.question_id=q.id
+                left join question_content_groups g on g.id=b.group_id
+                left join question_content_revisions r on r.id=g.current_revision_id''').fetchall()
+            for row in rows:
+                document = json.loads(row['document_json']) if row['document_json'] else None
+                conn.execute('update questions set bank_type=? where id=?', (bank_type(row['question_type'], row['stem'], document), row['id']))
+            conn.execute("insert or replace into app_schema_migrations(feature,version) values('question_bank_filters',16)")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
 
 def _initialize_legacy_schema(conn):
     conn.executescript(

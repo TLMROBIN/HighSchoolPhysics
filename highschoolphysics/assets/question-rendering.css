@@ -29,6 +29,18 @@
   padding: 0.2rem 0 0.55rem;
 }
 
+.question-options > li { display: flex; align-items: baseline; gap: .4rem; }
+.question-options .option-key { flex: 0 0 1.6em; }
+.question-options > li > div { min-width: 0; flex: 1; }
+.question-options p { margin: 0; }
+.question-children > li { display: flow-root; }
+.question-children > li > strong { float: left; margin-right: .5rem; }
+.question-children > li > div > p:first-child { margin-top: 0; }
+.choice-lower-layout { display: grid; grid-template-columns: minmax(0,2fr) minmax(0,1fr); gap: .8rem; align-items: start; }
+.choice-lower-layout .question-options,.choice-lower-layout .question-children { margin: 0; padding-left: 0; }
+.choice-figures { min-width: 0; }
+.choice-figures .question-content-image { max-width: 100%; width: auto; height: auto; max-height: 22rem; margin: .35rem auto; }
+
 @media (max-width: 560px) {
   .question-content .katex,
   .question-content .katex-display {

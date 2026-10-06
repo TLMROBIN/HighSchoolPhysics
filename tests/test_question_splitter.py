@@ -25,6 +25,13 @@ def fixture_ir():
 
 
 class QuestionSplitterTests(unittest.TestCase):
+    def test_mixed_number_ranges_in_choice_heading(self):
+        ir=fixture_ir();base=ir['blocks'][0]
+        ir['blocks']=[dict(base,id='head',markdown='**一、单选题（1-7为单选，8-10为多选）**')]
+        for n in (1,7,8,10):
+            ir['blocks'].append(dict(base,id='q'+str(n),type='paragraph',order=n+1,markdown=str(n)+'．下列说法正确的是。\nA．甲\nB．乙'))
+        questions=split_document_ir(ir)['questions']
+        self.assertEqual([q['document']['kind'] for q in questions],['single_choice','single_choice','multiple_choice','multiple_choice'])
     def test_multiple_choice_section_is_inherited_and_resets_for_next_section(self):
         ir = fixture_ir()
         base = ir["blocks"][0]

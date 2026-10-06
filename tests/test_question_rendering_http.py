@@ -5,6 +5,16 @@ from highschoolphysics.question_rendering import question_math_asset_tags, rende
 
 
 class QuestionRenderingHTTPTests(unittest.TestCase):
+    def test_compact_full_question_moves_child_figures_to_right_column(self):
+        document={'number':'12','stem_md':'完整公共题干','options':[],
+                  'children':[{'key':'p1','label':'(1)','stem_md':'第一问\n\n![电路](asset:img1)','options':[]},
+                              {'key':'p2','label':'(2)','stem_md':'第二问','options':[]}]}
+        rendered=render_question(document,asset_url=lambda aid:'/assets/'+aid,compact_layout=True)
+        self.assertIn('完整公共题干',rendered)
+        self.assertIn('第二问',rendered)
+        self.assertEqual(rendered.count('<img '),1)
+        self.assertLess(rendered.index('第二问'),rendered.index('<aside class="choice-figures">'))
+        self.assertIn('<strong>(1)</strong><div><p>第一问',rendered)
     def test_option_labels_are_rendered_once(self):
         rendered = render_question(
             {

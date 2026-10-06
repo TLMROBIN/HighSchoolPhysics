@@ -611,6 +611,7 @@
       task_id: taskId, markdown, structure_operations: operations, structure_action: structureAction,
     });
     result.document.number = questionNumber;
+    result.document.bank_type = card.querySelector('[data-bank-kind]').value;
     card.querySelector("[data-preview-body]").innerHTML = result.html;
     const number = card.querySelector("[data-question-number]");
     if (number) number.textContent = result.document.number;
@@ -646,6 +647,7 @@
       card.dataset.revision = String(result.review_revision);
       card.dataset.savedMarkdown = preview.editorMarkdown;
       card.dataset.savedQuestionNumber = document.number;
+      card.dataset.savedBankKind = document.bank_type;
       card.dataset.savedReviewNote = "";
       setText(card.querySelector("[data-revision-label]"), result.review_revision);
       // The saved document is now the server base for subsequent structure edits.
@@ -757,6 +759,7 @@
   candidateCards().forEach((card) => {
     card.dataset.savedMarkdown = card.querySelector(".question-markdown").value;
     card.dataset.savedQuestionNumber = card.querySelector("[data-question-number-edit]").value.trim();
+    card.dataset.savedBankKind = card.querySelector('[data-bank-kind]').value;
     card.dataset.savedIssueResolution = "";
     card.dataset.savedReviewNote = "";
     refreshStructureControls(card, JSON.parse(card.querySelector("[data-question-structure]").dataset.questionStructure));
@@ -769,6 +772,7 @@
     JSON.parse(card.dataset.structureOperations || "[]").length > 0 ||
     card.querySelector(".question-markdown").value !== card.dataset.savedMarkdown ||
     card.querySelector("[data-question-number-edit]").value.trim() !== card.dataset.savedQuestionNumber ||
+    card.querySelector('[data-bank-kind]').value !== card.dataset.savedBankKind ||
     selectedReviewIssueIds(card).join(",") !== card.dataset.savedIssueResolution
   );
   const draftStorageKey = `hsp-document-review-drafts-v1:${taskId}`;
@@ -785,6 +789,7 @@
         revision: Number(card.dataset.revision), savedAt: Date.now(),
         markdown: card.querySelector(".question-markdown").value,
         number: card.querySelector("[data-question-number-edit]").value,
+        bankType: card.querySelector('[data-bank-kind]').value,
         note: "",
         issues: selectedReviewIssueIds(card), operations: JSON.parse(card.dataset.structureOperations || "[]"),
       };
@@ -797,6 +802,7 @@
       if (draft.revision === Number(card.dataset.revision)) {
         card.querySelector(".question-markdown").value = draft.markdown;
         card.querySelector("[data-question-number-edit]").value = draft.number;
+        if (draft.bankType) card.querySelector('[data-bank-kind]').value = draft.bankType;
 
         card.dataset.structureOperations = JSON.stringify(draft.operations || []);
         card.querySelectorAll("[data-issue-id]").forEach((input) => { input.checked = draft.issues.includes(input.dataset.issueId); });

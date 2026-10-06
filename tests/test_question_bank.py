@@ -42,7 +42,7 @@ class QuestionBankTests(unittest.TestCase):
     def entry(self,qid='q-newton-1'):
         return {'question_id':qid,'question_version':self.repo.get_question(qid)['version'],'expected_revision':question_bank.tag_revision(self.conn,qid),**{kind:[tags[0]['id']] for kind,tags in question_bank.taxonomy(self.repo,self.user).items()}}
 
-    def import_batch(self,mode='paper'):
+    def import_batch(self,mode='paper',bank_type=None):
         source=b'%PDF-1.7\nbank test fixture\n';digest=hashlib.sha256(source).hexdigest()
         _,data=self.post('/api/documents/uploads',{'name':'bank.pdf','size':len(source),'sha256':digest,'role':'paper','import_mode':mode,'tagging_policy':'question_bank','title':'整卷验证','request_key':'bank-upload-'+mode})
         upload=data['result']
@@ -52,18 +52,68 @@ class QuestionBankTests(unittest.TestCase):
         def converter(source_path,original_name,store,school_id,document_id,conversion_id,work_dir,**kwargs):
             output=io.BytesIO();Image.new('RGB',(12,12),(100,130,160)).save(output,format='PNG')
             asset=store.store_asset(school_id,output.getvalue(),{'page':1})
-            blocks=[{'id':'b'+str(n),'type':'paragraph','page':1,'column':0,'order':n,'bbox':[0,0,1,1],'markdown':f'第{n}题 小车受力分析。\n\nA. 加速\n\nB. 匀速'+ ('\n\n![图](asset:'+asset['id']+')' if n==1 else ''),'asset_ids':[asset['id']] if n==1 else [],'source_locator':{'kind':'pdf','page':1},'issues':[]} for n in (1,2)]
+            blocks=[{'id':'b'+str(n),'type':'paragraph','page':1,'column':0,'order':n,'bbox':[0,0,1,1],'markdown':f'第{n}题 小车受力分析。'+ ('\n\n![图](asset:'+asset['id']+')' if n==1 else '')+'\n\nA. 加速\n\nB. 匀速','asset_ids':[asset['id']] if n==1 else [],'source_locator':{'kind':'pdf','page':1},'issues':[]} for n in (1,2)]
             return {'document':{'schema_version':1,'document_id':document_id,'conversion_id':conversion_id,'source_sha256':digest,'pages':[{'page':1,'width':100,'height':100,'rotation_applied':0}],'blocks':blocks,'assets':[{k:asset[k] for k in ('id','sha256','mime_type','byte_size','width_px','height_px')}],'issues':[]},'markdown':'\n\n'.join(b['markdown'] for b in blocks),'manifest':{'method':'bank-test','issues':[],'formula_count':0},'assets':[asset],'adapter_name':'test','adapter_version':'1','preview_pdf':source,'preview_converter':'test'}
         self.assertEqual(run_once(self.server.db_path,converter=converter)['status'],'parsed')
         items=document_ingestion.get_task_items(self.conn,self.user,task)
         for item in items:
             d=item['document'];d['answer_md']='A';d['analysis_md']='使用牛顿第二定律。';d['answer_state']='verified'
+            if bank_type:
+                d['bank_type'] = bank_type
             saved=document_ingestion.save_candidate(self.conn,self.user,item['id'],{'request_key':'save-'+item['id'],'expected_revision':item['review_revision'],'document':d})
             item['review_revision']=saved['review_revision']
         refs=[{'id':item['id'],'expected_revision':item['review_revision']} for item in items]
         document_ingestion.confirm_paper_review(self.conn,self.user,task,{'request_key':'review-'+task,'items':refs})
         result=document_ingestion.confirm_candidates(self.conn,self.user,task,{'request_key':'publish-'+task,'items':refs,'reviewed':True})
         return result
+
+    def test_imported_bank_type_filters_and_full_stem_html(self):
+        result = self.import_batch(bank_type='experiment')
+        ids = question_bank.batch_question_ids(self.conn, result['batch_id'], self.user['school_id'])
+        self.assertEqual({self.repo.get_question(qid)['bank_type'] for qid in ids}, {'experiment'})
+        status,data = self.get('/api/question-bank/library?question_type=experiment&page_size=10&batch_id='+result['batch_id'])
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data['result']['total'], 2)
+        rendered = data['result']['groups'][0]['html']
+        self.assertIn('小车受力分析', rendered)
+        self.assertIn('choice-figures', rendered)
+        self.assertIn('question-lower-text', rendered)
+        self.assertIn('question_id=', rendered)
+        self.assertEqual(self.get('/api/question-bank/library?question_type=solution&batch_id='+result['batch_id'])[1]['result']['total'], 0)
+        self.assertEqual(self.get('/api/question-bank/library?page_size=30')[0], 400)
+        self.assertEqual(self.get('/api/question-bank/library?question_type=invalid')[0], 400)
+
+    def test_parent_tag_filter_includes_descendants_and_page_sizes(self):
+        catalog = question_bank.taxonomy(self.repo,self.user)
+        leaf = next(t for t in catalog['knowledge'] if t.get('parent_id'))
+        e = self.entry();e['knowledge'] = [leaf['id']]
+        self.assertEqual(self.post('/api/question-bank/tags',{'entries':[e]})[0], 200)
+        query = '?tag_family=knowledge&tag_id='+leaf['parent_id']
+        result = self.get('/api/question-bank/library'+query)[1]['result']
+        self.assertIn(e['question_id'],result['scope_question_ids'])
+        self.assertEqual(self.get('/api/question-bank/library?tag_family=knowledge&tag_id=foreign')[0],400)
+        for n in range(53):
+            self.repo.create_question(self.user['id'],'分页题 '+str(n),{},'','', 'short_answer','测试','高三','','medium')
+        for size in (10,20,50):
+            status,data=self.get('/api/question-bank/library?page_size='+str(size))
+            self.assertEqual(status,200,data)
+            self.assertEqual(len(data['result']['groups']),size)
+            self.assertGreater(data['result']['total'],50)
+        page1=self.get('/api/question-bank/library?page_size=10')[1]['result']
+        page2=self.get('/api/question-bank/library?page_size=10&offset=10')[1]['result']
+        self.assertFalse({g['id'] for g in page1['groups']} & {g['id'] for g in page2['groups']})
+        self.assertEqual(page1['scope_question_ids'],page2['scope_question_ids'])
+
+    def test_type_changes_require_version_and_are_not_agent_permissions(self):
+        q=self.repo.get_question('q-newton-1')
+        payload={'question_id':q['id'],'question_version':q['version'],'bank_type':'experiment'}
+        self.assertEqual(self.post('/api/question-bank/type',payload)[0],200)
+        self.assertEqual(self.repo.get_question(q['id'])['bank_type'],'experiment')
+        self.assertEqual(self.post('/api/question-bank/type',payload)[0],409)
+        made=self.post('/api/question-bank/tokens',{'name':'test','days':1})[1]['result']
+        self.assertEqual(self.post('/api/question-bank/type',payload,{'Authorization':'Bearer '+made['token'],'Content-Type':'application/json'})[0],403)
+        initialize_database(self.conn)
+        self.assertEqual(self.repo.get_question(q['id'])['bank_type'],'experiment')
 
     def test_imported_paper_batch_tags_edit_and_assessment_are_connected(self):
         result=self.import_batch()

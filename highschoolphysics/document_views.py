@@ -181,6 +181,8 @@ def _source_asset_gallery(task_id, assets):
 
 
 def _structure_controls(document, published):
+    from .question_types import BANK_TYPES, bank_type
+    category_options = ''.join('<option value="%s" %s>%s</option>' % (key, 'selected' if key == bank_type(document.get('kind'), document=document) else '', label) for key, label in BANK_TYPES.items() if key != 'unknown')
     structure = {"kind": document.get("kind", "short_answer"),
                  "options": [{"key": item["key"]} for item in document.get("options", [])],
                  "children": [{"key": child["key"], "label": child["label"], "kind": child["kind"],
@@ -188,7 +190,7 @@ def _structure_controls(document, published):
                               for child in document.get("children", [])]}
     return '''<details class="question-structure-tools" data-question-structure="%s">
       <summary>调整题型、选项和小问</summary>
-      <fieldset %s><label>编辑对象<select data-structure-target><option value="">整题</option></select></label>
+      <fieldset %s><label>题库整题类型<select data-bank-kind>%s</select></label><label>编辑对象<select data-structure-target><option value="">整题</option></select></label>
       <label>题型<select data-structure-kind><option value="single_choice">单选</option><option value="multiple_choice">多选</option><option value="fill">填空</option><option value="short_answer">简答</option><option value="structured">综合</option><option value="experiment">实验</option></select></label>
       <button type="button" data-structure-action="add_child">增加小问</button>
       <button type="button" data-structure-action="remove_child">删除所选小问</button>
@@ -200,7 +202,7 @@ def _structure_controls(document, published):
       <button type="button" data-structure-action="move_option" data-direction="up">选项上移</button>
       <button type="button" data-structure-action="move_option" data-direction="down">选项下移</button>
       <p>结构调整先保留在本页；保存草稿后生效。剩余小问与选项的 ID 保持不变，请核对顺序与答案。</p>
-      </fieldset></details>''' % (_e(json.dumps(structure, ensure_ascii=False)), "disabled" if published else "")
+      </fieldset></details>''' % (_e(json.dumps(structure, ensure_ascii=False)), "disabled" if published else "", category_options)
 
 
 def document_review_page(task, items, source_assets=(), answer_groups=None, linked_paper_task=None):

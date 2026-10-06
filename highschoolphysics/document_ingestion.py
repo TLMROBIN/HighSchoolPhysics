@@ -1495,6 +1495,8 @@ def confirm_candidates(conn, actor, task_id, payload):
                             "confirmed",
                         ),
                     )
+                from .question_types import bank_type
+                conn.execute('update questions set bank_type=? where id=?', (bank_type(document['kind'], document['stem_md'], document), question_id))
                 legacy_store = _store_for_connection(conn)
                 for asset_id in media_ids:
                     asset = conn.execute(
