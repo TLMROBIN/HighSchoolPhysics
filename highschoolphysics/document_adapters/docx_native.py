@@ -764,6 +764,58 @@ def _paragraph_text(paragraph, rels, archive, store, school_id, block_id, issues
     return "".join(output)
 
 
+def restore_cached_docx_scripts(layout, source_bytes):
+    """Restore only source-proven Word run scripts in legacy paragraph blocks.
+
+    Original conversions and teacher edits remain unchanged. Ambiguous plain
+    text occurrences and existing LaTeX are deliberately left alone.
+    """
+    import copy
+    import io
+    from collections import Counter
+    if not isinstance(layout, dict):
+        return layout
+    try:
+        with zipfile.ZipFile(io.BytesIO(source_bytes)) as archive:
+            root = ET.fromstring(archive.read("word/document.xml"))
+    except (zipfile.BadZipFile, ET.ParseError, KeyError):
+        return layout
+    body = root.find("w:body", NS)
+    if body is None:
+        return layout
+    paragraphs = [node for node in body if node.tag == _q(W, "p")]
+    result = copy.deepcopy(layout)
+    for block in result.get("blocks", []):
+        locator = block.get("source_locator") or {}
+        index = locator.get("paragraph_index")
+        if locator.get("kind") != "word" or not isinstance(index, int) or not 1 <= index <= len(paragraphs):
+            continue
+        pairs = Counter()
+        previous = ""
+        for run in paragraphs[index - 1].iter(_q(W, "r")):
+            value = "".join("".join(node.itertext()) for node in run.findall("w:t", NS))
+            align = run.find("w:rPr/w:vertAlign", NS)
+            kind = _attribute(align, "val") if align is not None else ""
+            base = re.search(r"([A-Za-z]+|[0-9]+)$", previous)
+            script = value.strip()
+            if base and kind in ("subscript", "superscript") and re.fullmatch(r"[A-Za-z0-9+-]+", script):
+                pairs[(base.group(1), script, kind)] += 1
+            previous += value
+        text = block.get("markdown", "")
+        segments = re.split(r"(\$[^$]*\$)", text)
+        for (base, script, kind), expected in pairs.items():
+            boundary = r"(?<![A-Za-z])" if base.isalpha() else r"(?<![0-9])"
+            pattern = re.compile(boundary + r"(?:\*" + re.escape(base) + r"\*|" + re.escape(base) + r")" + re.escape(script) + r"(?![0-9])")
+            count = sum(len(pattern.findall(part)) for part in segments[::2])
+            if count != expected:
+                continue
+            replacement = base + "$ {}" + ("_" if kind == "subscript" else "^") + "{" + script + "}$"
+            for offset in range(0, len(segments), 2):
+                segments[offset] = pattern.sub(lambda _match: replacement, segments[offset])
+        block["markdown"] = "".join(segments)
+    return result
+
+
 def _table_markdown(table, rels, archive, store, school_id, issues, assets, block_id, formula_counter, ole_counter, vector_images=None, ole_formulas=None):
     rows = []
     for row in table.findall("w:tr", NS):

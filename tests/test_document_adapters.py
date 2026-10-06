@@ -104,6 +104,27 @@ def make_wps_shape_docx(path):
 
 
 class DocumentAdapterTests(unittest.TestCase):
+    def test_legacy_answer_scripts_restore_source_formatting_without_touching_math_or_ambiguous_text(self):
+        from highschoolphysics.document_adapters.docx_native import restore_cached_docx_scripts
+        source = io.BytesIO()
+        script = '<w:r><w:rPr><w:vertAlign w:val="%s"/></w:rPr><w:t>%s</w:t></w:r>'
+        text = lambda value: '<w:r><w:t>%s</w:t></w:r>' % value
+        paragraphs = [text('V') + script % ('subscript', '0') + text('=360m') + script % ('superscript', '3'),
+                      text('p') + script % ('subscript', '1') + text('=1.92×10') + script % ('superscript', '5') + text('Pa'),
+                      text('m') + script % ('superscript', '3') + text(' 和 m3')]
+        with zipfile.ZipFile(source, 'w') as archive:
+            archive.writestr('word/document.xml', '<w:document xmlns:w="%s"><w:body>%s</w:body></w:document>' % (W, ''.join('<w:p>%s</w:p>' % part for part in paragraphs)))
+        layout = {'blocks': [{'id': str(i), 'markdown': md, 'asset_ids': ['figure'], 'source_locator': {'kind': 'word', 'paragraph_index': i}}
+                             for i, md in enumerate(['*V*0=360m3', '*p*1=1.92×105Pa，$p_1=1.92\\times10^5$', 'm3 和 m3'], 1)]}
+        before = json.dumps(layout)
+        fixed = restore_cached_docx_scripts(layout, source.getvalue())
+        self.assertEqual(fixed['blocks'][0]['markdown'], 'V$ {}_{0}$=360m$ {}^{3}$')
+        self.assertEqual(fixed['blocks'][1]['markdown'], 'p$ {}_{1}$=1.92×10$ {}^{5}$Pa，$p_1=1.92\\times10^5$')
+        self.assertEqual(fixed['blocks'][2]['markdown'], 'm3 和 m3')
+        self.assertEqual(fixed['blocks'][0]['asset_ids'], ['figure'])
+        self.assertEqual(json.dumps(layout), before)
+        self.assertEqual(restore_cached_docx_scripts(fixed, source.getvalue()), fixed)
+
     def test_native_word_run_scripts_keep_subscripts_and_unit_exponents(self):
         from xml.etree import ElementTree as ET
         from highschoolphysics.document_adapters.docx_native import _paragraph_text

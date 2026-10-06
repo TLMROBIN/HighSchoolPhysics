@@ -716,7 +716,7 @@ def _answer_groups(conn, actor, answer_task_id, db_path=None, document_root=None
     if answer_task["status"] not in ("parsed", "partially_parsed") or not answer_task["conversion_id"]:
         raise IngestionError("answer_task_not_ready", "答案文件尚未转换完成", 409)
     file_row = conn.execute(
-        "select role from document_files where id=? and school_id=?",
+        "select role,storage_key from document_files where id=? and school_id=?",
         (answer_task["input_document_id"], actor["school_id"]),
     ).fetchone()
     if file_row is None or file_row["role"] not in ("answers", "rubric"):
@@ -735,6 +735,15 @@ def _answer_groups(conn, actor, answer_task_id, db_path=None, document_root=None
         )
     except (DocumentStoreError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise IngestionError("answer_conversion_unavailable", "答案文件转换结果无法读取", 424) from exc
+    if file_row["storage_key"].lower().endswith(".docx"):
+        from .document_adapters.docx_native import restore_cached_docx_scripts
+        try:
+            source = _store_for_db(db_path, document_root).read(file_row["storage_key"], max_bytes=50 * 1024 * 1024)
+            layout = restore_cached_docx_scripts(layout, source)
+        except (DocumentStoreError, ValueError, OSError, KeyError):
+            # Missing legacy source should not make an otherwise readable answer
+            # conversion unusable; teachers can still edit its Markdown.
+            pass
     blocks = layout.get("blocks") if isinstance(layout, dict) else None
     if not isinstance(blocks, list):
         raise IngestionError("invalid_answer_conversion", "答案文件没有可编辑的转换正文", 422)
