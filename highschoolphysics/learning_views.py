@@ -298,13 +298,13 @@ def _unmatched_answer_cards(c, assessment_id):
     ).fetchall()
     if not cards:
         return ""
-    students = []
+    students_by_class = defaultdict(list)
     for row in c.execute("""select u.id,u.display_name,u.student_no,g.name class_name
         from assessment_participants p join users u on u.id=p.student_id
         join class_groups g on g.id=u.class_id
         where p.assessment_id=? and p.status='present' and u.status='active'
         order by g.name,u.display_name""", (assessment_id,)):
-        students.append((row["id"], "%s · %s%s" % (
+        students_by_class[row["class_name"]].append((row["id"], "%s · %s%s" % (
             row["class_name"], row["display_name"],
             (" · " + row["student_no"]) if row["student_no"] else "")))
     pending = [card for card in cards if card["status"] == "awaiting_student"]
@@ -335,7 +335,7 @@ def _unmatched_answer_cards(c, assessment_id):
         body.append('</table>')
         body.append(form('unmatched-cards', hidden('operation', 'assign') +
                          hidden('card_id', card["id"]) +
-                         '<label>指定学生%s</label>' % select('student_id', students) +
+                         '<label>指定学生%s</label>' % select('student_id', students_by_class[card["class_name"]]) +
                          '<button>指定并导入作答</button>'))
         body.append('</article>')
     body.append('</section>')
