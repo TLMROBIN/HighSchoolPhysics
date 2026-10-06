@@ -24,3 +24,11 @@
 .scan-progress-label { font-weight:600; }
 .scan-progress-count { margin:0; color:var(--muted,#48606f); font-size:.9rem; }
 .scan-progress[data-state="failed"] progress { accent-color:#b91c1c; }
+
+.unmatched-answer-cards { margin:24px 0; padding:18px; border:1px solid var(--border,#dbe2ea); border-radius:12px; }
+.unmatched-answer-card { margin:18px 0; padding:16px; border:1px solid var(--border,#dbe2ea); border-radius:10px; overflow:auto; }
+.unmatched-card-images { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr)); gap:12px; margin:12px 0; }
+.unmatched-card-images img { display:block; width:100%; height:auto; border:1px solid var(--border,#dbe2ea); border-radius:8px; }
+.unmatched-answer-card table { width:100%; margin:12px 0; }
+.unmatched-answer-card form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; }
+.unmatched-answer-card form label { min-width:min(100%,360px); }

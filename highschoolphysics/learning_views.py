@@ -291,6 +291,57 @@ def question_fragment(c, snapshot_row, user, base_path="", include_solution=Fals
     return old
 
 
+def _unmatched_answer_cards(c, assessment_id):
+    cards = c.execute(
+        "select * from unmatched_answer_cards where assessment_id=? order by created_at,id",
+        (assessment_id,),
+    ).fetchall()
+    if not cards:
+        return ""
+    students = []
+    for row in c.execute("""select u.id,u.display_name,u.student_no,g.name class_name
+        from assessment_participants p join users u on u.id=p.student_id
+        join class_groups g on g.id=u.class_id
+        where p.assessment_id=? and p.status='present' and u.status='active'
+        order by g.name,u.display_name""", (assessment_id,)):
+        students.append((row["id"], "%s · %s%s" % (
+            row["class_name"], row["display_name"],
+            (" · " + row["student_no"]) if row["student_no"] else "")))
+    pending = [card for card in cards if card["status"] == "awaiting_student"]
+    assigned = len(cards) - len(pending)
+    body = ['<section class="unmatched-answer-cards"><h3>待指定学生的答题卡（%s）</h3>' % len(pending)]
+    body.append('<p>这些答卷已独立保存作答和评分，尚未关联学生；指定后会通过作答导入流程加入考试。%s</p>' %
+                ("已指定 %s 份。" % assigned if assigned else ""))
+    if not pending:
+        body.append('<p>当前没有等待指定学生的答题卡。</p>')
+    for card in pending:
+        records = loads(card["records_json"], [])
+        body.append('<article class="unmatched-answer-card"><h4>%s · 原 PDF 正面第%s页、背面第%s页</h4>' %
+                    (esc(card["class_name"]), card["front_page"], card["back_page"]))
+        body.append('<p>来源：%s；卷面姓名识别：%s。%s</p>' %
+                    (esc(card["source_file"]), esc(card["detected_name"] or "未识别"), esc(card["identity_note"])))
+        front_url = 'exam-unmatched-card-media?id=%s&side=front' % quote(card["id"])
+        back_url = 'exam-unmatched-card-media?id=%s&side=back' % quote(card["id"])
+        body.append('<details><summary>查看原始答题卡正反面</summary><div class="unmatched-card-images">'
+                    '<img src="%s" alt="答题卡正面，第%s页" loading="lazy">'
+                    '<img src="%s" alt="答题卡背面，第%s页" loading="lazy">'
+                    '</div></details>' % (front_url, card["front_page"], back_url, card["back_page"]))
+        body.append('<table><tr><th>题号 / 小问</th><th>识别到的作答</th><th>批改得分</th><th>核分说明</th></tr>')
+        for item in records:
+            answer = item.get("answer", "")
+            score = "—" if item.get("score") is None else "%s / %s" % (item["score"], item.get("max_score", "—"))
+            body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                esc(item.get("label", item.get("number", ""))), esc(answer or "空白"), esc(score), esc(item.get("marking_note", ""))))
+        body.append('</table>')
+        body.append(form('unmatched-cards', hidden('operation', 'assign') +
+                         hidden('card_id', card["id"]) +
+                         '<label>指定学生%s</label>' % select('student_id', students) +
+                         '<button>指定并导入作答</button>'))
+        body.append('</article>')
+    body.append('</section>')
+    return ''.join(body)
+
+
 def answer_controls(c, snapshot_row, user, base_path=""):
     option_rows = render_snapshot_options(c, snapshot_row["id"], user["school_id"], base_path)
     multiple = snapshot_row["question_type"] == "multiple_choice"
@@ -327,7 +378,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261006-scan-progress-v4"><script src="assets/learning.js?v=20261006-scan-progress-v4" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261006-unmatched-cards-v1"><script src="assets/learning.js?v=20261006-unmatched-cards-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -593,6 +644,7 @@ def exams(repo,user,aid=None,base_path=""):
             body.append('<p class="teacher-empty-note">当前尚未配置视觉模型，请管理员在系统管理中配置支持图像输入的大模型后使用。</p>')
         body.append(form('scan-upload',hidden('assessment_id',aid)+'<label>选择答题卡扫描件<input type="file" class="response-scan-files" accept=".pdf,.png,.jpg,.jpeg" multiple required></label><button>识别与自动批改</button><div class="scan-progress" hidden><label class="scan-progress-label">等待后台识别</label><progress max="100" aria-label="答题卡识别进度"></progress><p class="scan-progress-count" aria-live="polite"></p></div><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存识别结果</button>'))
         body.append('</section></div>')
+        body.append(_unmatched_answer_cards(c, aid))
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
         body.append('<p>应有 %s 条，已录入 %s 条，待确认 %s 条。缺失不能当作空白。</p>'%(expected,actual,sum(r['outcome']=='pending' for r in rs)))

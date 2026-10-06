@@ -3,10 +3,12 @@
 student_responses.outcome/final_answer are the effective projection. Evidence
 and decisions are append-only; published initial_answer and snapshots stay fixed.
 """
+import base64
 import csv
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import uuid
 from datetime import datetime, timezone
@@ -42,6 +44,7 @@ def migrate(conn):
         if current[0] != 14:
             raise StateConflict("不支持的作答证据版本")
         migrate_exam(conn)
+        _migrate_unmatched_answer_cards(conn)
         return
     conn.commit()
     conn.execute("begin immediate")
@@ -71,6 +74,39 @@ def migrate(conn):
             raise StateConflict("作答证据迁移外键核验失败")
         conn.commit()
         migrate_exam(conn)
+        _migrate_unmatched_answer_cards(conn)
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _migrate_unmatched_answer_cards(conn):
+    current = conn.execute(
+        "select version from app_schema_migrations where feature='unmatched_answer_cards'"
+    ).fetchone()
+    if current:
+        if current[0] != 1:
+            raise StateConflict("不支持的待匹配答题卡版本")
+        return
+    conn.commit()
+    conn.execute("begin immediate")
+    try:
+        current = conn.execute(
+            "select version from app_schema_migrations where feature='unmatched_answer_cards'"
+        ).fetchone()
+        if current:
+            if current[0] != 1:
+                raise StateConflict("不支持的待匹配答题卡版本")
+            conn.commit()
+            return
+        migration = Path(__file__).with_name("migrations") / "v15_unmatched_answer_cards.sql"
+        _execute_sqlite_script(conn, migration.read_text(encoding="utf-8"))
+        if conn.execute("pragma foreign_key_check").fetchall():
+            raise StateConflict("待匹配答题卡迁移外键核验失败")
+        conn.execute(
+            "insert into app_schema_migrations(feature,version) values('unmatched_answer_cards',1)"
+        )
+        conn.commit()
     except Exception:
         conn.rollback()
         raise
@@ -191,7 +227,6 @@ def _prepare(repo, user, p, trusted_scan=False):
         if supplied and source_type != 'external':
             raise InvalidRequest('外部结果需填写 source_type=external、来源及核对依据')
         answer=row["answer"]
-        import math
         score = maximum = None
         try:
             if row.get('score') is not None:
@@ -207,12 +242,15 @@ def _prepare(repo, user, p, trusted_scan=False):
         content=snapshot_content(conn,s['id'],user['school_id'])
         rule=loads(s['grading_rule_json'],{})
         score_only=score is not None and not answer.strip()
+        score_with_answer=score is not None and maximum is not None and bool(answer.strip())
         kind = (content or {}).get('document',{}).get('kind') or rule.get('type')
         if score_only and rule.get('bank_type') not in ('experiment','solution') and kind not in ('experiment','structured','short_answer'):
             # Some imported experimental subquestions retain a fill rule.
             bank_kind=conn.execute('select bank_type from questions where id=?',(s['question_id'],)).fetchone() if not rule.get('bank_type') or rule.get('bank_type')=='unknown' else [rule['bank_type']]
             if not bank_kind or bank_kind[0] not in ('experiment','solution'):
                 raise InvalidRequest('第 %s 条只有实验题和解答题可以仅导入得分' % index)
+        if score_with_answer and kind not in ('experiment','solution','structured','short_answer'):
+            raise InvalidRequest('第 %s 条仅实验题和解答题可同时导入手写答案与得分' % index)
         if score_only and supplied=='blank':
             raise InvalidRequest('仅得分记录不能标为空白')
         if supplied=="blank" and answer.strip():
@@ -221,12 +259,12 @@ def _prepare(repo, user, p, trusted_scan=False):
             raise InvalidRequest("空答案不能标为正确或错误；请补录原始答案")
         decision=snapshot_decision(conn,s,user["school_id"],answer)
         proposed=decision["outcome"]
-        if score_only:
+        if score_only or score_with_answer:
             proposed = ('correct' if score == maximum else 'wrong') if maximum is not None else 'pending'
         effective=proposed
         category=""
         method="rule"
-        if score_only:
+        if score_only or score_with_answer:
             method='imported_score'
             category='score_maximum_missing' if maximum is None else ''
             if supplied and supplied != proposed:
@@ -369,6 +407,210 @@ def _response(repo,user,rid):
         raise InvalidRequest("作答不存在")
     a=assessment(repo,user,r["assessment_id"])
     return r,a
+
+
+def _decode_card_image(value, label):
+    if not isinstance(value, str) or not value:
+        raise InvalidRequest("待匹配答题卡缺少%s图片" % label)
+    try:
+        image = base64.b64decode(value, validate=True)
+    except (ValueError, base64.binascii.Error) as exc:
+        raise InvalidRequest("%s图片编码无效" % label) from exc
+    if len(image) > 700_000:
+        raise InvalidRequest("%s图片需小于700KB" % label)
+    if image.startswith(b"\xff\xd8\xff"):
+        return image, "image/jpeg"
+    if image.startswith(b"\x89PNG\r\n\x1a\n"):
+        return image, "image/png"
+    raise InvalidRequest("%s图片只支持JPEG或PNG" % label)
+
+
+def unmatched_cards(repo, user, p):
+    conn = repo.conn
+    operation = p.get("operation")
+    if operation == "save":
+        a = assessment(repo, user, p["assessment_id"])
+        if a["grading_status"] == "published":
+            raise StateConflict("已发布的考试不能新增待匹配答题卡")
+        request_key = str(p.get("request_key") or "").strip()
+        cards = p.get("cards")
+        if not request_key or len(request_key) > 60:
+            raise InvalidRequest("缺少有效的待匹配批次标识")
+        if not isinstance(cards, list) or not cards or len(cards) > 20:
+            raise InvalidRequest("请提供1—20份待匹配答题卡")
+        scope = loads(a.get("scope_json"), {}) if hasattr(a, "get") else loads(a["scope_json"], {})
+        allowed_classes = set(scope.get("class_names", []))
+        positions = {r[0] for r in conn.execute(
+            "select position from question_version_snapshots where assessment_id=?", (a["id"],)
+        )}
+        conn.commit()
+        conn.execute("begin immediate")
+        try:
+            ids = []
+            for index, card in enumerate(cards, 1):
+                if not isinstance(card, dict):
+                    raise InvalidRequest("第%s份待匹配答题卡格式无效" % index)
+                card_key = str(card.get("card_key") or index).strip()
+                stable_key = request_key + ":" + card_key
+                class_name = str(card.get("class_name") or "").strip()
+                source_file = str(card.get("source_file") or "").strip()[:240]
+                front_page = card.get("front_page")
+                back_page = card.get("back_page")
+                detected_name = str(card.get("detected_name") or "").strip()[:120]
+                identity_note = str(card.get("identity_note") or "").strip()[:1000]
+                records = card.get("records")
+                if stable_key and len(stable_key) > 100:
+                    raise InvalidRequest("待匹配答题卡标识过长")
+                if not class_name or class_name not in allowed_classes:
+                    raise InvalidRequest("待匹配答题卡班级必须属于本次考试范围")
+                if not source_file or not isinstance(front_page, int) or not isinstance(back_page, int):
+                    raise InvalidRequest("待匹配答题卡需记录源文件及正反页码")
+                if not isinstance(records, list) or not records or len(records) > len(positions):
+                    raise InvalidRequest("待匹配答题卡作答数无效")
+                normalized_records = []
+                seen_positions = set()
+                for record in records:
+                    if not isinstance(record, dict) or not isinstance(record.get("answer"), str):
+                        raise InvalidRequest("待匹配答题卡的每条记录都需包含原始作答")
+                    try:
+                        number = int(record.get("number"))
+                    except (TypeError, ValueError) as exc:
+                        raise InvalidRequest("待匹配答题卡的题号无效") from exc
+                    if number not in positions or number in seen_positions:
+                        raise InvalidRequest("待匹配答题卡题号不存在或重复：%s" % number)
+                    seen_positions.add(number)
+                    item = {
+                        "number": number,
+                        "label": str(record.get("label") or number)[:120],
+                        "answer": record["answer"][:4000],
+                        "marking_note": str(record.get("marking_note") or "")[:1000],
+                    }
+                    score = record.get("score")
+                    maximum = record.get("max_score")
+                    if score is not None or maximum is not None:
+                        try:
+                            score_value = float(score)
+                            max_value = float(maximum)
+                            if (not math.isfinite(score_value) or not math.isfinite(max_value)
+                                    or score_value < 0 or max_value <= 0 or score_value > max_value):
+                                raise ValueError()
+                        except (TypeError, ValueError):
+                            raise InvalidRequest("第%s题得分或满分无效" % number)
+                        item["score"] = score_value
+                        item["max_score"] = max_value
+                    normalized_records.append(item)
+                front_image, front_mime = _decode_card_image(card.get("front_image_base64"), "正面")
+                back_image, back_mime = _decode_card_image(card.get("back_image_base64"), "背面")
+                card_payload = {
+                    "class_name": class_name, "source_file": source_file,
+                    "front_page": front_page, "back_page": back_page,
+                    "detected_name": detected_name, "identity_note": identity_note,
+                    "records": normalized_records,
+                    "front_image_base64": card["front_image_base64"],
+                    "back_image_base64": card["back_image_base64"],
+                }
+                card_hash = digest(card_payload)
+                old = conn.execute(
+                    "select id,payload_hash from unmatched_answer_cards where assessment_id=? and request_key=?",
+                    (a["id"], stable_key),
+                ).fetchone()
+                if old:
+                    if old["payload_hash"] != card_hash:
+                        raise StateConflict("同一待匹配卡片标识对应的内容不同，请更换批次标识")
+                    ids.append(old["id"])
+                    continue
+                card_id = identifier("unmatchedcard")
+                conn.execute("""insert into unmatched_answer_cards(
+                    id,school_id,assessment_id,created_by,request_key,payload_hash,class_name,
+                    source_file,front_page,back_page,detected_name,identity_note,records_json,
+                    front_image,front_mime,back_image,back_mime,created_at
+                    ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (card_id, user["school_id"], a["id"], user["id"], stable_key,
+                     card_hash, class_name, source_file, front_page, back_page, detected_name,
+                     identity_note, dumps(normalized_records), front_image, front_mime,
+                     back_image, back_mime, timestamp()))
+                ids.append(card_id)
+            _audit(conn, user, "unmatched_answer_cards_saved", a["id"], {"count": len(ids)})
+            conn.commit()
+            return {"message": "待指定学生的答题卡已保存", "card_ids": ids, "count": len(ids)}
+        except Exception:
+            conn.rollback()
+            raise
+
+    if operation != "assign":
+        raise InvalidRequest("未知的待匹配答题卡操作")
+    card = conn.execute(
+        "select * from unmatched_answer_cards where id=? and school_id=?",
+        (p.get("card_id"), user["school_id"]),
+    ).fetchone()
+    if not card:
+        raise InvalidRequest("待匹配答题卡不存在")
+    a = assessment(repo, user, card["assessment_id"])
+    if card["status"] == "assigned":
+        return {"message": "该答题卡已指定学生", "already_assigned": True}
+    student_id = str(p.get("student_id") or "").strip()
+    student = conn.execute("""select u.id,u.display_name,g.name class_name
+        from users u join class_groups g on g.id=u.class_id
+        join assessment_participants ap on ap.student_id=u.id and ap.assessment_id=?
+        where u.id=? and u.school_id=? and u.status='active' and ap.status='present'""",
+        (a["id"], student_id, user["school_id"])).fetchone()
+    if not student:
+        raise InvalidRequest("请从本次考试的参试名单中选择学生")
+    if student["class_name"] != card["class_name"]:
+        raise InvalidRequest("所选学生班级与答题卡班级不一致")
+    records = loads(card["records_json"], [])
+    snapshots = {r["position"]: dict(r) for r in conn.execute(
+        "select * from question_version_snapshots where assessment_id=?", (a["id"],)
+    )}
+    conflicts = []
+    import_records = []
+    for item in records:
+        snapshot = snapshots[item["number"]]
+        if conn.execute("select 1 from student_responses where assessment_id=? and student_id=? and question_id=?",
+                        (a["id"], student_id, snapshot["question_id"])).fetchone():
+            conflicts.append(item["number"])
+        import_records.append({
+            "student_id": student_id, "snapshot_id": snapshot["id"],
+            "answer": item["answer"], "source_row": item["number"],
+            "score": item.get("score"), "max_score": item.get("max_score"),
+            "reason": item.get("marking_note", ""),
+        })
+    if conflicts:
+        raise StateConflict("所选学生已有这些题号的作答，未覆盖：%s" % ", ".join(map(str, conflicts)))
+    key = "unmatched-" + card["id"]
+    payload = {
+        "assessment_id": a["id"], "request_key": key,
+        "source_type": "answers",
+        "source_name": "Agent 直接写入：待指定答题卡（%s 第%s-%s页）" %
+                       (card["source_file"], card["front_page"], card["back_page"]),
+        "records": import_records,
+    }
+    preview = import_answers(repo, user, payload)
+    if not preview.get("preview"):
+        raise StateConflict("作答导入没有生成预览，答题卡尚未指定")
+    saved = import_answers(repo, user, dict(payload, confirm=True,
+                                            preview_token=preview["preview_token"]))
+    conn.execute("""update unmatched_answer_cards set status='assigned',assigned_student_id=?,
+        import_batch_id=?,assigned_by=?,assigned_at=? where id=? and status='awaiting_student'""",
+        (student_id, saved.get("batch_id"), user["id"], timestamp(), card["id"]))
+    _audit(conn, user, "unmatched_answer_card_assigned", card["id"],
+           {"assigned_student_id": student_id, "imported_count": len(records)})
+    conn.commit()
+    return {"message": "已指定%s，%s条作答已写入考试" % (student["display_name"], len(records)),
+            "student_id": student_id, "imported_count": len(records), "batch_id": saved.get("batch_id")}
+
+
+def unmatched_card_image(repo, user, card_id, side):
+    if side not in ("front", "back"):
+        raise InvalidRequest("答题卡图片页无效")
+    card = repo.conn.execute(
+        "select * from unmatched_answer_cards where id=? and school_id=?",
+        (card_id, user["school_id"]),
+    ).fetchone()
+    if not card:
+        raise InvalidRequest("待匹配答题卡不存在")
+    assessment(repo, user, card["assessment_id"])
+    return card[side + "_image"], card[side + "_mime"]
 
 
 def history(repo,user,p):

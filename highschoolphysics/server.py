@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261006-scan-progress-v4"
+ASSET_VERSION = "20261006-unmatched-cards-v1"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
@@ -3203,6 +3203,24 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     data = get_asset(PhysicsRepository(conn), user["id"], aid)
                     self.send_response(HTTPStatus.OK)
                     self.send_header("Content-Type", "image/png")
+                    self.send_header("Cache-Control", "private, no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+            elif path == "/exam-unmatched-card-media":
+                if not user:
+                    self._send_error(HTTPStatus.FORBIDDEN, "请先登录")
+                else:
+                    query = parse_qs(parsed.query)
+                    from . import response_workflow
+                    data, mime_type = response_workflow.unmatched_card_image(
+                        PhysicsRepository(conn), user,
+                        (query.get("id") or [""])[0],
+                        (query.get("side") or [""])[0],
+                    )
+                    self.send_response(HTTPStatus.OK)
+                    self.send_header("Content-Type", mime_type)
                     self.send_header("Cache-Control", "private, no-store")
                     self.send_header("X-Content-Type-Options", "nosniff")
                     self.send_header("Content-Length", str(len(data)))
