@@ -1658,19 +1658,6 @@ def delete_task(conn, actor, task_id, document_root=None):
         conn.execute("delete from document_upload_parts where upload_id in (select id from document_uploads where task_id=?)", (task_id,))
         conn.execute("delete from document_uploads where task_id=?", (task_id,))
         conn.execute("update document_parse_tasks set conversion_id=NULL,input_document_id=NULL where id=?", (task_id,))
-        for file_row in file_rows:
-            file_id = file_row["id"]
-            still_referenced = conn.execute(
-                "select 1 from document_parse_tasks where input_document_id=? union all "
-                "select 1 from document_uploads where document_file_id=? union all "
-                "select 1 from document_files where parent_file_id=? limit 1",
-                (file_id, file_id, file_id),
-            ).fetchone()
-            if still_referenced:
-                continue
-            removed_keys.add(file_row["storage_key"])
-            conn.execute("delete from document_files where id=?", (file_id,))
-
         for conversion_id in conversion_ids:
             asset_ids = [row[0] for row in conn.execute(
                 "select distinct asset_id from conversion_asset_refs where conversion_id=?", (conversion_id,),
@@ -1685,6 +1672,21 @@ def delete_task(conn, actor, task_id, document_root=None):
                 ).fetchone():
                     removed_keys.add(asset["storage_key"])
                     conn.execute("delete from document_assets where id=?", (asset_id,))
+
+        for file_row in file_rows:
+            file_id = file_row["id"]
+            still_referenced = conn.execute(
+                "select 1 from document_parse_tasks where input_document_id=? union all "
+                "select 1 from document_uploads where document_file_id=? union all "
+                "select 1 from document_files where parent_file_id=? union all "
+                "select 1 from document_conversions where document_file_id=? limit 1",
+                (file_id, file_id, file_id, file_id),
+            ).fetchone()
+            if still_referenced:
+                continue
+            removed_keys.add(file_row["storage_key"])
+            conn.execute("delete from document_files where id=?", (file_id,))
+
 
         batch_id = fresh["import_batch_id"]
         paper_id = fresh["original_paper_id"]

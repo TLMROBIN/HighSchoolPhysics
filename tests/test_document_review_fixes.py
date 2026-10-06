@@ -69,6 +69,17 @@ class DocumentReviewFixTests(unittest.TestCase):
         parsed = json.loads(body)
         return parsed.get("result", parsed)
 
+    def test_delete_parsed_task_removes_conversion_before_its_source_file(self):
+        result = self.post("/api/documents/tasks/%s/delete" % self.task_id, {})
+        self.assertTrue(result["deleted"])
+        conn = connect(self.server.db_path)
+        try:
+            self.assertIsNone(conn.execute("select id from document_parse_tasks where id=?", (self.task_id,)).fetchone())
+            self.assertEqual(conn.execute("select count(*) from document_conversions where task_id=?", (self.task_id,)).fetchone()[0], 0)
+            self.assertEqual(conn.execute("pragma foreign_key_check").fetchall(), [])
+        finally:
+            conn.close()
+
     def test_whole_paper_confirmation_tracks_question_edits_and_rejects_duplicate_numbers(self):
         endpoint = "/api/documents/tasks/%s/confirm-review" % self.task_id
         selected = [{"id": item["id"], "expected_revision": item["review_revision"]} for item in self.items]
