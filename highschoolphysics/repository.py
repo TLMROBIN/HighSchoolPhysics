@@ -455,18 +455,31 @@ class PhysicsRepository:
         term,
         grade,
         scheduled_at,
+        class_ids=None,
+        whole_grade=False,
     ):
-        actor = self._require_assessment_class_actor(actor_id, class_id)
+        actor = (self._require_question_bank_actor(actor_id) if class_ids is not None
+                 else self._require_assessment_class_actor(actor_id, class_id))
+        selected_classes = class_ids if class_ids is not None else [class_id]
+        if not selected_classes or class_id not in selected_classes:
+            raise InvalidRequest("考试需要有效的班级范围")
+        groups = [dict(r) for r in self.conn.execute(
+            "select * from class_groups where school_id=?", (actor['school_id'],))
+                  if r['id'] in selected_classes]
+        if len(groups) != len(set(selected_classes)):
+            raise PermissionDenied("班级不属于本校")
+        groups_by_id={group['id']:group for group in groups}
+        groups=[groups_by_id[cid] for cid in selected_classes]
         paper = self.conn.execute(
             "select * from papers where id = ?",
             (paper_id,),
         ).fetchone()
-        if paper is None:
+        if paper is None or paper["school_id"] != actor["school_id"]:
             raise ResourceNotFound("Paper not found: %s" % paper_id)
         rows = self.conn.execute(
             """
             select pq.*, q.stem, q.options_json, q.answer_json,
-                   q.question_type, q.version
+                   q.question_type, q.bank_type, q.version
             from paper_questions pq
             join questions q on q.id = pq.question_id
             where pq.paper_id = ?
@@ -493,6 +506,7 @@ class PhysicsRepository:
                 tolerance = 0
             rule = {
                 "type": row["question_type"],
+                "bank_type": row["bank_type"],
                 "answer": expected_answer,
                 "points": row["points"],
                 "match": match,
@@ -589,7 +603,11 @@ class PhysicsRepository:
                 "not_started",
             ),
         )
-        for student in self.students_for_class(class_id):
+        if class_ids is not None:
+            self.conn.execute("update assessment_sessions set created_by=?,scope_json=? where id=?",
+                              (actor_id, dumps(dict(grade=grade, whole_grade=whole_grade,
+                               class_ids=selected_classes, class_names=[r['name'] for r in groups])), assessment_id))
+        for student in [student for cid in selected_classes for student in self.students_for_class(cid)]:
             self.conn.execute(
                 """
                 insert into assessment_participants(
@@ -4188,18 +4206,21 @@ class PhysicsRepository:
 
     def assessment_overview(self, actor_id):
         user = self._actor(actor_id)
-        params = []
-        scope = ""
+        params = [user['school_id']]
+        scope = "where a.school_id=?"
+        owner_supported = self.conn.execute("select 1 from pragma_table_info('assessment_sessions') where name='created_by'").fetchone()
         if user["role"] != "admin":
             scope = """
-              where exists (
+              where a.school_id=? and (OWNER_CLAUSE exists (
                 select 1 from teacher_classes tc
                 where tc.teacher_id = ?
                   and tc.class_id = a.class_id
                   and tc.subject = 'physics'
-              )
+              ))
             """
-            params.append(user["id"])
+            scope=scope.replace('OWNER_CLAUSE', 'a.created_by=? or' if owner_supported else '')
+            if owner_supported: params.append(user['id'])
+            params.append(user['id'])
         rows = self.conn.execute(
             """
             select a.*, c.name as class_name,

@@ -210,6 +210,8 @@ def get_asset(repo, actor_id, asset_id):
         raise PermissionDenied('不能查看此图片')
     if row['student_id']:
         if user['role']=='student':
+            if str(asset_id).startswith('card-'):
+                raise PermissionDenied('整页扫描原件仅供教师复核')
             if row['student_id']!=actor_id:
                 raise PermissionDenied('仅能查看自己的答题图')
             repo.assessment_detail(actor_id,row['assessment_id'])

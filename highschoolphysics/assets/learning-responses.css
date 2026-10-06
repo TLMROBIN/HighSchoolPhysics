@@ -9,3 +9,11 @@
   .response-table td::before { content: attr(data-label); display: block; color: #48606f; font-weight: 600; margin-bottom: 5px; }
   .response-table td p { margin: 7px 0; }
 }
+
+.exam-class-picker { display:flex; flex-wrap:wrap; gap:12px 20px; }
+.exam-class-picker label { display:flex; align-items:center; gap:6px; }
+.exam-class-picker input { width:auto; }
+.exam-class-picker label[hidden] { display:none; }
+.response-import-entries { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:24px; }
+.response-import-entry { padding:18px; border:1px solid var(--border,#dbe2ea); border-radius:12px; min-width:0; }
+.response-import-entry textarea { width:100%; box-sizing:border-box; }

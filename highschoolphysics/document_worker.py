@@ -479,6 +479,10 @@ def run_once(db_path=DEFAULT_DB_PATH, document_root=None, converter=None):
     task = claim_next_task(db_path)
     if task is not None:
         return process_task(task, db_path=db_path, document_root=document_root, converter=converter)
+    from .response_scans import run_once as run_scan_once
+    scan_result = run_scan_once(db_path)
+    if scan_result is not None:
+        return scan_result
     job = claim_next_tag_job(db_path)
     if job is None:
         return None
@@ -633,6 +637,13 @@ def run_forever(db_path=DEFAULT_DB_PATH, document_root=None, poll_seconds=5):
     conn = connect(db_path)
     try:
         initialize_database(conn)
+    finally:
+        conn.close()
+    conn=connect(db_path)
+    try:
+        if conn.execute("select 1 from sqlite_master where name='response_scan_jobs'").fetchone():
+            conn.execute("update response_scan_jobs set status='failed',error='后台服务已重启，识别任务中断，请重新上传' where status='running'")
+            conn.commit()
     finally:
         conn.close()
     while not stopping.is_set():

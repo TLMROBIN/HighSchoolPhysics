@@ -11,6 +11,7 @@ from .question_content import render_snapshot_content, render_snapshot_options, 
 from .question_rendering import render_question
 from .fill_rules import UNITS, instructions, reference_answer
 from .teacher_workspace import navigation, overview
+from .exam_workflow import classes as exam_classes, scope_label
 
 
 QUESTION_TYPE_LABELS = {
@@ -367,7 +368,7 @@ def student(repo,user,params,base_path=""):
         tag=(params.get('tag') or [''])[0]
         if tag and not any(t['name']==tag for t in loads(s['tag_snapshot_json'],[])):continue
         r=c.execute('select initial_answer from student_responses where id=?',(w['response_id'],)).fetchone()
-        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),esc(r[0]) or '空白',p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
+        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),first_answer_label(c,w['response_id'],r[0]),p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
         body[-1] = body[-1].rsplit('</details>',1)[0] + practice_history(c,user,w) + '</details>'
     body.append('<h2>最近的练习记录</h2><p>已复核仅表示结果已确认；本题是否巩固仍以三次间隔验证为准。</p><table><tr><th>题目</th><th>提交时间</th><th>作答</th><th>用途</th><th>结果 / 教师反馈</th></tr>')
     for a in c.execute('select a.*,s.stem from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? order by a.submitted_at desc limit 20',(uid,)):
@@ -375,6 +376,13 @@ def student(repo,user,params,base_path=""):
     body.append('</table>')
     body.append('<h2>知识点与能力关联导航</h2><p>点击标签查看关联的错题；标签表示题目关联，不作细分诊断。</p>'+metrics(repo,uid))
     return ''.join(body)+'</section>'+footer()
+
+def first_answer_label(conn, response_id, answer):
+    if answer:
+        return esc(answer)
+    scored=conn.execute('select 1 from response_evidence where response_id=? and imported_score is not null limit 1',(response_id,)).fetchone()
+    return '未导入答案（仅得分）' if scored else '空白'
+
 
 def metrics(repo,uid):
     c=repo.conn;groups=defaultdict(lambda:dict(q=set(),attempts=0,correct=0,wrong=0,blank=0))
@@ -402,8 +410,9 @@ def _teacher_learning_evidence(repo, assessments):
     for assessment in assessments:
         if assessment['grading_status'] != 'published':
             continue
-        rows=c.execute("""select r.*,u.display_name,s.tag_snapshot_json from student_responses r
+        rows=c.execute("""select r.*,u.display_name,student_class.name student_class_name,s.tag_snapshot_json from student_responses r
             join users u on u.id=r.student_id
+            join class_groups student_class on student_class.id=u.class_id
             join question_version_snapshots s on s.id=r.snapshot_id
             join assessment_participants p on p.assessment_id=r.assessment_id and p.student_id=r.student_id
             where r.assessment_id=? and p.status='present'""",(assessment['id'],)).fetchall()
@@ -412,7 +421,7 @@ def _teacher_learning_evidence(repo, assessments):
         for attempt in c.execute("select a.wrong_question_id,a.outcome from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where w.assessment_id=? and w.is_active=1 and a.purpose='verify'",(assessment['id'],)):
             attempts_by_wrong[attempt['wrong_question_id']].append(attempt)
         for row in rows:
-            student=students.setdefault((assessment['class_name'],row['student_id']),
+            student=students.setdefault((row['student_class_name'],row['student_id']),
                 dict(name=row['display_name'],wrong=0,due=0,pending=0,consolidated=0))
             wrong=wrongs.get(row['id'])
             state=progress(c,dict(wrong)) if wrong else None
@@ -427,7 +436,7 @@ def _teacher_learning_evidence(repo, assessments):
                 if tag['tag_type'] != 'knowledge' or tag['tag_id'] in seen:
                     continue
                 seen.add(tag['tag_id'])
-                key=(assessment['class_name'],row['student_id'],tag['tag_id'])
+                key=(row['student_class_name'],row['student_id'],tag['tag_id'])
                 evidence=knowledge.setdefault(key,dict(name=row['display_name'],tag=tag['name'],questions=set(),initial=0,correct=0,verify=0,verified=0,pending=0,consolidated=set()))
                 evidence['questions'].add(row['question_id'])
                 if row['outcome'] != 'pending':
@@ -462,7 +471,7 @@ def teacher(repo,user,params,document_import_enabled=False):
     assessments=[a for a in repo.assessment_overview(user['id']) if a['class_id'] in school_classes]
     assessment_items=''.join(
         '<li><a href="exams?id=%s">%s · %s</a></li>' %
-        (quote(a['id']),esc(a['class_name']),esc(a['title']))
+        (quote(a['id']),esc(scope_label(a)),esc(a['title']))
         for a in assessments
     )
     if module == "exams":
@@ -481,7 +490,12 @@ def teacher(repo,user,params,document_import_enabled=False):
     if module == "exams":
         from .question_bank import list_papers
         papers=list_papers(repo,user)
-        body.append('<section class="panel" id="new-exam"><h2>新建考试</h2><p>选择已保存的整套试卷。<a href="/question-bank">进入题库选题组卷</a></p>'+form('assessment','<label>试卷'+select('paper_id',[(p['id'],p['title']+' · '+str(p['question_count'])+' 道小题') for p in papers])+'</label><label>考试名称<input name="title" required maxlength="160"></label><label>班级'+select('class_id',classes)+'</label><label>日期<input name="date" type="date"></label><button>使用整套试卷创建考试</button>')+'</section>')
+        available=exam_classes(c,user['school_id'])
+        grades=list(dict.fromkeys(row['grade'] for row in available))
+        grade_select='<select name="grade" data-exam-grade>'+''.join('<option value="%s"%s>%s</option>' % (esc(grade),' selected' if grade=='高三' else '',esc(grade)) for grade in grades)+'</select>'
+        class_picker='<fieldset data-exam-classes><legend>班级（可多选，不选则为全年级）</legend><div class="exam-class-picker">'+''.join('<label data-grade="%s"><input type="checkbox" name="class_ids" value="%s">%s</label>' % (esc(row['grade']),esc(row['id']),esc(row['name'])) for row in available)+'</div><p data-exam-scope>未选择班级，默认全年级全部学生参加考试。</p></fieldset>'
+        body.append('<section class="panel" id="new-exam"><h2>新建考试</h2><p>选择已保存的整套试卷。<a href="/question-bank">进入题库选题组卷</a></p>'+form('assessment','<label>试卷'+select('paper_id',[(p['id'],p['title']+' · '+str(p['question_count'])+' 道小题') for p in papers])+'</label><label>考试名称<input name="title" required maxlength="160"></label><label>年级'+grade_select+'</label>'+class_picker+'<label>日期<input name="date" type="date"></label><button>使用整套试卷创建考试</button>')+'</section>')
+
 
     if module == "intake":
         body.append('<section id="create" class="teacher-intake-section"><h2>题目入库</h2><p class="section-intro">按整份试卷导入，或手动录入一道题。导入后的题目会先进入复核，再纳入题库。</p><div class="teacher-intake-grid">')
@@ -532,7 +546,7 @@ def teacher(repo,user,params,document_import_enabled=False):
     body.append('<h2 id="progress">复习进度</h2><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
     for a in assessments:
         ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
-        body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(a['class_name']),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
+        body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(scope_label(a)),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
     body.append('</table>')
     body.append(_teacher_learning_evidence(repo, assessments))
     return ''.join(body)+'</section>'+footer()
@@ -542,7 +556,7 @@ def exams(repo,user,aid=None,base_path=""):
     if staff: body.append(navigation('exams'))
     if not aid:
         rows=repo.assessment_overview(user['id']) if staff else [dict(r) for r in c.execute("select a.*,c.name class_name from assessment_sessions a join class_groups c on c.id=a.class_id join assessment_participants p on p.assessment_id=a.id where p.student_id=? and p.status='present' and a.grading_status='published'",(user['id'],))]
-        body.append('<h2>周测记录</h2><ul>'+''.join('<li><a href="exams?id=%s">%s · %s</a></li>'%(quote(a['id']),esc(a['class_name']),esc(a['title'])) for a in rows)+'</ul>')
+        body.append('<h2>周测记录</h2><ul>'+''.join('<li><a href="exams?id=%s">%s · %s</a></li>'%(quote(a['id']),esc(scope_label(a)),esc(a['title'])) for a in rows)+'</ul>')
         if staff: body.append('<p><a href="/teacher?module=exams#new-exam">新建考试</a></p>')
         return ''.join(body)+'</section>'+footer()
     a=repo.assessment_detail(user['id'],aid)
@@ -570,15 +584,19 @@ def exams(repo,user,aid=None,base_path=""):
     participants=c.execute('select p.*,u.display_name from assessment_participants p join users u on u.id=p.student_id where assessment_id=?',(aid,)).fetchall()
     rs=[dict(r) for r in c.execute('select r.*,u.display_name from student_responses r join users u on u.id=r.student_id where assessment_id=?',(aid,)) if staff or r['student_id']==user['id']]
     if staff and a['grading_status']!='published':
-        body.append('<h3>核对学生范围</h3>')
-        for p in participants:
-            body.append(form('participant',hidden('assessment_id',aid)+hidden('student_id',p['student_id'])+'<span>%s · 当前：%s</span>'%(esc(p['display_name']),esc({'present':'纳入','absent':'缺考','not_included':'不纳入'}.get(p['status'],p['status'])))+select('status',[('present','纳入'),('absent','缺考'),('not_included','不纳入')])+'<button>更新</button>'))
-        body.append('<h3>录入 / 导入作答</h3><p>CSV 列名：学生,题号,作答,结果。学生可填姓名、学号或账号；题号用下方每个评分小问的顺序号。有外部结果请选择“导入已核对结果”并说明来源；与规则不一致时须复核。留空时选择题自动核对、填空不匹配交教师确认。逗号答案请用英文双引号包围。</p>')
-        body.append(form('answers',hidden('assessment_id',aid)+'<label>导入方式<select name="source_type"><option value="answers">导入学生答案</option><option value="external">导入已核对结果</option></select></label><label>来源名称<input name="source_name" value="教师 CSV 录入" maxlength="240"></label><label>外部结果核对依据<textarea name="source_reason" rows="2"></textarea></label><input type="file" class="answers-file" accept=".csv,text/csv"><textarea name="csv" rows="8" placeholder="学生,题号,作答,结果&#10;张三,1,A,"></textarea><button>预览表格</button><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存</button>'))
+        body.append('<p>考试范围：%s · 默认范围内全部学生参加考试（%s 人）。</p>' % (esc(scope_label(a)),sum(p['status']=='present' for p in participants)))
+        body.append('<h3>作答情况导入</h3><div class="response-import-entries"><section class="response-import-entry"><h4>表格文件导入</h4><p>支持 CSV / XLSX。列名：学生姓名、题号、学生答案、得分；可增加满分、班级、结果。实验题和解答题可以只填得分。仅得分记录如需判定对错，请同时填写满分；没有满分时保留得分并待复核。重名学生请填写班级或学号。</p>')
+        numbering='<label>题号对应方式<select name="numbering"><option value="position">作答序号（下方小问序号）</option><option value="paper">原卷题号与小问标签</option></select></label>'
+        body.append(form('answers',hidden('assessment_id',aid)+hidden('source_type','answers')+hidden('source_name','教师表格导入')+numbering+'<label>选择表格文件<input type="file" class="answers-file" accept=".csv,.xlsx"></label><button type="button" data-response-template>下载 CSV 模板</button><label>表格内容<textarea name="csv" rows="6" placeholder="学生姓名,题号,学生答案,得分,满分,班级&#10;张三,1,A,,,"></textarea></label><button>预览表格</button><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存</button>'))
+        body.append('</section><section class="response-import-entry"><h4>答题卡扫描件导入</h4><p>上传 PDF、PNG 或 JPEG。系统调用 OCR 与视觉模型识别学生、提取答案并自动批改；匹配不唯一、模糊笔迹和无法确定的结果会提示复核。每批最多 30 个文件、100 页、20MB。</p>')
+        if not c.execute("select 1 from provider_configs where school_id=? and provider_kind='llm' and enabled=1",(user['school_id'],)).fetchone():
+            body.append('<p class="teacher-empty-note">当前尚未配置视觉模型，请管理员在系统管理中配置支持图像输入的大模型后使用。</p>')
+        body.append(form('scan-upload',hidden('assessment_id',aid)+'<label>选择答题卡扫描件<input type="file" class="response-scan-files" accept=".pdf,.png,.jpg,.jpeg" multiple required></label><button>识别与自动批改</button><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存识别结果</button>'))
+        body.append('</section></div>')
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
         body.append('<p>应有 %s 条，已录入 %s 条，待确认 %s 条。缺失不能当作空白。</p>'%(expected,actual,sum(r['outcome']=='pending' for r in rs)))
-        body.append(form('publish',hidden('assessment_id',aid)+'<button>核对完成，发布到错题本</button>'))
+        body.append(form('publish',hidden('assessment_id',aid)+'<button>发布作答结果到错题本</button>'))
     groups=defaultdict(lambda:dict(total=0,wrong=0,blank=0,students=set(),affected=set()))
     included={p['student_id'] for p in participants if p['status']=='present'}
     for group_index, question_group in enumerate(question_groups):
@@ -604,16 +622,19 @@ def exams(repo,user,aid=None,base_path=""):
             ))
             body.append('<table class="response-table"><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>原图 / 复核</th></tr>')
             for r in rows:
-                media=loads(r.get('ocr_payload_json'),{}).get('media_id','')
+                evidence=c.execute('select * from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
+                media=(evidence['source_asset_id'] if staff and evidence else '') or loads(r.get('ocr_payload_json'),{}).get('media_id','')
                 correction_note = ('<p>经更正的作答：%s</p>' % (esc(r['final_answer']) or '空白')) if r['initial_answer']!=r['final_answer'] else ''
                 operations = ('<a href="exam-media?id=%s">答题卡</a>' % quote(media)) if media else ''
+                if staff and evidence and evidence['imported_score'] is not None:
+                    correction_note += '<p>得分：%s%s</p>' % (esc(str(evidence['imported_score'])),(' / '+esc(str(evidence['imported_max_score']))) if evidence['imported_max_score'] is not None else '')
                 if staff:
                     operations += response_controls(r, a['grading_status']=='published')
                 else:
                     latest=c.execute('select method,reason from response_decisions where id=?',(r['effective_decision_id'],)).fetchone()
                     if latest and latest['method']=='teacher_correction':
                         correction_note += '<p>教师更正说明：%s</p>' % esc(latest['reason'])
-                body.append('<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="核对与证据">%s</td></tr>'%(esc(r['display_name']),esc(r['initial_answer']) or '空白',correction_note,LABELS[r['outcome']],operations))
+                body.append('<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="核对与证据">%s</td></tr>'%(esc(r['display_name']),first_answer_label(c,r['id'],r['initial_answer']),correction_note,LABELS[r['outcome']],operations))
                 if r['outcome']=='pending': continue
                 seen=set()
                 for t in loads(q['tag_snapshot_json'],[]):
@@ -639,7 +660,7 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     for w in rows:
         s=snapshot(c,w)
         content = question_fragment(c,s,user,base_path,include_solution=True,whole_group=True)
-        out.append('<article><h2>%s</h2>%s%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),question_part_context(c,s,user['school_id']),content,fill_question_context(s),tags(s),esc(w['wrong_answer']) or '空白',esc(reference_answer(loads(s['grading_rule_json'],{})))))
+        out.append('<article><h2>%s</h2>%s%s%s%s<p>首次作答：%s</p><p>参考答案：%s</p></article>'%(esc(w['display_name']),question_part_context(c,s,user['school_id']),content,fill_question_context(s),tags(s),first_answer_label(c,w['response_id'],w['wrong_answer']),esc(reference_answer(loads(s['grading_rule_json'],{})))))
         if user['role']=='student':
             from .learning import now
             c.execute('insert into learning_views values(?,?,?) on conflict(student_id,question_id) do update set viewed_at=excluded.viewed_at',(user['id'],w['question_id'],now()))

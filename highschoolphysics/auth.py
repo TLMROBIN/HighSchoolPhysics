@@ -273,6 +273,13 @@ class AuthService:
                 return False
             class_id = scope_id
             if resource in ("assessment", "diagnostics"):
+                # The creator can manage a school-wide exam without changing teaching assignments.
+                if self.conn.execute("select 1 from pragma_table_info('assessment_sessions') where name='created_by'").fetchone():
+                    if self.conn.execute("""select 1 from assessment_sessions a join users u on u.id=?
+                        where a.id=? and a.created_by=u.id and a.school_id=u.school_id""",
+                        (teacher_id, scope_id)).fetchone():
+                        return True
+            if resource in ("assessment", "diagnostics"):
                 row = self.conn.execute(
                     "select class_id from assessment_sessions where id = ?",
                     (scope_id,),

@@ -20,7 +20,12 @@ def _iter_paddle_entries(raw_result):
     if raw_result is None:
         return
     if isinstance(raw_result, dict):
-        yield raw_result
+        if 'rec_texts' in raw_result:
+            for index,text in enumerate(raw_result['rec_texts']):
+                scores=raw_result.get('rec_scores',[])
+                yield {'text':text,'confidence':float(scores[index]) if index < len(scores) else 0}
+        else:
+            yield raw_result
         return
     for entry in raw_result:
         if isinstance(entry, dict):
@@ -80,13 +85,13 @@ def run_paddleocr(image_paths, runner=None, confidence_threshold=0.75):
             from paddleocr import PaddleOCR
         except Exception as error:
             raise OCRAdapterError("PaddleOCR package is not importable") from error
-        engine = PaddleOCR(use_angle_cls=True, lang="ch")
+        engine = PaddleOCR(lang="ch")
         raw_by_path = {}
         for path in image_paths:
-            if hasattr(engine, "ocr"):
-                raw_by_path[path] = engine.ocr(path, cls=True)
+            if hasattr(engine, "predict"):
+                raw_by_path[path] = list(engine.predict(path))
             else:
-                raw_by_path[path] = engine.predict(path)
+                raw_by_path[path] = engine.ocr(path, cls=True)
     if isinstance(raw_by_path, dict):
         pairs = raw_by_path.items()
     else:

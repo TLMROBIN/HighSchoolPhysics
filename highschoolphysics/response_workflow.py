@@ -36,10 +36,12 @@ def digest(value):
 
 
 def migrate(conn):
+    from .exam_workflow import migrate as migrate_exam
     current = conn.execute("select version from app_schema_migrations where feature='response_evidence'").fetchone()
     if current:
         if current[0] != 14:
             raise StateConflict("不支持的作答证据版本")
+        migrate_exam(conn)
         return
     conn.commit()
     conn.execute("begin immediate")
@@ -68,6 +70,7 @@ def migrate(conn):
         if conn.execute("pragma foreign_key_check").fetchall():
             raise StateConflict("作答证据迁移外键核验失败")
         conn.commit()
+        migrate_exam(conn)
     except Exception:
         conn.rollback()
         raise
@@ -105,7 +108,7 @@ def snapshot_decision(conn, s, school_id, answer):
     return result
 
 
-def _prepare(repo, user, p):
+def _prepare(repo, user, p, trusted_scan=False):
     a = assessment(repo,user,p["assessment_id"])
     if a["grading_status"] == "published":
         raise StateConflict("已发布的首次作答不可覆盖；请使用结果更正")
@@ -122,16 +125,25 @@ def _prepare(repo, user, p):
             raise InvalidRequest("records 必须是作答列表")
     else:
         reader = csv.DictReader(io.StringIO(str(p.get("csv", "")).lstrip("\ufeff")))
-        if not {"学生","题号","作答","结果"}.issubset(reader.fieldnames or []):
-            raise InvalidRequest("表格列名必须包含：学生,题号,作答,结果")
+        aliases = {'学生姓名':'学生','姓名':'学生','学生答案':'作答','答案':'作答','得分情况':'得分'}
+        headers = [aliases.get(str(h).strip(),str(h).strip()) for h in (reader.fieldnames or [])]
+        if len(headers) != len(set(headers)) or not {'学生','题号'}.issubset(headers) or not ({'作答','得分'} & set(headers)):
+            raise InvalidRequest('表格列名需包含：学生姓名,题号,学生答案,得分；可附加满分、班级、结果')
+        reader.fieldnames = headers
         raw_rows = []
         for line,row in enumerate(reader,2):
-            if None in row or any(row.get(k) is None for k in ("学生","题号","作答","结果")):
-                raise InvalidRequest("第 %s 行有缺失/多余单元格；缺失不能当空白" % line)
-            if row["结果"] not in CSV_OUTCOMES:
-                raise InvalidRequest("第 %s 行结果必须为正确、错误、空白或待确认" % line)
-            raw_rows.append(dict(student=row["学生"],number=row["题号"],answer=row["作答"],
-                                 supplied_outcome=CSV_OUTCOMES[row["结果"]],source_row=line))
+            if None in row or any(value is None for value in row.values()):
+                raise InvalidRequest('第 %s 行有缺失/多余单元格' % line)
+            outcome = str(row.get('结果','')).strip()
+            if outcome not in CSV_OUTCOMES:
+                raise InvalidRequest('第 %s 行结果必须为正确、错误、空白或待确认' % line)
+            record = dict(student=row['学生'],number=row['题号'],answer=row.get('作答',''),
+                          class_name=row.get('班级',''),supplied_outcome=CSV_OUTCOMES[outcome],source_row=line)
+            if str(row.get('得分','')).strip(): record['score']=row['得分']
+            if str(row.get('满分','')).strip(): record['max_score']=row['满分']
+            raw_rows.append(record)
+    if 'records' not in p and source_type=='answers' and any(row.get('supplied_outcome') for row in raw_rows):
+        source_type='external';source_reason='教师表格中提供的结果；系统与标准答案核对，冲突项须复核'
     if not raw_rows or len(raw_rows)>30000:
         raise InvalidRequest("请提供 1—30000 条作答记录")
     conn=repo.conn
@@ -139,18 +151,33 @@ def _prepare(repo, user, p):
                     on p.student_id=u.id where p.assessment_id=? and p.status='present' and u.school_id=?""",
                     (a["id"],user["school_id"]))]
     snapshots=[dict(r) for r in conn.execute("select * from question_version_snapshots where assessment_id=?",(a["id"],))]
+    for item in snapshots:
+        content=snapshot_content(conn,item['id'],user['school_id'])
+        original=conn.execute('select original_question_number from questions where id=?',(item['question_id'],)).fetchone()[0]
+        item['paper_number']=str((content or {}).get('document',{}).get('number') or original or item['position'])
+        child=(content or {}).get('child_label','')
+        if child: item['paper_number'] += str(child)
     prepared=[]
     seen=set()
     for index,row in enumerate(raw_rows,1):
+        if isinstance(row,dict) and not trusted_scan:
+            row={**row,'extraction_method':'agent_import' if 'records' in p else 'manual_import','extraction_confidence':None}
+        if isinstance(row,dict) and 'answer' not in row and row.get('score') is not None:
+            row={**row,'answer':''}
         if not isinstance(row,dict) or not isinstance(row.get("answer"),str):
-            raise InvalidRequest("第 %s 条缺少原始答案，不能只导入结果" % index)
+            raise InvalidRequest("第 %s 条缺少原始答案；仅得分记录需提供 score" % index)
         label = str(row.get("student_id") or row.get("student") or "").strip()
         matches=[u for u in students if label in (u["id"],u["username"],u["display_name"],u["student_no"])]
+        if row.get('class_name'):
+            matches=[u for u in matches if conn.execute('select 1 from class_groups where id=? and name=?',
+                     (u['class_id'],str(row['class_name']).strip())).fetchone()]
         if len(matches)!=1:
             raise InvalidRequest("第 %s 条学生身份不唯一或不在纳入名单：%s" % (index,label))
         u=matches[0]
         ss=[s for s in snapshots if (row.get("snapshot_id") and s["id"]==row["snapshot_id"]) or
             (not row.get("snapshot_id") and str(s["position"])==str(row.get("number","")))]
+        if not row.get('snapshot_id') and p.get('numbering') == 'paper':
+            ss=[s for s in snapshots if s['paper_number']==str(row.get('number',''))]
         if len(ss)!=1:
             raise InvalidRequest("第 %s 条作答序号不存在或不唯一" % index)
         s=ss[0]
@@ -161,30 +188,69 @@ def _prepare(repo, user, p):
         supplied=row.get("supplied_outcome")
         if supplied is not None and supplied not in OUTCOMES:
             raise InvalidRequest("无效的外部判定结果")
-        if supplied and source_type != "external":
-            raise InvalidRequest("提供结果时请选择“导入已核对结果”，并填写来源和依据")
-        if any(k in row for k in ("score","max_score","confirmed_score","points")):
-            raise InvalidRequest("请提供无分数结果，不接收或换算外部分数")
+        if supplied and source_type != 'external':
+            raise InvalidRequest('外部结果需填写 source_type=external、来源及核对依据')
         answer=row["answer"]
+        import math
+        score = maximum = None
+        try:
+            if row.get('score') is not None:
+                if isinstance(row['score'],bool): raise ValueError()
+                score=float(row['score'])
+                if not math.isfinite(score) or score < 0: raise ValueError()
+            if row.get('max_score') is not None:
+                if isinstance(row['max_score'],bool): raise ValueError()
+                maximum=float(row['max_score'])
+                if not math.isfinite(maximum) or maximum <= 0 or score is None or score > maximum: raise ValueError()
+        except (TypeError,ValueError):
+            raise InvalidRequest('第 %s 条得分/满分无效' % index)
+        content=snapshot_content(conn,s['id'],user['school_id'])
+        rule=loads(s['grading_rule_json'],{})
+        score_only=score is not None and not answer.strip()
+        kind = (content or {}).get('document',{}).get('kind') or rule.get('type')
+        if score_only and rule.get('bank_type') not in ('experiment','solution') and kind not in ('experiment','structured','short_answer'):
+            # Some imported experimental subquestions retain a fill rule.
+            bank_kind=conn.execute('select bank_type from questions where id=?',(s['question_id'],)).fetchone() if not rule.get('bank_type') or rule.get('bank_type')=='unknown' else [rule['bank_type']]
+            if not bank_kind or bank_kind[0] not in ('experiment','solution'):
+                raise InvalidRequest('第 %s 条只有实验题和解答题可以仅导入得分' % index)
+        if score_only and supplied=='blank':
+            raise InvalidRequest('仅得分记录不能标为空白')
         if supplied=="blank" and answer.strip():
             raise InvalidRequest("非空答案不可标为空白")
-        if not answer.strip() and supplied in ("correct","wrong"):
+        if not score_only and not answer.strip() and supplied in ("correct","wrong"):
             raise InvalidRequest("空答案不能标为正确或错误；请补录原始答案")
         decision=snapshot_decision(conn,s,user["school_id"],answer)
         proposed=decision["outcome"]
+        if score_only:
+            proposed = ('correct' if score == maximum else 'wrong') if maximum is not None else 'pending'
         effective=proposed
         category=""
         method="rule"
-        if supplied=="pending":
+        if score_only:
+            method='imported_score'
+            category='score_maximum_missing' if maximum is None else ''
+            if supplied and supplied != proposed:
+                effective='pending';category='external_conflict'
+        elif supplied=="pending":
             effective="pending";category="external_pending"
         elif supplied and proposed in ("correct","wrong","blank") and supplied!=proposed:
             effective="pending";category="external_conflict"
         elif supplied and proposed=="pending":
-            effective="pending";category="external_confirmation"
+            if (row.get('extraction_method')=='ocr_vision' and
+                isinstance(row.get('extraction_confidence'),(int,float)) and row['extraction_confidence']>=.9 and
+                rule.get('type') in ('short_answer','structured','experiment') and
+                (content is None or content['answer_state']=='verified')):
+                effective=supplied;method='vision_grade'
+            else:
+                effective="pending";category="external_confirmation"
         elif supplied:
             method="external_rule_agreement"
         elif proposed=="pending":
             category=decision["reason_code"]
+        if not score_only and score is not None and maximum is not None:
+            score_outcome='correct' if score == maximum else 'wrong'
+            if effective in ('correct','wrong') and effective != score_outcome:
+                effective='pending';category='external_conflict'
         asset=row.get("source_asset_id")
         if asset:
             asset_row=conn.execute("select * from exam_assets where id=?",(asset,)).fetchone()
@@ -195,19 +261,26 @@ def _prepare(repo, user, p):
                              normalized_answer=decision["normalized_answer"],proposed_outcome=proposed,
                              supplied_outcome=supplied,outcome=effective,category=category,method=method,
                              reason_code=decision["reason_code"],rule_version=VERSION,answer_version=decision["answer_version"],source_asset_id=asset,
-                             source_row=row.get("source_row",index)))
+                             source_row=row.get("source_row",index),score=score,max_score=maximum,
+                             extraction_method=row.get('extraction_method','manual_import'),
+                             extraction_confidence=row.get('extraction_confidence'),score_only=score_only,
+                             decision_reason=str(row.get('reason') or '')[:2000]))
     return a,source_type,source_name,source_reason,prepared
 
 
-def import_answers(repo,user,p):
+def import_answers(repo,user,p,trusted_scan=False):
     conn=repo.conn
+    if p.get('scan_job_id'):
+        from .response_scans import saved_payload
+        p = saved_payload(repo,user,p)
+        trusted_scan=True
     conn.execute("begin immediate")
     try:
         # Replay acknowledged saves even after publication; never overwrite.
         key=str(p.get("request_key") or "").strip()
         if not key or len(key)>100:
             raise InvalidRequest("缺少稳定的导入标识，请刷新后重试")
-        payload_hash=digest({k:p.get(k) for k in ("assessment_id","csv","records","source_type","source_name","source_reason")})
+        payload_hash=digest({k:p.get(k) for k in ("assessment_id","csv","records","source_type","source_name","source_reason","numbering","scan_job_id")})
         a=assessment(repo,user,p["assessment_id"])
         old=conn.execute("select * from response_import_batches where assessment_id=? and created_by=? and batch_key=?",
                          (a["id"],user["id"],key)).fetchone()
@@ -217,7 +290,7 @@ def import_answers(repo,user,p):
             if old["status"] in ("saved","published"):
                 conn.rollback()
                 return dict(message="该批次已保存，未重复写入",batch_id=old["id"],already_saved=True)
-        a,source_type,source_name,source_reason,records=_prepare(repo,user,p)
+        a,source_type,source_name,source_reason,records=_prepare(repo,user,p,trusted_scan=trusted_scan)
         ch=context_hash(conn,a["id"])
         if p.get("confirm") is True:
             if not old or p.get("preview_token")!=old["id"] or old["context_hash"]!=ch:
@@ -267,10 +340,12 @@ def _save_record(conn,user,a,batch_id,r,reason):
                      (r["raw_answer"],r["raw_answer"],r["outcome"],"pending" if r["outcome"]=="pending" else "reviewed",rid))
     eid=identifier("evidence")
     conn.execute("""insert into response_evidence(id,response_id,batch_id,raw_answer,normalized_answer,
-                   source_row,source_asset_id,extraction_method,created_at) values(?,?,?,?,?,?,?,'manual_import',?)""",
-                   (eid,rid,batch_id,r["raw_answer"],r["normalized_answer"],r["source_row"],r["source_asset_id"],timestamp()))
+                   source_row,source_asset_id,extraction_method,created_at,imported_score,imported_max_score,
+                   extraction_confidence) values(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   (eid,rid,batch_id,r["raw_answer"],r["normalized_answer"],r["source_row"],r["source_asset_id"],
+                    r['extraction_method'],timestamp(),r['score'],r['max_score'],r['extraction_confidence']))
     did=_decision(conn,user,rid,eid,r["outcome"],r["raw_answer"],r["proposed_outcome"],r["supplied_outcome"],
-                  r["method"],r["reason_code"],reason,r["answer_version"],old["effective_decision_id"] if old else None)
+                  r["method"],r["reason_code"],reason+('；'+r['decision_reason'] if r['decision_reason'] else ''),r["answer_version"],old["effective_decision_id"] if old else None)
     conn.execute("update response_review_items set status='superseded' where response_id=? and status='open'",(rid,))
     if r["outcome"]=="pending":
         conn.execute("insert into response_review_items(id,response_id,decision_id,category,status) values(?,?,?,?,'open')",
@@ -375,7 +450,11 @@ def review_or_correct(repo,user,p,correction=False):
             raise InvalidRequest("此入口仅支持作答或结果更正；身份和标准答案修订需另行核对")
         if not reason or len(reason)>2000 or not key or len(key)>100 or not isinstance(answer,str) or outcome not in ("correct","wrong","blank"):
             raise InvalidRequest("请填写答案、已确认结果、更正/复核依据及提交标识")
-        if (outcome=="blank") != (not answer.strip()):
+        score_evidence=conn.execute('select imported_score from response_evidence where response_id=? and imported_score is not null limit 1',(r['id'],)).fetchone()
+        score_only=bool(score_evidence and not (r['initial_answer'] or '').strip())
+        if score_only and not answer.strip() and outcome=='blank':
+            raise InvalidRequest('仅得分记录不能改为空白')
+        if not score_only and (outcome=="blank") != (not answer.strip()):
             raise InvalidRequest("空白结果与原始答案不一致")
         prior=conn.execute("select * from response_decisions where response_id=? and request_key=?",(r["id"],key)).fetchone()
         if prior:

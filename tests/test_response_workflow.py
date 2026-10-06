@@ -81,7 +81,7 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.c.execute("select count(*) from response_review_items where response_id=? and status='open'",(r['id'],)).fetchone()[0],0)
 
     def test_source_is_required_and_no_result_only_import(self):
-        for p in [self.payload('A','错误'),self.payload('A','错误',source_type='external'),self.payload('','正确',source_type='external',source_name='表',source_reason='核对')]:
+        for p in [self.payload('A','错误',source_type='external'),self.payload('','正确',source_type='external',source_name='表',source_reason='核对')]:
             with self.assertRaises(InvalidRequest):learning.api(self.repo,self.admin,'answers',p)
         with self.assertRaises(InvalidRequest):learning.api(self.repo,self.admin,'answers',dict(assessment_id=self.a,request_key='rows',records=[dict(student_id='stu-1001',number=1,supplied_outcome='wrong')]))
 

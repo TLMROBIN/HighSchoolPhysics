@@ -1,0 +1,35 @@
+# 考试范围与作答导入
+
+新建考试显示本校班级，可选择年级和多个班级。不勾选班级时，纳入该年级所有班级的在校学生；选定班级时纳入这些班级的在校学生。全部默认 `present`，考试详情不再要求逐人核对纳入范围。历史考试的已有参试状态保留。考试创建者可以管理自己创建的跨班考试，不会修改教师任课分配。
+
+## 用户入口
+
+- **表格文件导入**：CSV（UTF-8 / GB18030）或 XLSX 第一张工作表。列为 `学生姓名,题号,学生答案,得分`，可增加 `满分,班级,结果`。兼容旧列名 `学生,题号,作答,结果`。重名须用学号或补充班级。题号默认对应考试作答序号，也可选择原卷题号与小问标签；不按行序猜测题目。提供预览、确认保存和 CSV 模板。
+- **答题卡扫描件导入**：PDF、PNG、JPEG，最多 30 文件 / 100 页 / 20MB。持久化队列由 `highschoolphysics-document-worker.service` 处理。PaddleOCR 转录后，支持图像输入的模型结合原图、名单与考试快照匹配学生、提取答案并批改；本地 OCR 不可用时使用独立的视觉转录步骤。结果经预览后保存。低置信度、规则冲突和答案未核验仍须复核；身份不唯一时明确失败，不猜测学生。整页扫描原件只供教师查看。
+
+实验题和解答题可只填得分，答案留空不等同于空白。原始得分与满分存入不可变的 `response_evidence`，与学习结果分开。提供满分时，全分为正确，非全分为需再练；只有得分而无满分时可保存，结果暂待确认。发布仍要求考试范围内每人每个小问都有已确认记录，缺失不会自动当空白。成绩不进入独立复习验证指标。
+
+扫描识别需要管理员配置支持视觉输入的 `llm` provider，以及 Pillow、PDF 转换工具和正在运行的 worker。调用受已有服务预算限制。配置不存在时上传会明确提示，不把依赖安装或服务 HTTP 200 当作实际识别成功。
+
+## Agent 接口（用户界面不展示）
+
+复用已认证的 `POST /api/learning/answers`。用稳定 `request_key` 首次请求获取 `preview_token`，再次提交相同内容及 `confirm:true,preview_token` 保存。重复确认不重复写入；已发布的首次作答不能覆盖。
+
+```json
+{
+  "assessment_id": "assess-…",
+  "request_key": "agent-import-…",
+  "source_type": "answers",
+  "source_name": "Agent 表格处理",
+  "records": [
+    {"student": "张三", "class_name": "高三14班", "snapshot_id": "snap-…", "answer": "A", "score": 4, "max_score": 4},
+    {"student": "张三", "class_name": "高三14班", "snapshot_id": "snap-…", "score": 6, "max_score": 10}
+  ]
+}
+```
+
+第二条必须对应实验题或解答题。结构化外部判定用 `source_type:external`，填写 `source_name,source_reason`，并在记录中提供 `supplied_outcome`（correct / wrong / blank / pending）。外部判定冲突须复核。Agent 提供的视觉来源/置信度不会被当作系统视觉自动批改证据。
+
+新建考试接口 `POST /api/learning/assessment` 支持 `paper_id,title,grade,class_ids,date`；`class_ids:[]` 或省略班级代表全年级，兼容旧 `class_id` 参数。扫描任务接口为 `scan-upload` / `scan-status`，确认识别结果仍经 `answers`，传 `assessment_id,scan_job_id,confirm,preview_token`。文件及大表格通过 `response-upload-chunk` 分块上传，适用于反向代理的小请求限制。
+
+功能迁移 `exam_workflow=17` 增加考试范围、创建人、原始得分字段和扫描任务表，保留既有考试、作答、证据和运行数据。

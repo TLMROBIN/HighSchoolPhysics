@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261006-teacher-layout-v2"
+ASSET_VERSION = "20261006-exam-import-v3"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
@@ -3365,7 +3365,9 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 raise PasswordChangeRequired(
                     "You must change your temporary password before continuing"
                 )
-            payload = self._read_payload()
+            if path.startswith('/api/learning/') and self.headers.get('Origin'):
+                self._require_same_origin()
+            payload = self._read_payload(max_bytes=30 * 1024 * 1024 if path in ('/api/learning/scan-upload', '/api/learning/answers-file') else 2 * 1024 * 1024)
             auth = AuthService(conn)
             if path.startswith("/api/learning/"):
                 result = learning.api(PhysicsRepository(conn), user, path.rsplit("/", 1)[-1], payload, self._base_path())

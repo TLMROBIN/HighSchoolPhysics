@@ -232,7 +232,24 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
-    if action=='answers': return response_workflow.import_answers(repo,user,p)
+    if action=='answers':
+        if p.get('upload_id'):
+            from .exam_import import staged_bundle
+            p=staged_bundle(repo,actor,p['upload_id'])
+        return response_workflow.import_answers(repo,user,p)
+    if action in ('scan-upload','scan-status'):
+        from .response_scans import api as scan_api
+        return scan_api(repo,user,action,p)
+    if action=='response-upload-chunk':
+        from .exam_import import stage_chunk
+        return stage_chunk(repo,actor,p)
+    if action=='answers-file':
+        repo._require_question_bank_actor(actor)
+        from .response_files import read_file
+        if p.get('upload_id'):
+            from .exam_import import staged_bundle
+            p=staged_bundle(repo,actor,p['upload_id'])
+        return {'csv':read_file(p)}
     if action=='publish': return response_workflow.publish(repo,user,p)
     if action=='response-history': return response_workflow.history(repo,user,p)
     if action=='response-review': return response_workflow.review_or_correct(repo,user,p)
@@ -319,9 +336,9 @@ def api(repo,user,action,p,base_path=""):
 
         return {'message':'题目与标签已保存'}
     if action=='assessment':
-        group=c.execute('select * from class_groups where id=? and school_id=?',(p['class_id'],user['school_id'])).fetchone()
-        if not group: raise InvalidRequest('班级不存在')
-        repo._require_assessment_class_actor(actor,group['id'])
+        from .exam_workflow import resolve_scope
+        grade, groups, whole_grade = resolve_scope(c,user,p)
+        group=groups[0]
         paper_id = p.get('paper_id')
         if paper_id:
             if not c.execute('select 1 from papers where id=? and school_id=?',(paper_id,user['school_id'])).fetchone():
@@ -335,7 +352,7 @@ def api(repo,user,action,p,base_path=""):
         if not paper_id:
             paper=repo.assemble_paper(actor,p['title'],'教师录入',[dict(question_id=q,points=0) for q in ids])
             paper_id=paper['paper']['id']
-        a=repo.create_assessment_from_paper(actor,paper_id,group['id'],p['title'],'','高三',p.get('date',''))
+        a=repo.create_assessment_from_paper(actor,paper_id,group['id'],p['title'],'',grade,p.get('date',''),class_ids=[r['id'] for r in groups],whole_grade=whole_grade)
         return {'message':'周测已建立，请录入并核对作答','url':'exams?id='+a['id']}
     a=staff_assessment(repo,user,p['assessment_id'])
     if action in ('answers','participant','publish') and a['grading_status']=='published': raise StateConflict('已发布的首次作答不可覆盖；请保留原记录')
