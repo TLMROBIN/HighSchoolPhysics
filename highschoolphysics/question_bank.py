@@ -403,8 +403,9 @@ def post_api(repo,user,path,payload,agent_id=None):
 def page(user):
     staff(user)
     from .teacher_workspace import navigation
-    return navigation('bank') + '''<section class="question-bank-page" data-question-bank>
-      <div class="bank-heading"><div><p class="eyebrow">备课与考试</p><h1>题库管理</h1><p>按导入批次管理题目，生成或调整标签，再选整卷或选题创建考试。</p></div><a href="/teacher">返回教师工作台</a></div>
+    return '''<section class="panel learning question-bank-page" data-question-bank>
+      <h1>题库管理</h1>''' + navigation('bank') + '''
+      <p class="section-intro">按导入批次管理题目，生成或调整标签，再选整卷或选题创建考试。</p>
       <div class="bank-filters"><label>导入批次<select data-bank-batch><option value="">全部批次与手工录题</option></select></label><label>试卷<select data-bank-paper><option value="">全部题目</option></select></label><label>题目搜索<input type="search" data-bank-search placeholder="题干或原题号"></label><button type="button" data-bank-filter>筛选</button></div>
       <div class="bank-actions"><button type="button" data-bank-select-all>选中当前范围全部题目</button><button type="button" data-bank-clear>清空选择</button><span data-bank-selected>已选 0 道小题</span>
       <button type="button" data-bank-ai-missing>AI 生成未标注题</button><button type="button" data-bank-ai>AI 重新生成所选题</button><button type="button" data-bank-save-ai hidden>采用所选 AI 建议</button></div>

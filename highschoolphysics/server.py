@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261006-teacher-modules-v1"
+ASSET_VERSION = "20261006-teacher-layout-v2"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
 DOCUMENT_ASSET_VERSION = "20261006-question-bank-v1"
 
@@ -115,7 +115,7 @@ def render_layout(title, user, body, active="", question_math=False):
         asset_version=escape(ASSET_VERSION),
         user_text=user_text,
         body=body,
-        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-v1">' if 'data-question-bank' in body else '',
+        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-layout-v2">' if 'data-question-bank' in body else '',
         bank_scripts='<script defer src="/assets/question-bank.js?v=20261006-v1"></script>' if 'data-question-bank' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
