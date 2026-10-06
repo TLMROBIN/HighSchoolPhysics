@@ -33,3 +33,7 @@
 新建考试接口 `POST /api/learning/assessment` 支持 `paper_id,title,grade,class_ids,date`；`class_ids:[]` 或省略班级代表全年级，兼容旧 `class_id` 参数。扫描任务接口为 `scan-upload` / `scan-status`，确认识别结果仍经 `answers`，传 `assessment_id,scan_job_id,confirm,preview_token`。文件及大表格通过 `response-upload-chunk` 分块上传，适用于反向代理的小请求限制。
 
 功能迁移 `exam_workflow=17` 增加考试范围、创建人、原始得分字段和扫描任务表，保留既有考试、作答、证据和运行数据。
+
+## 后台识别进度
+
+扫描上传后显示进度条和当前阶段：等待、准备/转换扫描件、OCR、视觉识别、自动批改、学生匹配和生成预览。总页数确认前显示等待进度；之后按实际已完成页数更新（逐页处理占 95%，预览成功后 100%），不估算耗时。任务进度持久保存，刷新页面可继续查看；失败保留已完成页数并显示错误，完成后仍需确认保存识别结果。

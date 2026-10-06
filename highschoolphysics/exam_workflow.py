@@ -8,6 +8,7 @@ def migrate(conn):
     current=conn.execute("select version from app_schema_migrations where feature='exam_workflow'").fetchone()
     if current:
         if current[0] != 17: raise InvalidRequest('不支持的考试工作流版本')
+        migrate_scan_progress(conn)
         return
     _ensure_column(conn, 'assessment_sessions', 'created_by text references users(id)')
     _ensure_column(conn, 'assessment_sessions', "scope_json text not null default '{}'")
@@ -22,6 +23,23 @@ def migrate(conn):
         created_at text not null, started_at text, unique(created_by,request_key))""")
     conn.execute("insert into app_schema_migrations(feature,version) values('exam_workflow',17)")
     conn.commit()
+    migrate_scan_progress(conn)
+
+
+def migrate_scan_progress(conn):
+    conn.commit()
+    conn.execute('begin immediate')
+    try:
+        current = conn.execute("select version from app_schema_migrations where feature='response_scan_progress'").fetchone()
+        if current:
+            if current[0] != 18: raise InvalidRequest('不支持的扫描进度版本')
+        else:
+            _ensure_column(conn, 'response_scan_jobs', "progress_json text not null default '{}'")
+            conn.execute("insert into app_schema_migrations(feature,version) values('response_scan_progress',18)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def classes(conn, school_id):

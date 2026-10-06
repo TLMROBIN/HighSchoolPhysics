@@ -591,7 +591,7 @@ def exams(repo,user,aid=None,base_path=""):
         body.append('</section><section class="response-import-entry"><h4>答题卡扫描件导入</h4><p>上传 PDF、PNG 或 JPEG。系统调用 OCR 与视觉模型识别学生、提取答案并自动批改；匹配不唯一、模糊笔迹和无法确定的结果会提示复核。每批最多 30 个文件、100 页、20MB。</p>')
         if not c.execute("select 1 from provider_configs where school_id=? and provider_kind='llm' and enabled=1",(user['school_id'],)).fetchone():
             body.append('<p class="teacher-empty-note">当前尚未配置视觉模型，请管理员在系统管理中配置支持图像输入的大模型后使用。</p>')
-        body.append(form('scan-upload',hidden('assessment_id',aid)+'<label>选择答题卡扫描件<input type="file" class="response-scan-files" accept=".pdf,.png,.jpg,.jpeg" multiple required></label><button>识别与自动批改</button><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存识别结果</button>'))
+        body.append(form('scan-upload',hidden('assessment_id',aid)+'<label>选择答题卡扫描件<input type="file" class="response-scan-files" accept=".pdf,.png,.jpg,.jpeg" multiple required></label><button>识别与自动批改</button><div class="scan-progress" hidden><label class="scan-progress-label">等待后台识别</label><progress max="100" aria-label="答题卡识别进度"></progress><p class="scan-progress-count" aria-live="polite"></p></div><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存识别结果</button>'))
         body.append('</section></div>')
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)

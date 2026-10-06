@@ -17,3 +17,10 @@
 .response-import-entries { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:24px; }
 .response-import-entry { padding:18px; border:1px solid var(--border,#dbe2ea); border-radius:12px; min-width:0; }
 .response-import-entry textarea { width:100%; box-sizing:border-box; }
+
+.scan-progress { padding:12px 0; }
+.scan-progress[hidden] { display:none; }
+.scan-progress progress { display:block; width:100%; height:16px; margin:8px 0; accent-color:var(--primary,#2563eb); }
+.scan-progress-label { font-weight:600; }
+.scan-progress-count { margin:0; color:var(--muted,#48606f); font-size:.9rem; }
+.scan-progress[data-state="failed"] progress { accent-color:#b91c1c; }
