@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from pathlib import Path
 import uuid
 
@@ -23,7 +24,22 @@ def connect(path=DEFAULT_DB_PATH):
     conn.execute("pragma foreign_keys = on")
     conn.execute("pragma busy_timeout = 5000")
     if str(path) != ":memory:":
-        conn.execute("pragma journal_mode = WAL")
+        # Simultaneous first connections can both try to convert a copied DB to WAL.
+        # SQLITE_BUSY during a journal transition does not always honor busy_timeout.
+        deadline = time.monotonic() + 5
+        try:
+            while True:
+                try:
+                    if conn.execute('pragma journal_mode').fetchone()[0].lower() != 'wal':
+                        conn.execute("pragma journal_mode = WAL")
+                    break
+                except sqlite3.OperationalError as exc:
+                    if 'locked' not in str(exc).lower() or time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.02)
+        except Exception:
+            conn.close()
+            raise
     return conn
 
 
@@ -216,6 +232,20 @@ def initialize_database(conn):
         _initialize_legacy_schema(conn)
     _migrate_document_ingestion_v12(conn)
     _migrate_tagging_queue_v13(conn)
+    bank_version = conn.execute("select version from app_schema_migrations where feature='question_bank'").fetchone()
+    if bank_version and bank_version[0] > 15:
+        raise RuntimeError('Question bank schema is newer than this application')
+    if not bank_version or bank_version[0] < 15:
+        try:
+            sql = Path(__file__).with_name('migrations').joinpath('v15_question_bank.sql').read_text()
+            conn.executescript('begin immediate;\n' + sql)
+            if conn.execute('pragma foreign_key_check').fetchall():
+                raise RuntimeError('Question bank migration failed foreign key validation')
+            conn.execute("insert or replace into app_schema_migrations(feature,version) values('question_bank',15)")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
 
 def _initialize_legacy_schema(conn):

@@ -113,6 +113,12 @@ def create_upload(conn, actor, payload, db_path=None, document_root=None):
     role = payload.get("role", "paper")
     if role not in ("paper", "answers", "rubric"):
         raise IngestionError("invalid_role", "The document role is invalid")
+    import_mode = payload.get('import_mode', 'questions')
+    if import_mode not in ('paper', 'questions'):
+        raise IngestionError('invalid_import_mode', '请选择整张试卷或零散题目')
+    tagging_policy = payload.get('tagging_policy', 'automatic')
+    if tagging_policy not in ('automatic','question_bank'):
+        raise IngestionError('invalid_tagging_policy', 'Invalid tagging policy')
     parser_mode = payload.get("parser_mode", "mineru_local")
     if parser_mode not in ("mineru_api", "mineru_local"):
         raise IngestionError("invalid_parser_mode", "The PDF recognition mode is invalid")
@@ -149,6 +155,8 @@ def create_upload(conn, actor, payload, db_path=None, document_root=None):
         "title": title,
         "original_paper_id": original_paper_id,
         "parser_mode": parser_mode,
+        "import_mode": import_mode,
+        "tagging_policy": tagging_policy,
     }
     request_hash = hashlib.sha256(canonical_json({
         "name": name,
@@ -433,6 +441,8 @@ def complete_upload(conn, actor, upload_id, db_path=None, document_root=None):
                values(?,?,?,?,?,'queued',?)""",
             (batch_id, row["school_id"], original_paper_id, row["original_name"], batch_mode, actor["id"]),
         )
+        if metadata['role'] == 'paper':
+            conn.execute('insert into question_bank_imports(batch_id,import_mode,title,tagging_policy) values(?,?,?,?)', (batch_id, metadata.get('import_mode','questions'), metadata['title'], metadata.get('tagging_policy','automatic')))
         conn.execute(
             """insert into document_files(id,school_id,original_paper_id,role,parent_file_id,original_name,mime_type,byte_size,sha256,storage_key,created_by)
                values(?,?,?,?,?,?,?,?,?,?,?)""",
@@ -1530,14 +1540,20 @@ def confirm_candidates(conn, actor, task_id, payload):
                where id=?""",
             (task["import_batch_id"],),
         )
+        from .question_bank import sync_import_paper
+        imported_paper_id = sync_import_paper(conn, task['import_batch_id'], actor)
         provider = conn.execute(
             """select 1 from provider_configs
                where school_id=? and provider_kind='llm' and enabled=1 limit 1""",
             (actor["school_id"],),
         ).fetchone()
         automatic_tagging = []
+        bank_import = conn.execute('select tagging_policy from question_bank_imports where batch_id=?', (task['import_batch_id'],)).fetchone()
         for published in results:
             for question_id in published["question_ids"]:
+                if bank_import and bank_import['tagging_policy'] == 'question_bank':
+                    automatic_tagging.append({'question_id': question_id, 'status': 'skipped', 'reason': 'manage_in_question_bank'})
+                    continue
                 if provider is None:
                     automatic_tagging.append({
                         "question_id": question_id,
@@ -1569,7 +1585,7 @@ def confirm_candidates(conn, actor, task_id, payload):
                     "job_id": job["id"] if job else job_id,
                     "status": job["status"] if job else "queued",
                 })
-        result = {"task_id": task_id, "published": results, "automatic_tagging": automatic_tagging}
+        result = {"task_id": task_id, "published": results, "automatic_tagging": automatic_tagging, "paper_id": imported_paper_id, "batch_id": task['import_batch_id']}
         conn.execute(
             "insert into content_operation_keys(school_id,actor_id,operation,request_key,request_hash,result_json) values(?,?,?,?,?,?)",
             (actor["school_id"], actor["id"], "confirm_candidates", request_key, request_hash, json.dumps(result, ensure_ascii=False)),

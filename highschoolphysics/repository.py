@@ -2054,15 +2054,22 @@ class PhysicsRepository:
                 tag["path_text"] = " > ".join(tag["path"])
         return tags
 
-    def generate_llm_candidates(self, actor_id, question_id):
-        self._require_question_bank_actor(actor_id)
+    def generate_llm_candidates(self, actor_id, question_id, force=False):
+        actor = self._require_question_bank_actor(actor_id)
         question = self.get_question(question_id)
         if question is None:
             raise ValueError("Question not found: %s" % question_id)
+        if question['school_id'] != actor['school_id']:
+            raise PermissionDenied('不可跨学校标注题目')
+        from .question_bank import content
+        binding = content(self.conn, question_id, question['school_id'])
+        if binding:
+            question['content_document'] = binding['document']
+            question['target_child_key'] = binding['child_key']
         ontology_id = self.first_active_ontology_id()
-        knowledge_nodes = self.knowledge_nodes()
-        ability_tags = self.ability_tags()
-        literacy_tags = self.literacy_tags()
+        knowledge_nodes = [t for t in self.knowledge_nodes() if t['school_id'] == actor['school_id']]
+        ability_tags = [t for t in self.ability_tags() if t['school_id'] == actor['school_id']]
+        literacy_tags = [t for t in self.literacy_tags() if t['school_id'] == actor['school_id']]
         provider = self.conn.execute(
             """select * from provider_configs where school_id=? and provider_kind='llm' and enabled=1
                order by updated_at desc,created_at desc limit 1""",
@@ -2074,7 +2081,7 @@ class PhysicsRepository:
                 "select * from question_tag_candidates where question_id=? and cache_key=?",
                 (question_id, cache_key),
             ).fetchone()
-            if existing:
+            if existing and not force:
                 return self._candidate_payload(existing)
             candidate = self._generate_model_candidate(
                 actor_id, question, ontology_id, knowledge_nodes, ability_tags, literacy_tags, provider
@@ -2087,6 +2094,8 @@ class PhysicsRepository:
                 literacy_tags,
                 ontology_id,
             )
+        if force:
+            candidate['cache_key'] += ':' + uuid.uuid4().hex
         existing = self.conn.execute(
             """
             select * from question_tag_candidates
@@ -2145,7 +2154,7 @@ class PhysicsRepository:
             raise LLMProviderError("missing_secret", "已启用的大模型配置没有 API Key")
         rough_payload = json.dumps(
             {
-                "question": {key: question.get(key) for key in ("question_type", "stem", "options", "analysis", "scenario")},
+                "question": {key: question.get(key) for key in ("question_type", "stem", "options", "answer", "analysis", "scenario", "content_document", "target_child_key")},
                 "knowledge": knowledge_nodes,
                 "ability": ability_tags,
                 "literacy": literacy_tags,
@@ -2216,6 +2225,8 @@ class PhysicsRepository:
         question = self.get_question(question_id)
         if question is None:
             raise ResourceNotFound("Question not found: %s" % question_id)
+        from .question_bank import tag_revision
+        original_tag_revision = tag_revision(self.conn, question_id)
         self._require_question_bank_actor(actor_id)
         provider = self.conn.execute(
             "select 1 from provider_configs where school_id=? and provider_kind='llm' and enabled=1 limit 1",
@@ -2226,6 +2237,14 @@ class PhysicsRepository:
         candidate = self.generate_llm_candidates(actor_id, question_id)
         if candidate.get("model_version") == "rules-only":
             return {"question_id": question_id, "status": "skipped", "reason": "model_tags_unavailable"}
+        self.conn.execute('begin immediate')
+        if self.get_question(question_id)['version'] != question['version'] or tag_revision(self.conn,question_id) != original_tag_revision:
+            self.conn.rollback()
+            return {'question_id':question_id,'status':'skipped','reason':'question_or_tags_changed','candidate_id':candidate['id']}
+        manually_cleared = original_tag_revision > 0 and not self.conn.execute('select 1 from question_tags where question_id=?', (question_id,)).fetchone()
+        if manually_cleared or self.conn.execute("select 1 from question_tags where question_id=? and source in ('teacher_review','agent') limit 1", (question_id,)).fetchone():
+            self.conn.rollback()
+            return {'question_id':question_id,'status':'skipped','reason':'manual_tags_preserved','candidate_id':candidate['id']}
         selections = {
             family: [item for item in candidate.get(family, []) if float(item.get("confidence", 0)) >= confidence_threshold]
             for family in ("knowledge_tags", "ability_tags", "literacy_tags")
@@ -2358,6 +2377,7 @@ class PhysicsRepository:
         ability_tag_ids=None,
         literacy_tag_ids=None,
         tag_source="teacher_review",
+        commit=True,
     ):
         knowledge_node_ids = knowledge_node_ids or []
         ability_tag_ids = ability_tag_ids or []
@@ -2365,14 +2385,16 @@ class PhysicsRepository:
         self._validate_tag_limit("knowledge", knowledge_node_ids)
         self._validate_tag_limit("ability", ability_tag_ids)
         self._validate_tag_limit("literacy", literacy_tag_ids)
-        if tag_source not in ("teacher_review", "llm_auto"):
+        if tag_source not in ("teacher_review", "llm_auto", "agent"):
             raise ValueError("Unsupported question tag source")
 
         question = self.get_question(question_id)
         if question is None:
             raise ResourceNotFound("Question not found: %s" % question_id)
-        self._require_question_bank_actor(actor_id)
+        actor = self._require_question_bank_actor(actor_id)
         school_id = question["school_id"]
+        if actor['school_id'] != school_id:
+            raise PermissionDenied('不可跨学校标注题目')
         candidate = None
         if candidate_id:
             candidate = self.conn.execute(
@@ -2392,9 +2414,9 @@ class PhysicsRepository:
         self._assert_active_tags(school_id, "literacy", literacy_tag_ids)
 
         ontology_id = self.first_active_ontology_id()
-        if tag_source == "teacher_review":
+        if tag_source in ("teacher_review", "agent"):
             self.conn.execute(
-                "delete from question_tags where question_id = ? and source in ('teacher_review','llm_auto')",
+                "delete from question_tags where question_id = ?",
                 (question_id,),
             )
         else:
@@ -2453,7 +2475,9 @@ class PhysicsRepository:
                 "tag_source": tag_source,
             },
         )
-        self.conn.commit()
+        self.conn.execute("insert into question_tag_revisions(question_id,revision) values(?,1) on conflict(question_id) do update set revision=revision+1", (question_id,))
+        if commit:
+            self.conn.commit()
         return self.get_question_tags(question_id)
 
     def approve_candidate_tags(self, actor_id, candidate_id, knowledge_node_ids, ability_tag_ids, literacy_tag_ids=None):

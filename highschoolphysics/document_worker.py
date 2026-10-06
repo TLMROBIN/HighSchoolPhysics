@@ -523,7 +523,7 @@ def claim_next_tag_job(db_path=DEFAULT_DB_PATH):
     try:
         conn.execute("begin immediate")
         row = conn.execute(
-            """select id,school_id,question_id,requested_by,question_version,attempts
+            """select id,school_id,question_id,requested_by,question_version,attempts,source,result_json
                from question_tag_jobs where status='queued' and available_at<=?
                order by created_at,id limit 1""",
             (_now(),),
@@ -554,12 +554,27 @@ def process_tag_job(job, db_path=DEFAULT_DB_PATH):
 
     conn = connect(db_path)
     try:
-        result = PhysicsRepository(conn).auto_tag_question(job["requested_by"], job["question_id"])
+        repo = PhysicsRepository(conn)
+        if job['source'].startswith('bank:'):
+            from .question_bank import tag_revision
+            expected = json.loads(job.get('result_json') or '{}').get('expected', {})
+            question = repo.get_question(job['question_id'])
+            if not question or question['version'] != job['question_version']:
+                result = {'question_id':job['question_id'], 'status':'stale', 'expected':expected}
+            else:
+                candidate = repo.generate_llm_candidates(job['requested_by'], job['question_id'], force=True)
+                if candidate.get('model_version') == 'rules-only':
+                    raise LLMProviderError('llm_provider_not_configured','大模型已停用，请重新配置后生成标签')
+                question = repo.get_question(job['question_id'])
+                stale = question['version'] != job['question_version'] or tag_revision(conn, job['question_id']) != expected.get('tag_revision')
+                result = {'question_id':job['question_id'], 'status':'stale' if stale else 'suggested', 'candidate_id':candidate['id'], 'expected':expected}
+        else:
+            result = repo.auto_tag_question(job["requested_by"], job["question_id"])
         state = "completed"
         error_code = ""
         result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
     except LLMProviderError as exc:
-        result = {"question_id": job["question_id"], "status": "failed", "reason": exc.code}
+        result = {"question_id": job["question_id"], "status": "failed", "reason": exc.code, 'expected': json.loads(job.get('result_json') or '{}').get('expected', {})}
         error_code = exc.code
         if job["attempt"] < TAG_JOB_MAX_ATTEMPTS:
             state = "queued"
@@ -578,7 +593,7 @@ def process_tag_job(job, db_path=DEFAULT_DB_PATH):
         result_json = json.dumps(result, ensure_ascii=False, sort_keys=True)
     except Exception as exc:
         error_code = "automatic_tag_failed"
-        result = {"question_id": job["question_id"], "status": "failed", "reason": error_code}
+        result = {"question_id": job["question_id"], "status": "failed", "reason": error_code, 'expected': json.loads(job.get('result_json') or '{}').get('expected', {})}
         if job["attempt"] < TAG_JOB_MAX_ATTEMPTS:
             delay = 15 * (2 ** max(0, job["attempt"] - 1))
             conn.execute(

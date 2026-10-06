@@ -28,7 +28,7 @@ from .exporting import build_wrong_book_html
 from .exam_import import import_bundle, get_asset, stage_chunk, staged_bundle
 from .exam_views import render_exams, image_html
 from .repository import PhysicsRepository, dumps
-from . import learning, learning_views
+from . import learning, learning_views, question_bank
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
 from .public_assets import read_public_asset
@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261001-qa-followups-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
-DOCUMENT_ASSET_VERSION = "20261006-publish-to-bank"
+DOCUMENT_ASSET_VERSION = "20261006-question-bank-v1"
 
 
 def ensure_database(path, demo_mode=False):
@@ -95,6 +95,7 @@ def render_layout(title, user, body, active="", question_math=False):
   <title>{title}</title>
   <link rel="stylesheet" href="/assets/app.css?v={asset_version}">
   {document_styles}
+  {bank_styles}
   {math_assets}
 </head>
 <body data-active="{active}">
@@ -106,6 +107,7 @@ def render_layout(title, user, body, active="", question_math=False):
   <script src="/assets/app.js?v={asset_version}"></script>
   {math_scripts}
   {document_scripts}
+  {bank_scripts}
 </body>
 </html>""".format(
         title=escape(title),
@@ -113,6 +115,8 @@ def render_layout(title, user, body, active="", question_math=False):
         asset_version=escape(ASSET_VERSION),
         user_text=user_text,
         body=body,
+        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-v1">' if 'data-question-bank' in body else '',
+        bank_scripts='<script defer src="/assets/question-bank.js?v=20261006-v1"></script>' if 'data-question-bank' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(
@@ -3103,6 +3107,24 @@ class PhysicsHandler(BaseHTTPRequestHandler):
 
         conn = connect(self.db_path)
         try:
+            if path.startswith('/api/question-bank/'):
+                user, agent_id = self._bank_user(conn)
+                if not user:
+                    self._send_json({'error':'unauthorized'}, status=HTTPStatus.UNAUTHORIZED)
+                    return
+                asset_match = re.fullmatch(r'/api/question-bank/assets/([A-Za-z0-9_-]{1,64})', path)
+                if asset_match:
+                    qid = (parse_qs(parsed.query).get('question_id') or [''])[0]
+                    question_bank.question(PhysicsRepository(conn),user,qid)
+                    binding = question_bank.content(conn,qid,user['school_id'])
+                    if not binding:
+                        raise InvalidRequest('题目没有文档图片')
+                    asset = self._load_export_asset(conn,user,asset_match.group(1),binding['current_revision_id'])
+                    self._send_document_bytes(asset['data'],asset['mime_type'],asset_match.group(1),inline=True)
+                    return
+                result = question_bank.get_api(PhysicsRepository(conn), user, path, parse_qs(parsed.query), self._base_path(), agent_id)
+                self._send_json({'ok':True,'result':result})
+                return
             user = self._current_user(conn)
             if path == "/change-password":
                 if not user:
@@ -3111,6 +3133,13 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._send_html(render_change_password_page(user))
             elif user and user["must_change_password"]:
                 self._redirect("/change-password")
+            elif path in ('/question-bank','/question-bank/agent-guide'):
+                if not user:
+                    self._redirect('/login')
+                else:
+                    question_bank.staff(user)
+                    body = question_bank.page(user) if path == '/question-bank' else question_bank.agent_guide()
+                    self._send_html(render_layout('题库与试卷',user,body,'teacher',question_math=True))
             elif path == "/documents":
                 if not user:
                     self._redirect("/login")
@@ -3291,6 +3320,26 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/login":
             self._handle_login()
+            return
+
+        if path.startswith('/api/question-bank/'):
+            conn = connect(self.db_path)
+            try:
+                user, agent_id = self._bank_user(conn)
+                if not user:
+                    self._send_json({'error':'unauthorized'},status=HTTPStatus.UNAUTHORIZED)
+                    return
+                if not agent_id:
+                    self._require_same_origin()
+                if 'application/json' not in self.headers.get('Content-Type','').lower():
+                    raise InvalidRequest('请使用 application/json')
+                payload = self._read_payload(max_bytes=1024*1024)
+                if not isinstance(payload,dict):
+                    raise InvalidRequest('请求必须为 JSON 对象')
+                result = question_bank.post_api(PhysicsRepository(conn),user,path,payload,agent_id)
+                self._send_json({'ok':True,'result':result})
+            finally:
+                conn.close()
             return
 
         if path.startswith("/api/documents/"):
@@ -4155,6 +4204,14 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             self._send_error(HTTPStatus.UNAUTHORIZED, str(exc))
         finally:
             conn.close()
+
+    def _bank_user(self, conn):
+        authorization = self.headers.get('Authorization','')
+        if authorization:
+            if not authorization.startswith('Bearer '):
+                raise PermissionDenied('请使用 Bearer Agent 凭证')
+            return question_bank.authenticate_agent(conn,authorization[7:])
+        return self._current_user(conn), None
 
     def _current_user(self, conn):
         return AuthService(conn).user_from_token(self._session_token())

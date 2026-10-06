@@ -167,12 +167,8 @@ def _teacher_question_groups(repo, user):
 
         by_question, tag_ids = _question_tags_for_rows(repo, group_rows)
         question_ids = [row["id"] for row in group_rows]
-        tagged = all(
-            any(tag["tag_type"] == "knowledge" for tag in tags)
-            and any(tag["tag_type"] == "ability" for tag in tags)
-            and any(tag["tag_type"] == "literacy" for tag in tags)
-            for _, tags in by_question
-        )
+        from .question_bank import tags_ready
+        tagged = all(tags_ready(repo,row['id'],tags) for row,tags in by_question)
         content_verified = not document or group_rows[0].get("content_review_state") == "verified"
         selectable = complete and content_verified and tagged
         number = source_number(group_rows)
@@ -205,7 +201,7 @@ def _teacher_question_groups(repo, user):
         elif not content_verified:
             disabled_reason = "原题结构尚未完成复核，暂不能加入试卷。"
         elif not tagged:
-            disabled_reason = "请先为本题每个小问确认知识点、能力和素养标签。"
+            disabled_reason = "请先在题库确认每个小问的标签，至少选择一个知识点；能力和素养可按依据留空。"
         else:
             disabled_reason = ""
 
@@ -329,7 +325,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=1"><script src="assets/learning.js?v=20261001-qa-followups-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=1"><script src="assets/learning.js?v=20261006-question-bank-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def student(repo,user,params,base_path=""):
@@ -409,6 +405,11 @@ def teacher(repo,user,params,document_import_enabled=False):
     classes=c.execute('select id,name from class_groups where school_id=? order by name',(user['school_id'],)).fetchall()
     if user['role']=='teacher':
         classes=[r for r in classes if c.execute('select 1 from teacher_classes where teacher_id=? and class_id=?',(user['id'],r[0])).fetchone()]
+
+    from .question_bank import list_papers
+    papers=list_papers(repo,user)
+    body.append('<section class="panel"><h2>题库与试卷</h2><p>按导入批次选择题目，编辑内容、管理 AI 或人工标签，也可以保存为一套试卷。</p><a class="button-link" href="/question-bank">进入题库管理</a></section>')
+    body.append('<section class="panel" id="new-exam"><h2>新建考试</h2><p>选择已保存的整套试卷，或在下方从题库选题组卷。</p>'+form('assessment','<label>试卷'+select('paper_id',[(p['id'],p['title']+' · '+str(p['question_count'])+' 道小题') for p in papers])+'</label><label>考试名称<input name="title" required maxlength="160"></label><label>班级'+select('class_id',classes)+'</label><label>日期<input name="date" type="date"></label><button>使用整套试卷创建考试</button>')+'</section>')
 
     body.append('<section id="create" class="teacher-intake-section"><h2>题目入库</h2><p class="section-intro">按整份试卷导入，或手动录入一道题。导入后的题目会先进入复核，再纳入题库。</p><div class="teacher-intake-grid">')
     if document_import_enabled:

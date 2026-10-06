@@ -57,6 +57,7 @@ def documents_home(user, tasks):
   <div class="document-heading"><div><p class="eyebrow">题库内容入库</p><h1>导入试卷或答案</h1><p>选择 Word 或 PDF 原件。系统保存原卷，自动转换和拆题，再由教师集中复核。</p></div><a class="button-secondary" href="/teacher">返回教师工作台</a></div>
   <form class="document-upload-form" id="document-upload-form">
     <label>导入类别<select id="document-role"><option value="paper">试卷</option><option value="answers">答案与解析</option></select></label>
+    <label id="document-import-mode-label">入库方式<select id="document-import-mode"><option value="paper">整张试卷（入库后自动保存为一套试卷）</option><option value="questions">零散题目（仅加入题库）</option></select></label>
     <label id="document-paper-label" hidden>对应试卷<select id="document-paper"><option value="">请选择对应试卷</option>%s</select></label>
     <label>文档文件<input id="document-file" type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label>
     <label>文档名称<input id="document-title" type="text" maxlength="240" placeholder="可留空，使用文件名"></label>

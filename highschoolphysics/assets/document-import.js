@@ -117,13 +117,14 @@
     try { window.sessionStorage.setItem(resumeStorageKey, JSON.stringify(records.slice(0, 2))); }
     catch (_error) { /* Upload still works when the browser blocks session storage. */ }
   };
-  const findResumeRecord = (file, digest, role, paperId, parserMode) => readResumeRecords().find((record) =>
+  const findResumeRecord = (file, digest, role, paperId, parserMode, importMode) => readResumeRecords().find((record) =>
     record.file_name === file.name
     && record.file_size === file.size
     && record.sha256 === digest
     && record.role === role
     && (record.paper_id || null) === (paperId || null)
     && (record.parser_mode || "mineru_local") === parserMode
+    && (record.import_mode || "questions") === importMode
   );
   const rememberUpload = (record) => {
     const records = readResumeRecords().filter((item) => item.request_key !== record.request_key);
@@ -148,6 +149,7 @@
     const paperLabel = document.getElementById("document-paper-label");
     roleInput.addEventListener("change", () => {
       paperLabel.hidden = roleInput.value !== "answers";
+      document.getElementById("document-import-mode-label").hidden = roleInput.value === "answers";
       paperInput.required = roleInput.value === "answers";
       parserModeInput.disabled = roleInput.value === "answers";
     });
@@ -168,7 +170,8 @@
         const role = roleInput.value;
         const parserMode = role === "answers" || /\.docx$/i.test(file.name) ? "mineru_local" : (parserModeInput ? parserModeInput.value : "mineru_local");
         const paperId = role === "answers" ? (paperInput.value || null) : null;
-        const resumed = findResumeRecord(file, digest, role, paperId, parserMode);
+        const importMode = role === "answers" ? "questions" : document.getElementById("document-import-mode").value;
+        const resumed = findResumeRecord(file, digest, role, paperId, parserMode, importMode);
         const title = (titleInput.value.trim() || (resumed && resumed.title) || file.name.replace(/\.[^.]+$/, "")).trim().slice(0, 240);
         if (!titleInput.value.trim()) titleInput.value = title;
         const requestKey = resumed && resumed.title === title ? resumed.request_key : randomKey();
@@ -179,6 +182,7 @@
           title,
           role,
           parser_mode: parserMode,
+          import_mode: importMode,
           paper_id: paperId,
           request_key: requestKey,
           saved_at: Date.now(),
@@ -192,6 +196,8 @@
           role,
           original_paper_id: paperId,
           parser_mode: parserMode,
+          import_mode: importMode,
+          tagging_policy: "question_bank",
           request_key: requestKey,
         });
         const received = new Set(upload.received_parts || []);
@@ -1143,7 +1149,7 @@
       const failed = tagging.some((item) => item.status === "failed");
       const tagStatus = skipped ? "；未配置可用大模型，题目已入库但尚未自动标注" : failed ? "；部分自动标签调用失败，请在题库中重试" : queued ? `；${queued} 道已进入后台自动标注队列` : `；自动标签完成 ${tagged} 道`;
       setText(status, `批量入库完成：${(result.published || []).length} 道完整大题${tagStatus}。`);
-      window.location.href = url("/teacher#assembly");
+      window.location.href = url(`/question-bank?batch_id=${encodeURIComponent(result.batch_id || "")}`);
     } catch (error) {
       setText(status, error.message || "草稿修改已保存；本次正式入库未部分写入。请检查复核事项后重试。");
     } finally {

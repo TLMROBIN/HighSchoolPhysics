@@ -179,8 +179,9 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
         if question['question_type'] not in supported_types:
             raise InvalidRequest('暂不支持该题型，请先完成题型规范化')
         tags = repo.tags_for_question(question_id)
-        if not all(any(tag['tag_type'] == kind for tag in tags) for kind in ('knowledge', 'ability', 'literacy')):
-            raise InvalidRequest('请先为每道题确认知识点、能力和素养标签')
+        from .question_bank import tags_ready
+        if not tags_ready(repo,question_id,tags):
+            raise InvalidRequest('请先在题库确认标签，每道题至少需要一个知识点；能力和素养可按实际依据留空')
         binding = repo.conn.execute(
             """select binding.group_id,binding.child_key,revision.document_json,revision.review_state
                from question_content_bindings binding
@@ -319,12 +320,20 @@ def api(repo,user,action,p,base_path=""):
         group=c.execute('select * from class_groups where id=? and school_id=?',(p['class_id'],user['school_id'])).fetchone()
         if not group: raise InvalidRequest('班级不存在')
         repo._require_assessment_class_actor(actor,group['id'])
-        ids=p.get('questions',[]);ids=[ids] if isinstance(ids,str) else ids
+        paper_id = p.get('paper_id')
+        if paper_id:
+            if not c.execute('select 1 from papers where id=? and school_id=?',(paper_id,user['school_id'])).fetchone():
+                raise InvalidRequest('试卷不存在')
+            ids=[r[0] for r in c.execute('select question_id from paper_questions where paper_id=? order by position',(paper_id,))]
+        else:
+            ids=p.get('questions',[]);ids=[ids] if isinstance(ids,str) else ids
         if not ids: raise InvalidRequest('请至少选择一道题')
         _validate_complete_question_selection(repo, ids, user['school_id'])
         if not c.execute("select 1 from knowledge_ontology_versions where status='active'").fetchone(): raise InvalidRequest('请管理员先在系统管理中发布知识体系，再创建周测')
-        paper=repo.assemble_paper(actor,p['title'],'教师录入',[dict(question_id=q,points=0) for q in ids])
-        a=repo.create_assessment_from_paper(actor,paper['paper']['id'],group['id'],p['title'],'','高三',p.get('date',''))
+        if not paper_id:
+            paper=repo.assemble_paper(actor,p['title'],'教师录入',[dict(question_id=q,points=0) for q in ids])
+            paper_id=paper['paper']['id']
+        a=repo.create_assessment_from_paper(actor,paper_id,group['id'],p['title'],'','高三',p.get('date',''))
         return {'message':'周测已建立，请录入并核对作答','url':'exams?id='+a['id']}
     a=staff_assessment(repo,user,p['assessment_id'])
     if action in ('answers','participant','publish') and a['grading_status']=='published': raise StateConflict('已发布的首次作答不可覆盖；请保留原记录')
