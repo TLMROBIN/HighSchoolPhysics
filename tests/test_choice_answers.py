@@ -31,3 +31,12 @@ class ChoiceAnswerTests(unittest.TestCase):
         conflict=prepare_answers(dict(document,answer_md='C\n故选A。'),reviewed=True)
         self.assertEqual(conflict['answer_state'],'needs_review')
         self.assertIsNone(conflict['grading_rule'])
+
+    def test_leaf_choice_classification_sets_grading_type(self):
+        d = dict(kind='multiple_choice',options=self.options,answer_md='B',analysis_md='',answer_state='verified',children=[])
+        fixed=prepare_answers(d,reviewed=True,choice_kind='single_choice')
+        self.assertEqual(fixed['kind'],'single_choice')
+        self.assertEqual(fixed['grading_rule']['type'],'single_choice')
+        conflict=prepare_answers(dict(d,answer_md='BD'),reviewed=True,choice_kind='single_choice')
+        self.assertIsNone(conflict['grading_rule'])
+        self.assertEqual(conflict['answer_state'],'needs_review')

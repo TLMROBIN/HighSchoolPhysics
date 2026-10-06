@@ -1,7 +1,8 @@
 """Recover missing published answers from an explicitly selected source task.
 
 Creates content revisions and only fills empty, unused draft snapshots. Never
-changes published assessments, first responses, or nonempty answer content.
+changes published assessments or first responses. Existing reference keys can
+only be normalized to the confirmed bank single/multiple-choice classification.
 """
 import copy
 import json
@@ -38,17 +39,22 @@ def recover(repo, actor, paper_task_id, answer_task_id, apply=False, choice_over
             doc = loads(item['current_document'], {})
             number = doc['number']
             entries = groups.get(number, [])
-            if doc.get('answer_md') or doc.get('analysis_md') or any(p.get('answer_md') or p.get('analysis_md') for p in doc.get('children', [])) or len(entries) != 1:
+            bank = c.execute('select q.bank_type from questions q join question_content_bindings b on b.question_id=q.id where b.group_id=? and b.child_key=?',(item['group_id'],'')).fetchone() if not doc.get('children') else None
+            choice_kind = bank[0] if bank and bank[0] in ('single_choice','multiple_choice') else None
+            existing = bool(doc.get('answer_md') or doc.get('analysis_md') or any(p.get('answer_md') or p.get('analysis_md') for p in doc.get('children', [])))
+            type_only = existing and choice_kind and doc.get('kind') in ('single_choice','multiple_choice') and doc['kind'] != choice_kind
+            if (existing and not type_only) or len(entries) != 1:
                 result['skipped'].append(number)
                 continue
             entry = entries[0]
             if not set(entry['asset_refs']) <= assets:
                 raise StateConflict('答案资源不属于当前原卷')
             doc = copy.deepcopy(doc)
-            doc['answer_md'] = entry['markdown']
-            doc['answer_state'] = 'needs_review'
-            doc['source_spans'] += entry['source_spans']
-            doc['asset_refs'] = sorted(set(doc['asset_refs']) | set(entry['asset_refs']))
+            if not type_only:
+                doc['answer_md'] = entry['markdown']
+                doc['answer_state'] = 'needs_review'
+                doc['source_spans'] += entry['source_spans']
+                doc['asset_refs'] = sorted(set(doc['asset_refs']) | set(entry['asset_refs']))
             parts = _split_child_answer_markdown(entry['markdown'])
             for part in doc.get('children', []):
                 value = parts.get(_normalize_part_label(part['label']))
@@ -59,21 +65,21 @@ def recover(repo, actor, paper_task_id, answer_task_id, apply=False, choice_over
             if override:
                 doc['answer_md'] = override
                 doc['analysis_md'] = entry['markdown'] + '\n\n教师确认标准答案为 '+override+'；原文冲突保留供核查。'
-            doc = prepare_answers(doc, reviewed=True)
+            doc = prepare_answers(doc, reviewed=True, choice_kind=choice_kind)
             doc = validate_question_document(doc, known_asset_ids=assets)
             units = _question_rows(doc, doc['stem_md'])
             result['recovered'].append({'number': number, 'state': doc['answer_state'],
                 'answer': (doc.get('grading_rule') or {}).get('answer'), 'source_task':answer_task_id})
-            plans.append((item, doc, units))
+            plans.append((item, doc, units, bool(type_only)))
         if not apply:
             c.rollback()
             return result
-        for item, doc, units in plans:
+        for item, doc, units, type_only in plans:
             revision = 'revision-'+uuid.uuid4().hex
             n = c.execute('select max(revision_no)+1 from question_content_revisions where group_id=?',(item['group_id'],)).fetchone()[0]
             c.execute('''insert into question_content_revisions(id,group_id,revision_no,schema_version,document_json,content_sha256,review_state,answer_state,created_by,change_reason)
                 values(?,?,?,1,?,?,'verified',?,?,?)''',
-                (revision,item['group_id'],n,dumps(doc),canonical_sha256(doc),doc['answer_state'],actor['id'],'恢复已上传但未保存的答案解析；来源 '+answer_task_id))
+                (revision,item['group_id'],n,dumps(doc),canonical_sha256(doc),doc['answer_state'],actor['id'],('同步单选多选分类与批改规则；来源 ' if type_only else '恢复已上传但未保存的答案解析；来源 ')+answer_task_id))
             for asset in doc['asset_refs']:
                 c.execute('insert into content_asset_refs(revision_id,asset_id,field_path) values(?,?,?)',(revision,asset,'document'))
             c.execute('update question_content_groups set current_revision_id=? where id=?',(revision,item['group_id']))
@@ -89,7 +95,12 @@ def recover(repo, actor, paper_task_id, answer_task_id, apply=False, choice_over
                     where s.question_id=? and a.school_id=? and a.grading_status<>'published'
                     and not exists(select 1 from student_responses r where r.assessment_id=a.id)''',(qid,actor['school_id'])).fetchall():
                     old = loads(snap['answer_json'],{})
-                    if old not in ({}, '', None) or loads(snap['grading_rule_json'],{}).get('answer') not in ({}, '', None):
+                    previous_rule = loads(snap['grading_rule_json'],{})
+                    expected = (unit.get('grading_rule') or {}).get('answer')
+                    if type_only:
+                        if previous_rule.get('answer') != expected:
+                            continue
+                    elif old not in ({}, '', None) or previous_rule.get('answer') not in ({}, '', None):
                         continue
                     old_content = c.execute('select revision_id from snapshot_content_bindings where snapshot_id=?',(snap['id'],)).fetchone()
                     if old_content and old_content[0] != item['current_revision_id']:
@@ -101,7 +112,7 @@ def recover(repo, actor, paper_task_id, answer_task_id, apply=False, choice_over
                         (snap['id'],revision,binding['child_key']))
                     result['snapshots_filled'].append(snap['id'])
             _audit(c,actor,'missing_answers_recovered','question_content_group',item['group_id'],
-                {'source_task':answer_task_id,'old_revision':item['current_revision_id'],'new_revision':revision,'answer_state':doc['answer_state'],'choice_override':(choice_overrides or {}).get(doc['number'])})
+                {'source_task':answer_task_id,'old_revision':item['current_revision_id'],'new_revision':revision,'answer_state':doc['answer_state'],'choice_override':(choice_overrides or {}).get(doc['number']),'type_only':type_only})
         c.commit()
         return result
     except Exception:

@@ -24,9 +24,12 @@ def extract_choice_answer(markdown, options, kind):
     return answer
 
 
-def prepare_answers(document, reviewed=False):
+def prepare_answers(document, reviewed=False, choice_kind=None):
     """Freeze unambiguous reviewed keys; keep missing/conflicting content pending."""
     doc = copy.deepcopy(document)
+    choice_kind = choice_kind or doc.get('bank_type')
+    if not doc.get('children') and doc.get('kind') in CHOICE_TYPES and choice_kind in CHOICE_TYPES:
+        doc['kind'] = choice_kind
     for part in [doc, *doc.get("children", [])]:
         if part.get("kind") not in CHOICE_TYPES:
             continue

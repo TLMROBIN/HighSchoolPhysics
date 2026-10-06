@@ -323,7 +323,7 @@ def save_content(repo, user, qid, payload):
                 if part.get('kind') not in ('single_choice', 'multiple_choice') and part.get('grading_rule') and part.get('answer_md') != next((x.get('answer_md') for x in [old,*old['children']] if x.get('key','')==part.get('key','')),None):
                     raise InvalidRequest('此题使用自定义答案核对规则，请先同步调整规则')
             from .choice_answers import prepare_answers, row_answer
-            d = prepare_answers(d, reviewed=True)
+            d = prepare_answers(d, reviewed=True, choice_kind=q["bank_type"])
             from .document_ingestion import _question_rows, _legacy_question_text
             revision_id='revision-'+uuid.uuid4().hex
             n=c.execute('select max(revision_no)+1 from question_content_revisions where group_id=?',(binding['group_id'],)).fetchone()[0]
@@ -386,6 +386,20 @@ def save_type(repo, user, payload):
         binding = content(c, q['id'], user['school_id'])
         ids = [r[0] for r in c.execute('select question_id from question_content_bindings where group_id=?', (binding['group_id'],))] if binding else [q['id']]
         c.executemany('update questions set bank_type=?,version=version+1 where id=?', [(value, qid) for qid in ids])
+        if not binding and q['question_type'] in ('single_choice','multiple_choice') and value in ('single_choice','multiple_choice'):
+            c.execute('update questions set question_type=? where id=?',(value,q['id']))
+        if binding and not binding['document']['children'] and binding['document']['kind'] in ('single_choice','multiple_choice') and value in ('single_choice','multiple_choice'):
+            from .choice_answers import prepare_answers, row_answer
+            from .document_ingestion import _question_rows
+            d = prepare_answers(binding['document'], choice_kind=value)
+            revision = 'revision-'+uuid.uuid4().hex
+            n = c.execute('select max(revision_no)+1 from question_content_revisions where group_id=?',(binding['group_id'],)).fetchone()[0]
+            c.execute("""insert into question_content_revisions(id,group_id,revision_no,schema_version,document_json,content_sha256,review_state,answer_state,created_by,change_reason)
+                values(?,?,?,1,?,?,'verified',?,?,?)""",(revision,binding['group_id'],n,dumps(d),canonical_sha256(d),d['answer_state'],user['id'],'教师确认单选多选题型'))
+            c.execute('insert into content_asset_refs(revision_id,asset_id,field_path) select ?,asset_id,field_path from content_asset_refs where revision_id=?',(revision,binding['current_revision_id']))
+            c.execute('update question_content_groups set current_revision_id=? where id=?',(revision,binding['group_id']))
+            unit = _question_rows(d,d['stem_md'])[0]
+            c.execute('update questions set question_type=?,answer_json=? where id=?',(d['kind'],dumps(row_answer(unit)),q['id']))
         repo.audit(user['id'], 'question_bank_type_saved', 'question', q['id'], {'bank_type': value, 'question_ids': ids})
         c.commit()
         return {'bank_type': value, 'question_ids': ids}

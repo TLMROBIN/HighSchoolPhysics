@@ -67,6 +67,27 @@ class QuestionBankTests(unittest.TestCase):
         result=document_ingestion.confirm_candidates(self.conn,self.user,task,{'request_key':'publish-'+task,'items':refs,'reviewed':True})
         return result
 
+    def test_choice_category_and_next_assessment_use_the_same_controls(self):
+        result=self.import_batch()
+        qid=question_bank.batch_question_ids(self.conn,result['batch_id'],self.user['school_id'])[0]
+        q=self.repo.get_question(qid)
+        self.post('/api/question-bank/type',dict(question_id=qid,question_version=q['version'],bank_type='multiple_choice'))
+        q=self.repo.get_question(qid)
+        self.assertEqual(q['question_type'],'multiple_choice')
+        self.assertEqual(q['answer']['type'],'multiple_choice')
+        self.post('/api/question-bank/type',dict(question_id=qid,question_version=q['version'],bank_type='single_choice'))
+        self.assertEqual(self.repo.get_question(qid)['answer']['type'],'single_choice')
+        self.assertEqual(question_bank.content(self.conn,qid,self.user['school_id'])['document']['kind'],'single_choice')
+        self.post('/api/question-bank/tags',{'entries':[self.entry(qid)]})
+        aid=learning.api(self.repo,self.user,'assessment',dict(title='单选按钮验证',class_id='class-physics-1',questions=[qid]))['url'].split('=')[1]
+        from highschoolphysics.learning_views import answer_controls
+        snapshot=dict(self.conn.execute('select * from question_version_snapshots where assessment_id=?',(aid,)).fetchone())
+        snapshot['question_type']=json.loads(snapshot['grading_rule_json'])['type']
+        controls=answer_controls(self.conn,snapshot,self.user)
+        self.assertIn('type="radio"',controls)
+        self.assertNotIn('type="checkbox"',controls)
+
+
     def test_recovery_only_fills_empty_unused_draft_snapshots(self):
         from highschoolphysics.answer_recovery import recover
         from highschoolphysics.document_models import canonical_sha256
