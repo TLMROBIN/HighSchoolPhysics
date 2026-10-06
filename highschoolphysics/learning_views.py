@@ -10,6 +10,7 @@ from .learning import LABELS, progress, snapshot
 from .question_content import render_snapshot_content, render_snapshot_options, render_snapshot_solution, snapshot_content
 from .question_rendering import render_question
 from .fill_rules import UNITS, instructions, reference_answer
+from .teacher_workspace import navigation, overview
 
 
 QUESTION_TYPE_LABELS = {
@@ -381,23 +382,83 @@ def metrics(repo,uid):
     graph.append('</svg></div></details>')
     return ''.join(graph)+'<p>原测与每次独立验证均计入尝试；看过解析后的学习练习单独保留，不计入正确率。</p><table><tr><th>关联标签</th><th>不同题数</th><th>作答次数</th><th>正确率</th></tr>'+''.join('<tr><td>%s</td><td>%s</td><td>%s</td><td>%.1f%%</td></tr>'%('<a href="app?tag='+quote(k[1])+'#wrong">'+esc(k[1])+'</a>',len(g['q']),g['attempts'],100*g['correct']/g['attempts']) for k,g in groups.items())+'</table>'
 
+
+def _teacher_learning_evidence(repo, assessments):
+    """Use published snapshots and independent redo evidence in the teacher's scope."""
+    c=repo.conn
+    students={}
+    knowledge={}
+    for assessment in assessments:
+        if assessment['grading_status'] != 'published':
+            continue
+        rows=c.execute("""select r.*,u.display_name,s.tag_snapshot_json from student_responses r
+            join users u on u.id=r.student_id
+            join question_version_snapshots s on s.id=r.snapshot_id
+            join assessment_participants p on p.assessment_id=r.assessment_id and p.student_id=r.student_id
+            where r.assessment_id=? and p.status='present'""",(assessment['id'],)).fetchall()
+        wrongs={w['response_id']:dict(w) for w in c.execute('select * from wrong_questions where assessment_id=? and is_active=1',(assessment['id'],))}
+        attempts_by_wrong=defaultdict(list)
+        for attempt in c.execute("select a.wrong_question_id,a.outcome from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where w.assessment_id=? and w.is_active=1 and a.purpose='verify'",(assessment['id'],)):
+            attempts_by_wrong[attempt['wrong_question_id']].append(attempt)
+        for row in rows:
+            student=students.setdefault((assessment['class_name'],row['student_id']),
+                dict(name=row['display_name'],wrong=0,due=0,pending=0,consolidated=0))
+            wrong=wrongs.get(row['id'])
+            state=progress(c,dict(wrong)) if wrong else None
+            if state:
+                student['wrong']+=1
+                student['due']+=int(state['available'])
+                student['pending']+=int(state['pending'])
+                student['consolidated']+=int(state['count']>=3)
+            attempts=attempts_by_wrong[wrong['id']] if wrong else []
+            seen=set()
+            for tag in loads(row['tag_snapshot_json'],[]):
+                if tag['tag_type'] != 'knowledge' or tag['tag_id'] in seen:
+                    continue
+                seen.add(tag['tag_id'])
+                key=(assessment['class_name'],row['student_id'],tag['tag_id'])
+                evidence=knowledge.setdefault(key,dict(name=row['display_name'],tag=tag['name'],questions=set(),initial=0,correct=0,verify=0,verified=0,pending=0,consolidated=set()))
+                evidence['questions'].add(row['question_id'])
+                if row['outcome'] != 'pending':
+                    evidence['initial']+=1
+                    evidence['correct']+=int(row['outcome']=='correct')
+                else:
+                    evidence['pending']+=1
+                evidence['verify']+=sum(a['outcome']!='pending' for a in attempts)
+                evidence['verified']+=sum(a['outcome']=='correct' for a in attempts)
+                evidence['pending']+=sum(a['outcome']=='pending' for a in attempts)
+                if state and state['count']>=3:
+                    evidence['consolidated'].add(row['question_id'])
+    body=['<h2>学生复习情况</h2><div class="teacher-evidence-table"><table><tr><th>班级</th><th>学生</th><th>错题记录</th><th>到期题</th><th>重做待确认</th><th>三次已巩固</th></tr>']
+    for (class_name,_), item in sorted(students.items(),key=lambda pair:(pair[0][0],pair[1]['name'],pair[0][1])):
+        body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(class_name),esc(item['name']),item['wrong'],item['due'],item['pending'],item['consolidated']))
+    body.append('</table></div>' if students else '</table><p>暂无已发布考试的学生复习记录。</p></div>')
+    body.append('<h2>知识点掌握依据</h2><p>按学生与知识点查看首次作答、独立复习验证和已巩固题目。看过解析后的学习练习不计入验证；正确率与三次已巩固题数提供掌握依据，不能凭一道题判断整个知识点已掌握。未标注知识点的题目不参与下表。</p><div class="teacher-evidence-table"><table><tr><th>班级 / 学生</th><th>知识点</th><th>不同题数</th><th>首次作答正确率</th><th>独立验证答对 / 次数</th><th>待确认记录</th><th>三次已巩固题数</th></tr>')
+    for (class_name,_,_), item in sorted(knowledge.items(),key=lambda pair:(pair[0][0],pair[1]['name'],pair[1]['tag'],pair[0][1])):
+        rate='%.1f%% (%s/%s)' % (100*item['correct']/item['initial'],item['correct'],item['initial']) if item['initial'] else '待确认'
+        body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s / %s</td><td>%s</td><td>%s</td></tr>' % (esc(class_name),esc(item['name']),esc(item['tag']),len(item['questions']),rate,item['verified'],item['verify'],item['pending'],len(item['consolidated'])))
+    body.append('</table></div>' if knowledge else '</table><p>暂无带知识点标签的已发布作答记录。</p></div>')
+    return ''.join(body)
+
 def teacher(repo,user,params,document_import_enabled=False):
     c=repo.conn
-    body=[
-        base(user,"教师工作台"),
-        '<header class="teacher-workbench-heading"><p class="eyebrow">备课与周测</p><h2>题目入库、筛选与组卷</h2><p>先把完整题目放入题库，再按知识点、能力和素养筛选组卷。</p></header>',
-        '<nav class="teacher-workbench-nav" aria-label="工作台导航"><a href="#create">题目入库</a><a href="#assembly">筛选组卷</a><a href="#review">待确认作答</a><a href="exams">周测统计</a><a href="#progress">复习进度</a></nav>',
-    ]
-    assessments=repo.assessment_overview(user['id'])
+    module=(params.get('module') or [''])[0]
+    titles={'intake':'题目入库','exams':'考试管理','progress':'学生复习进度'}
+    body=['<section class="panel learning"><h1>%s</h1>' % titles.get(module,'教师工作台'), navigation(module if module in titles else '')]
+    if module not in titles:
+        return ''.join(body)+overview()+'</section>'+footer()
+    school_classes={row[0] for row in c.execute('select id from class_groups where school_id=?',(user['school_id'],))}
+    assessments=[a for a in repo.assessment_overview(user['id']) if a['class_id'] in school_classes]
     assessment_items=''.join(
         '<li><a href="exams?id=%s">%s · %s</a></li>' %
         (quote(a['id']),esc(a['class_name']),esc(a['title']))
         for a in assessments
     )
-    body.append(
-        '<section class="teacher-assessments"><h2>已有周测</h2>%s</section>' %
-        ('<ul class="teacher-assessment-list">%s</ul>' % assessment_items if assessment_items else '<p class="teacher-empty-note">目前还没有已创建的周测。</p>')
-    )
+    if module == "exams":
+        body.append(
+            '<section class="teacher-assessments"><h2>已有周测</h2>%s</section>' %
+            ('<ul class="teacher-assessment-list">%s</ul>' % assessment_items if assessment_items else '<p class="teacher-empty-note">目前还没有已创建的周测。</p>')
+        )
 
     nodes=c.execute('select id,name from knowledge_nodes where school_id=? and enabled=1 and deleted_at is null order by level,name',(user['school_id'],)).fetchall()
     abilities=c.execute('select id,name from ability_tags where school_id=? and enabled=1 and deleted_at is null order by name',(user['school_id'],)).fetchall()
@@ -406,86 +467,51 @@ def teacher(repo,user,params,document_import_enabled=False):
     if user['role']=='teacher':
         classes=[r for r in classes if c.execute('select 1 from teacher_classes where teacher_id=? and class_id=?',(user['id'],r[0])).fetchone()]
 
-    from .question_bank import list_papers
-    papers=list_papers(repo,user)
-    body.append('<section class="panel"><h2>题库与试卷</h2><p>按导入批次选择题目，编辑内容、管理 AI 或人工标签，也可以保存为一套试卷。</p><a class="button-link" href="/question-bank">进入题库管理</a></section>')
-    body.append('<section class="panel" id="new-exam"><h2>新建考试</h2><p>选择已保存的整套试卷，或在下方从题库选题组卷。</p>'+form('assessment','<label>试卷'+select('paper_id',[(p['id'],p['title']+' · '+str(p['question_count'])+' 道小题') for p in papers])+'</label><label>考试名称<input name="title" required maxlength="160"></label><label>班级'+select('class_id',classes)+'</label><label>日期<input name="date" type="date"></label><button>使用整套试卷创建考试</button>')+'</section>')
+    if module == "exams":
+        from .question_bank import list_papers
+        papers=list_papers(repo,user)
+        body.append('<section class="panel" id="new-exam"><h2>新建考试</h2><p>选择已保存的整套试卷。<a href="/question-bank">进入题库选题组卷</a></p>'+form('assessment','<label>试卷'+select('paper_id',[(p['id'],p['title']+' · '+str(p['question_count'])+' 道小题') for p in papers])+'</label><label>考试名称<input name="title" required maxlength="160"></label><label>班级'+select('class_id',classes)+'</label><label>日期<input name="date" type="date"></label><button>使用整套试卷创建考试</button>')+'</section>')
 
-    body.append('<section id="create" class="teacher-intake-section"><h2>题目入库</h2><p class="section-intro">按整份试卷导入，或手动录入一道题。导入后的题目会先进入复核，再纳入题库。</p><div class="teacher-intake-grid">')
-    if document_import_enabled:
+    if module == "intake":
+        body.append('<section id="create" class="teacher-intake-section"><h2>题目入库</h2><p class="section-intro">按整份试卷导入，或手动录入一道题。导入后的题目会先进入复核，再纳入题库。</p><div class="teacher-intake-grid">')
+        if document_import_enabled:
+            body.append(
+                '<article class="teacher-intake-card teacher-import-card"><p class="eyebrow">整卷导入</p>'
+                '<h3>导入题目与答案文件</h3><p>上传题目与答案 DOCX 或 PDF，对照原件复核题目、图片和答案匹配，再批量入库。</p>'
+                '<a class="button-link" href="/documents">导入文件与匹配答案</a></article>'
+            )
         body.append(
-            '<article class="teacher-intake-card teacher-import-card"><p class="eyebrow">整卷导入</p>'
-            '<h3>导入整份试卷</h3><p>上传 DOCX 或 PDF，查看原卷、解析题目和图片，确认后再批量入库。</p>'
-            '<a class="button-link" href="/documents">选择试卷文件</a></article>'
+            '<article class="teacher-intake-card"><p class="eyebrow">单题录入</p><h3>手动录入一道题</h3>'
+            + form('question',
+                '<label>完整题干<textarea name="stem" rows="4" required></textarea></label>'
+                '<label>题型'+select('question_type',[('single_choice','单选'),('multiple_choice','多选'),('fill','填空')])+'</label>'
+                '<label>选项（每行一项；填空题留空）<textarea name="options" rows="3"></textarea></label>'
+                '<label>标准答案<textarea name="answer" rows="2" required></textarea></label>'
+                '<fieldset data-fill-rule hidden disabled><legend>填空核对规则</legend>'
+                '<label>核对方式'+select('fill_match',[('exact','原文匹配'),('aliases','多个可接受答案（每行一个）'),('numeric_quantity','数值与单位')]).replace('<option value="">请选择</option>','')+'</label>'
+                '<p>规则无法确定的答案交教师复核；只影响这道新题，已发布周测不改判。</p>'
+                '<div data-quantity-rule hidden><label>标准单位'+select('unit',[(u,u or '纯数值（无单位）') for u in UNITS]).replace(' required','').replace('<option value="">请选择</option>','')+'</label>'
+                '<label><input type="checkbox" name="unit_required">学生必须填写单位</label>'
+                '<label><input type="checkbox" name="allow_unit_conversion">允许同量纲单位换算</label>'
+                '<label>绝对容差（按标准单位）<input name="absolute_tolerance" value="0" inputmode="decimal"></label>'
+                '<label>相对容差（0—1，例如 0.01 表示 1%）<input name="relative_tolerance" value="0" inputmode="decimal"></label>'
+                '<label>有效数字位数（可选，1—12）<input name="significant_figures" type="number" min="1" max="12"></label>'
+                '<p>支持小数、数值分数和 e 科学计数；未知单位与表达式待复核。整数末尾零的精度不明确时也待复核。</p>'
+                '</div></fieldset>'
+                '<label>解析（可选）<textarea name="analysis" rows="3"></textarea></label>'
+                '<label>原题图片（可选）<input type="file" class="question-image" accept="image/*"></label>'
+                '<label>知识点'+select('knowledge',nodes)+'</label>'
+                '<label>能力'+select('ability',abilities)+'</label>'
+                '<label>素养'+select('literacy',literacy)+'</label>'
+                '<button class="button-primary">保存单题</button>'
+            )
+            + '</article></div></section>'
         )
-    body.append(
-        '<article class="teacher-intake-card"><p class="eyebrow">单题录入</p><h3>手动录入一道题</h3>'
-        + form('question',
-            '<label>完整题干<textarea name="stem" rows="4" required></textarea></label>'
-            '<label>题型'+select('question_type',[('single_choice','单选'),('multiple_choice','多选'),('fill','填空')])+'</label>'
-            '<label>选项（每行一项；填空题留空）<textarea name="options" rows="3"></textarea></label>'
-            '<label>标准答案<textarea name="answer" rows="2" required></textarea></label>'
-            '<fieldset data-fill-rule hidden disabled><legend>填空核对规则</legend>'
-            '<label>核对方式'+select('fill_match',[('exact','原文匹配'),('aliases','多个可接受答案（每行一个）'),('numeric_quantity','数值与单位')]).replace('<option value="">请选择</option>','')+'</label>'
-            '<p>规则无法确定的答案交教师复核；只影响这道新题，已发布周测不改判。</p>'
-            '<div data-quantity-rule hidden><label>标准单位'+select('unit',[(u,u or '纯数值（无单位）') for u in UNITS]).replace(' required','').replace('<option value="">请选择</option>','')+'</label>'
-            '<label><input type="checkbox" name="unit_required">学生必须填写单位</label>'
-            '<label><input type="checkbox" name="allow_unit_conversion">允许同量纲单位换算</label>'
-            '<label>绝对容差（按标准单位）<input name="absolute_tolerance" value="0" inputmode="decimal"></label>'
-            '<label>相对容差（0—1，例如 0.01 表示 1%）<input name="relative_tolerance" value="0" inputmode="decimal"></label>'
-            '<label>有效数字位数（可选，1—12）<input name="significant_figures" type="number" min="1" max="12"></label>'
-            '<p>支持小数、数值分数和 e 科学计数；未知单位与表达式待复核。整数末尾零的精度不明确时也待复核。</p>'
-            '</div></fieldset>'
-            '<label>解析（可选）<textarea name="analysis" rows="3"></textarea></label>'
-            '<label>原题图片（可选）<input type="file" class="question-image" accept="image/*"></label>'
-            '<label>知识点'+select('knowledge',nodes)+'</label>'
-            '<label>能力'+select('ability',abilities)+'</label>'
-            '<label>素养'+select('literacy',literacy)+'</label>'
-            '<button class="button-primary">保存单题</button>'
-        )
-        + '</article></div></section>'
-    )
 
-    question_cards=_teacher_question_groups(repo,user)
-    def filter_select(name,label,rows):
-        return '<label>%s<select data-question-filter="%s"><option value="">全部</option>%s</select></label>' % (
-            label,name,''.join('<option value="%s">%s</option>'%(esc(r['id']),esc(r['name'])) for r in rows)
-        )
-    type_options=[(key,value) for key,value in QUESTION_TYPE_LABELS.items()]
-    filter_select_html=(
-        '<label>题目搜索<input type="search" data-question-filter="search" placeholder="题干、题号或标签"></label>'
-        + filter_select('knowledge','知识点',nodes)
-        + filter_select('ability','能力',abilities)
-        + filter_select('literacy','核心素养',literacy)
-        + '<label>题型<select data-question-filter="type"><option value="">全部题型</option>%s</select></label>' %
-        ''.join('<option value="%s">%s</option>'%(esc(key),esc(value)) for key,value in type_options)
-        + '<div class="question-filter-actions"><span data-question-filter-count aria-live="polite">显示 %s 道大题</span><button type="button" class="secondary" data-question-filter-reset>清除筛选</button></div>' % len(question_cards)
-        + '<nav class="question-pagination" data-question-pagination aria-label="题库分页"><button type="button" class="secondary" data-question-page-prev disabled>上一页</button><span data-question-page-info aria-live="polite">第 1 页</span><button type="button" class="secondary" data-question-page-next disabled>下一页</button></nav>'
-    )
-    card_list=''.join(question_cards) or '<p class="teacher-empty-note">题库中还没有可展示的题目。先导入整卷或手动录入。</p>'
-    body.append(
-        '<section id="assembly" class="teacher-assembly-section"><div class="section-heading"><div><h2>筛选组卷</h2>'
-        '<p class="section-intro">每张卡片显示完整题干、全部小问和选项。选择大题时会把它的所有小问一起加入。</p></div>'
-        '<span class="question-library-count">题库 %s 道大题</span></div>' % len(question_cards)
-        + '<form class="learning-form teacher-paper-builder" data-action="assessment">'
-        + '<div class="question-filter-bar" data-question-filters>%s</div>' % filter_select_html
-        + '<div class="teacher-assembly-layout"><div class="teacher-question-results" data-question-results>%s</div>' % card_list
-        + '<aside class="teacher-paper-sidebar"><div class="paper-sidebar-heading"><h3>本次试卷</h3>'
-        '<span data-paper-selection-count aria-live="polite">尚未选择题目</span></div>'
-        '<ol class="paper-basket" data-paper-basket><li class="paper-basket-empty">选择左侧整题后会显示在这里。</li></ol>'
-        '<details class="paper-preview-details"><summary>展开整卷预览</summary><div data-paper-preview><p>添加题目后显示预览。</p></div></details>'
-        '<button type="button" class="secondary" data-clear-paper-selection>清空已选题目</button>'
-        '<div class="paper-create-fields"><label>周测名称<input name="title" maxlength="160" placeholder="例如：高三物理周测 3" required></label>'
-        '<label>班级'+select('class_id',classes)+'</label><label>日期<input type="date" name="date"></label>'
-        '<button class="button-primary" type="submit">创建周测</button></div>'
-        '<div class="paper-builder-status" role="status"></div></aside></div></form></section>'
-    )
-
-    body.append('<details class="teacher-settings-details"><summary>每日练习设置与批量标签确认</summary>')
-    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>'))
-    questions=c.execute("select id,stem from questions where school_id=? and question_type in ('single_choice','multiple_choice','fill','short_answer','structured','experiment') order by created_at desc",(user['school_id'],)).fetchall()
-    body.append('<h3>批量确认题库标签</h3>'+form('tags','<label>知识点'+select('knowledge',nodes)+'</label><label>能力'+select('ability',abilities)+'</label><label>素养'+select('literacy',literacy)+'</label>'+''.join('<label class="bulk-question-choice"><input type="checkbox" name="questions" value="%s">%s</label>'%(esc(q[0]),esc(q[1][:100])) for q in questions)+'<button>为所选题确认三类标签</button>'))
-    body.append('</details>')
+    if module != "progress":
+        return ''.join(body)+'</section>'+footer()
+    body.append('<details class="teacher-settings-details"><summary>每日练习设置</summary>')
+    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>')+'</details>')
     allowed={a['id'] for a in assessments}
     pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where w.is_active=1 and a.outcome='pending' order by a.submitted_at").fetchall()
     body.append('<h2 id="review">待确认的重做</h2>')
@@ -496,14 +522,17 @@ def teacher(repo,user,params,document_import_enabled=False):
     for a in assessments:
         ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
         body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(a['class_name']),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
-    return ''.join(body)+'</table></section>'+footer()
+    body.append('</table>')
+    body.append(_teacher_learning_evidence(repo, assessments))
+    return ''.join(body)+'</section>'+footer()
 
 def exams(repo,user,aid=None,base_path=""):
     c=repo.conn;staff=user['role'] in ('teacher','admin');body=[base(user)]
+    if staff: body.append(navigation('exams'))
     if not aid:
         rows=repo.assessment_overview(user['id']) if staff else [dict(r) for r in c.execute("select a.*,c.name class_name from assessment_sessions a join class_groups c on c.id=a.class_id join assessment_participants p on p.assessment_id=a.id where p.student_id=? and p.status='present' and a.grading_status='published'",(user['id'],))]
         body.append('<h2>周测记录</h2><ul>'+''.join('<li><a href="exams?id=%s">%s · %s</a></li>'%(quote(a['id']),esc(a['class_name']),esc(a['title'])) for a in rows)+'</ul>')
-        if staff: body.append('<p><a href="teacher#create">录题并创建新周测</a></p>')
+        if staff: body.append('<p><a href="/teacher?module=exams#new-exam">新建考试</a></p>')
         return ''.join(body)+'</section>'+footer()
     a=repo.assessment_detail(user['id'],aid)
     if not staff and a['grading_status']!='published':

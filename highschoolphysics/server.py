@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261001-qa-followups-v1"
+ASSET_VERSION = "20261006-teacher-modules-v1"
 QUESTION_ASSET_VERSION = "20261001-whole-question-rendering"
 DOCUMENT_ASSET_VERSION = "20261006-question-bank-v1"
 
@@ -3149,7 +3149,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._send_error(HTTPStatus.FORBIDDEN, "教师账号才能管理试卷导入", user=user)
                 else:
                     tasks = document_ingestion.list_tasks(conn, user)
-                    body = document_views.documents_home(user, tasks)
+                    body = learning_views.navigation("intake") + document_views.documents_home(user, tasks)
                     self._send_html(render_layout("导入试卷或答案", user, body, "teacher"))
             elif path == "/documents/review":
                 if not user:
@@ -3170,7 +3170,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                             answer_groups = document_ingestion._answer_groups(conn, user, task_id, db_path=self.db_path)
                         linked_paper_task = next((entry["id"] for entry in document_ingestion.list_tasks(conn, user) if entry.get("document_role") == "paper" and entry["original_paper_id"] == task["original_paper_id"]), None)
                     title = "答案与解析" if task["document_role"] in ("answers", "rubric") else "整卷复核"
-                    self._send_html(render_layout(title, user, document_views.document_review_page(task, items, source_assets, answer_groups, linked_paper_task), "teacher", question_math=True))
+                    self._send_html(render_layout(title, user, learning_views.navigation("intake") + document_views.document_review_page(task, items, source_assets, answer_groups, linked_paper_task), "teacher", question_math=True))
             elif path.startswith("/api/documents/"):
                 self._handle_documents_get(conn, user, path, parse_qs(parsed.query))
             elif path.startswith("/api/question-assets/"):

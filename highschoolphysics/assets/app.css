@@ -3272,3 +3272,21 @@ select {
     transition: none;
   }
 }
+
+/* Teacher workspace module navigation and entry cards. */
+.teacher-workbench-nav a[aria-current="page"] {
+  color: #fff;
+  background: var(--teal, #146b65);
+  border-radius: 6px;
+  padding: 0 12px;
+  text-decoration: none;
+}
+.teacher-module-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.teacher-module-card { display: block; border: 1px solid var(--line, #d8e2e2); border-radius: 10px; padding: 24px; color: inherit; text-decoration: none; background: #f5f8f7; }
+.teacher-module-card h2 { margin: 0 0 12px; }
+.teacher-module-card p { color: var(--muted, #536170); }
+.teacher-module-card span { color: var(--teal, #146b65); font-weight: 650; }
+.teacher-module-card:hover { border-color: var(--teal, #146b65); }
+.teacher-module-card:focus-visible { outline: 3px solid var(--teal, #146b65); outline-offset: 3px; }
+.teacher-evidence-table { overflow-x: auto; margin-bottom: 24px; }
+@media (max-width: 640px) { .teacher-module-grid { grid-template-columns: 1fr; } .teacher-module-card { padding: 18px; } }

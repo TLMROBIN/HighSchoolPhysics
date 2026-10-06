@@ -66,7 +66,7 @@ class DocumentHTTPTests(unittest.TestCase):
 
     def test_teacher_entry_and_documents_page_support_proxy_prefix(self):
         status, _, payload = self.server.request(
-            "GET", "/teacher", headers={"Cookie": self.cookie, "X-Forwarded-Prefix": "/physics"}
+            "GET", "/teacher?module=intake", headers={"Cookie": self.cookie, "X-Forwarded-Prefix": "/physics"}
         )
         self.assertEqual(status, 200)
         page = payload.decode("utf-8")

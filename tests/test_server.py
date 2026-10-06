@@ -8,6 +8,7 @@ from highschoolphysics.auth import AuthService
 from highschoolphysics.db import connect, initialize_database, seed_demo_data
 from highschoolphysics.repository import PhysicsRepository
 from highschoolphysics.server import (
+    ASSET_VERSION,
     render_admin_app,
     render_change_password_page,
     render_login_page,
@@ -679,8 +680,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn(".phase2g-analytics .analytics-block", styles)
         self.assertIn("justify-self: start", styles)
         html = render_login_page()
-        self.assertIn('/assets/app.css?v=20261001-qa-followups-v1', html)
-        self.assertIn('/assets/app.js?v=20261001-qa-followups-v1', html)
+        self.assertIn('/assets/app.css?v='+ASSET_VERSION, html)
+        self.assertIn('/assets/app.js?v='+ASSET_VERSION, html)
 
     def test_admin_app_exposes_export_profiles_and_error_reason_tags(self):
         admin = self.auth.login("admin", "admin123", "unit-test").user
