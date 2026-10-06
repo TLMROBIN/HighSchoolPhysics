@@ -466,6 +466,20 @@
           question.prepend(questionTitle);
           const answer = document.createElement("section");
           answer.innerHTML = `<h3>答案与解析</h3>${match.answer_html}`;
+          const editorButton = document.createElement("button");
+          editorButton.type = "button";
+          editorButton.textContent = "编辑答案与解析";
+          const editor = document.createElement("textarea");
+          editor.className = "answer-markdown-editor";
+          editor.setAttribute("aria-label", "答案与解析 Markdown");
+          editor.value = match.answer_markdown;
+          editor.hidden = true;
+          editor.dataset.answerMarkdown = "true";
+          editorButton.addEventListener("click", () => {
+            editor.hidden = !editor.hidden;
+            editorButton.textContent = editor.hidden ? "编辑答案与解析" : "收起编辑";
+          });
+          answer.append(editorButton, editor);
           content.append(question, answer);
           row.append(label, content);
           renderMath(content);
@@ -498,6 +512,7 @@
         item_id: checkbox.dataset.itemId,
         answer_number: checkbox.dataset.answerNumber,
         expected_revision: Number(checkbox.dataset.expectedRevision),
+        answer_markdown: checkbox.closest(".answer-match-entry").querySelector("[data-answer-markdown]").value,
       }));
       if (!mappings.length) return;
       applyButton.disabled = true;
@@ -513,6 +528,7 @@
           request_key: randomKey(),
         });
         setText(answerStatus, `已把 ${result.attached.length} 条答案保存为待复核内容；没有发布题目或改变判分规则。页面即将刷新。`);
+        sessionStorage.setItem("hsp-answer-scroll", taskId);
         window.setTimeout(() => window.location.reload(), 500);
       } catch (error) {
         setText(answerStatus, error.message || "答案未写入；请重新生成匹配预览。输入仍保留在预览中。");
@@ -521,6 +537,10 @@
     });
   }
   const renderMath = (container) => {
+    container.querySelectorAll(".question-content-image").forEach((image) => {
+      const size = () => { const ratio = image.naturalWidth / image.naturalHeight; image.classList.toggle("figure-wide", ratio >= 1.7); image.classList.toggle("figure-tall", ratio < .75); };
+      if (image.complete) size(); else image.addEventListener("load", size, {once: true});
+    });
     if (window.renderMathInElement) {
       window.renderMathInElement(container, {
         delimiters: [
@@ -1014,6 +1034,22 @@
   });
   review.querySelectorAll("[data-preview-body]").forEach(renderMath);
 
+  review.querySelectorAll(".answer-question-comparison").forEach(renderMath);
+  review.querySelectorAll("[data-edit-saved-answer]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const card = candidateCards().find((entry) => entry.dataset.documentItem === button.dataset.editSavedAnswer);
+      if (!card) return;
+      card.querySelector(".question-editor").hidden = false;
+      const edit = card.querySelector("[data-edit-question]");
+      edit.setAttribute("aria-expanded", "true"); edit.textContent = "收起编辑";
+      card.querySelector(".question-markdown").focus();
+      card.scrollIntoView({block:"start"});
+    });
+  });
+  if (sessionStorage.getItem("hsp-answer-scroll") === taskId) {
+    sessionStorage.removeItem("hsp-answer-scroll");
+    review.querySelector("[data-answer-attachment]")?.scrollIntoView({block:"start"});
+  }
   review.querySelectorAll("[data-edit-question]").forEach((button) => {
     button.addEventListener("click", () => {
       const editor = button.closest("[data-document-item]").querySelector(".question-editor");
@@ -1032,6 +1068,7 @@
         request_key: randomKey(),
         items: candidateCards().map((card) => ({ id: card.dataset.documentItem, expected_revision: Number(card.dataset.revision) })),
       });
+      sessionStorage.setItem("hsp-answer-scroll", taskId);
       window.location.reload();
     } catch (error) { setText(status, error.message); }
     finally { button.disabled = false; }

@@ -9,7 +9,7 @@ from collections import Counter
 
 from .document_models import canonical_json
 from .question_content import serialize_question_md
-from .question_rendering import render_question
+from .question_rendering import render_question, render_markdown
 
 
 def _e(value):
@@ -302,7 +302,7 @@ def document_review_page(task, items, source_assets=()):
     answer_attachment = ""
     if task.get("document_role") == "paper" and task.get("original_paper_id") and task.get("paper_review_confirmed"):
         answer_attachment = """<section class="answer-attachment" data-answer-attachment data-paper-id="%s">
-  <h2>关联独立答案或解析文件</h2>
+  <h2>上传并核对答案解析</h2>
   <p>整卷题目已确认。上传答案解析后，按题号左右对照题目与解析结果，再勾选确认。</p>
   <form data-answer-upload-form><label>答案/解析文件<input type="file" accept=".docx,.doc,.pdf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required></label><button type="submit">上传答案文件</button></form>
   <label class="answer-task-select-label">已上传的本卷答案任务<select data-answer-task-select><option value="">正在查找可用答案任务…</option></select></label>
@@ -311,6 +311,19 @@ def document_review_page(task, items, source_assets=()):
   <button type="button" data-answer-preview-task hidden>生成题号匹配预览</button>
   <div data-answer-match-preview hidden><p data-answer-match-summary></p><ul data-answer-match-list></ul><ul data-answer-match-issues></ul><button type="button" data-answer-apply disabled>确认所选匹配并保存为待复核答案</button></div>
 </section>""" % _e(task["original_paper_id"])
+    if answer_attachment:
+        saved_pairs = []
+        for item in items:
+            doc = item["document"]
+            if not (doc.get("answer_md") or doc.get("analysis_md") or any(part.get("answer_md") for part in doc.get("children", []))):
+                continue
+            asset_url = lambda aid: "/api/documents/assets/%s?task_id=%s" % (aid, task["id"])
+            solution = render_markdown(doc.get("answer_md", ""), asset_url) + render_markdown(doc.get("analysis_md", ""), asset_url)
+            if not doc.get("answer_md"):
+                for part in doc.get("children", []):
+                    solution += "<h4>%s</h4>%s%s" % (_e(part["label"]), render_markdown(part.get("answer_md", ""), asset_url), render_markdown(part.get("analysis_md", ""), asset_url))
+            saved_pairs.append('<div class="answer-match-entry"><div class="answer-question-comparison"><section><h3>第 %s 题</h3>%s</section><section><h3>答案与解析</h3>%s<button type="button" data-edit-saved-answer="%s">编辑答案与解析</button></section></div></div>' % (_e(doc.get("number")), render_question(doc, asset_url), solution, _e(item["id"])))
+        answer_attachment += '<section class="saved-answer-comparisons">%s</section>' % "".join(saved_pairs)
     review_export_link = (
         '<a class="button-secondary" data-review-draft-export href="/api/documents/tasks/%s/review-export.zip">下载未审核校对稿（含未解决事项）</a>'
         '<small class="review-export-hint">下载前会先保存本页尚未保存的题目修改。</small>'
@@ -329,8 +342,10 @@ def document_review_page(task, items, source_assets=()):
     publication_disabled = "" if task.get("paper_review_confirmed") else " disabled"
     return """<section class="document-review-page" data-document-review data-task-id="%s" data-task-status="%s" data-candidate-count="%s">
   <header class="review-heading"><div><a href="/documents">← 返回导入任务</a><p class="eyebrow">%s · %s</p><h1>整卷复核</h1><p>候选完整大题 %s 道；请核对题干、公式、选项、小问和图片，确认整卷无误后，再上传并核对答案解析。</p></div><a class="button-secondary" href="/api/documents/tasks/%s/source">下载原文件</a></header>
+  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s<div class="question-card-list">%s</div></section></div>
+  <section class="paper-confirmation"><button type="button" data-confirm-paper>确认整卷题目无误，进入答案核对</button></section>
   %s
-  <div class="document-review-workspace"><section class="source-panel"><h2>原卷对照</h2>%s</section><section class="candidate-panel"><div class="candidate-toolbar"><h2>题目编辑与预览</h2><button type="button" data-confirm-paper>确认整卷题目无误，进入答案核对</button><button type="button" data-confirm-items%s>确认题目与答案，入库选中题目</button><span data-batch-status aria-live="polite"></span><span data-auto-tagging-status aria-live="polite">%s</span>%s%s</div>%s%s<div class="question-card-list">%s</div></section></div>
+  <section class="answer-publication"%s><button type="button" data-confirm-items%s>答案与解析对照无误，入库选中题目</button></section>
 </section>
 """ % (
         _e(task["id"]),
@@ -340,13 +355,13 @@ def document_review_page(task, items, source_assets=()):
         _e(_status(task["status"])),
         _e(len(items)),
         _e(task["id"]),
-        answer_attachment,
         source_panel,
-        publication_disabled,
         _e(tag_status),
         ('<a class="button-secondary" href="/api/documents/tasks/%s/export.zip">下载已入库整卷包</a> · <a class="button-secondary" href="/api/documents/tasks/%s/export.zip?include_solution=1">含答案整卷包</a>' % (_e(task["id"]), _e(task["id"]))) if task.get("published_count") else "",
         review_export_link,
-        _source_mapping_controls(items),
         _source_asset_gallery(task["id"], source_assets),
         "".join(cards) if cards else "<p class='document-empty'>尚未生成题目候选。任务可能是答案文件，或转换未发现题号边界。</p>",
+        answer_attachment,
+        "" if task.get("paper_review_confirmed") else " hidden",
+        publication_disabled,
     )

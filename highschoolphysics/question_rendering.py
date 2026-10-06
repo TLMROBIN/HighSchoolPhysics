@@ -172,7 +172,17 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
     """Render one full question or a child with shared parent conditions."""
     title = html.escape(str(document.get("number", "")))
     parts = ['<article class="question-content" data-question-number="%s">' % title]
-    parts.append('<div class="question-stem">%s</div>' % render_markdown(document.get("stem_md", ""), asset_url))
+    stem_html = render_markdown(document.get("stem_md", ""), asset_url)
+    figures = []
+    if document.get("options") and include_options:
+        def collect_figure(match):
+            figures.append(match.group(0))
+            return ""
+        stem_html = re.sub(r'<img\b[^>]*class="question-content-image"[^>]*>', collect_figure, stem_html)
+        stem_html = re.sub(r"<p>\s*</p>", "", stem_html)
+    parts.append('<div class="question-stem">%s</div>' % stem_html)
+    if figures:
+        parts.append('<div class="choice-lower-layout">')
 
     if include_options and document.get("options"):
         parts.append('<ol class="question-options">')
@@ -188,6 +198,8 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
             )
         parts.append("</ol>")
 
+    if figures:
+        parts.append('<aside class="choice-figures">%s</aside></div>' % "".join(figures))
     children = document.get("children", [])
     selected = None
     if child_key is not None:

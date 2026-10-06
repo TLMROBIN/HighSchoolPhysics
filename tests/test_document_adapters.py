@@ -104,6 +104,13 @@ def make_wps_shape_docx(path):
 
 
 class DocumentAdapterTests(unittest.TestCase):
+    def test_native_word_run_scripts_keep_subscripts_and_unit_exponents(self):
+        from xml.etree import ElementTree as ET
+        from highschoolphysics.document_adapters.docx_native import _paragraph_text
+        paragraph = ET.fromstring('<w:p xmlns:w="%s"><w:r><w:t>t</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="subscript"/></w:rPr><w:t>1</w:t></w:r><w:r><w:t>，20m</w:t></w:r><w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>2</w:t></w:r></w:p>' % W)
+        result = _paragraph_text(paragraph, {}, None, None, "school", "b", [], [0], [0], {})
+        self.assertEqual(result, 't$ {}_{1}$，20m$ {}^{2}$')
+
     def test_markitdown_cannot_replace_simple_inline_formula_or_numeric_difference(self):
         for native_text, converted in (
             ("1．小球从静止开始运动，末速度满足 $v^2=2as$，请选择正确结论。", "1．小球从静止开始运动，末速度满足 ，请选择正确结论。"),
@@ -232,7 +239,7 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issue["details"]["shape_name"], "矩形 6")
             self.assertEqual(issue["details"]["geometry"], "rect")
             self.assertEqual(issue["details"]["extent_emu"], {"cx": "6330950", "cy": "3599180"})
-            self.assertEqual(result["manifest"]["adapter_version"], "1.5.0")
+            self.assertEqual(result["manifest"]["adapter_version"], "1.6.0")
 
     def test_docx_counts_each_embedded_ole_object_once(self):
         with tempfile.TemporaryDirectory() as directory:

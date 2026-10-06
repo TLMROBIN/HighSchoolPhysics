@@ -1208,6 +1208,7 @@ class DocumentHTTPTests(unittest.TestCase):
                 "item_id": preview["matches"][1]["item_id"],
                 "answer_number": "2",
                 "expected_revision": preview["matches"][1]["expected_revision"],
+                "answer_markdown": "答案：A\n解析：教师修订后的解析。",
             }],
             "request_key": "attach-answer-q1-0001",
         }
@@ -1253,6 +1254,7 @@ class DocumentHTTPTests(unittest.TestCase):
             document = json.loads(attached["document_json"])
             self.assertEqual(attached["review_revision"], 2)
             self.assertIn("答案：A", document["answer_md"])
+            self.assertIn("教师修订后的解析", document["answer_md"])
             self.assertEqual(document["answer_state"], "needs_review")
             self.assertIn("attached_answer_requires_review", [issue["code"] for issue in document["issues"]])
             self.assertEqual(untouched["review_revision"], 1)
@@ -1316,8 +1318,8 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(b'data-question-number-edit value="1"', review)
         self.assertIn(b'data-question-number-edit value="2"', review)
-        self.assertIn(b'data-save-source-mapping', review)
-        self.assertIn(b'data-source-owner', review)
+        self.assertNotIn(b'data-save-source-mapping', review)
+        self.assertNotIn(b'data-source-owner', review)
         self.assertIn(b'data-restructure-split', review)
         self.assertIn(b'data-restructure-merge', review)
         old_order = [item["id"] for item in before]

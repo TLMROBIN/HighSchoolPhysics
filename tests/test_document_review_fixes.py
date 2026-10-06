@@ -107,6 +107,9 @@ class DocumentReviewFixTests(unittest.TestCase):
         self.assertNotIn('class="review-note"', page)
         self.assertNotIn('data-issue-id', page)
         self.assertNotIn('data-answer-upload-form', page)
+        self.assertNotIn('data-save-source-mapping', page)
+        self.assertLess(page.rindex('class="document-question-card"'), page.index('data-confirm-paper'))
+        self.assertLess(page.index('data-confirm-paper'), page.index('data-confirm-items'))
 
     def test_structure_preview_replay_save_review_and_publication(self):
         item = self.items[0]

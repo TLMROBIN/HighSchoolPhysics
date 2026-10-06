@@ -876,7 +876,12 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
             raise IngestionError("invalid_answer_mapping", "答案匹配需要候选、题号和复核版本", 422)
         if mapping["item_id"] in seen:
             raise IngestionError("invalid_answer_mapping", "同一题目不能重复关联答案", 422)
-        clean_mappings.append({"item_id": mapping["item_id"], "answer_number": mapping["answer_number"], "expected_revision": mapping["expected_revision"]})
+        clean = {"item_id": mapping["item_id"], "answer_number": mapping["answer_number"], "expected_revision": mapping["expected_revision"]}
+        if "answer_markdown" in mapping:
+            if not isinstance(mapping["answer_markdown"], str) or not mapping["answer_markdown"].strip() or len(mapping["answer_markdown"]) > 100000:
+                raise IngestionError("invalid_answer_content", "答案与解析内容不能为空或过长", 422)
+            clean["answer_markdown"] = mapping["answer_markdown"]
+        clean_mappings.append(clean)
         seen.add(mapping["item_id"])
     request_hash = hashlib.sha256(canonical_json({"paper_task_id": paper_task_id, "answer_task_id": answer_task_id, "mappings": clean_mappings}).encode()).hexdigest()
     cached = _operation_result(conn, actor, "attach_answers", request_key, request_hash)
@@ -911,9 +916,9 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
             if asset_id not in known_assets:
                 conn.rollback()
                 raise IngestionError("answer_asset_unavailable", "答案资源不属于当前原卷", 422)
-        document["answer_md"] = proposal["answer_markdown"]
+        document["answer_md"] = mapping.get("answer_markdown", proposal["answer_markdown"])
         document["answer_state"] = "needs_review"
-        child_answer_sections = _split_child_answer_markdown(proposal["answer_markdown"])
+        child_answer_sections = _split_child_answer_markdown(document["answer_md"])
         if document.get("children"):
             for child in document["children"]:
                 part_label = _normalize_part_label(child.get("label"))
@@ -923,7 +928,7 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
                     child["answer_state"] = "needs_review"
                     child["source_spans"] = list(child.get("source_spans", [])) + proposal["source_spans"]
             if not child_answer_sections and len(document["children"]) == 1:
-                document["children"][0]["answer_md"] = proposal["answer_markdown"]
+                document["children"][0]["answer_md"] = document["answer_md"]
                 document["children"][0]["answer_state"] = "needs_review"
                 document["children"][0]["source_spans"] = list(document["children"][0].get("source_spans", [])) + proposal["source_spans"]
         document["asset_refs"] = sorted(set(document.get("asset_refs", [])) | set(proposal["asset_refs"]))

@@ -37,7 +37,7 @@ MAX_OLE_OBJECTS = 512
 MAX_OLE_OBJECT_BYTES = 5 * 1024 * 1024
 MAX_OLE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_MTEF_OUTPUT_BYTES = 8 * 1024 * 1024
-DOCX_ADAPTER_VERSION = "1.5.0"
+DOCX_ADAPTER_VERSION = "1.6.0"
 
 
 def _run_markitdown(source_path):
@@ -590,6 +590,15 @@ def _paragraph_text(paragraph, rels, archive, store, school_id, block_id, issues
 
     def walk(node, inside_ole_object=False, evidence_assets=None, containing_shape=None):
         tag = node.tag
+        if tag == _q(W, "r"):
+            alignment = node.find("w:rPr/w:vertAlign", NS)
+            kind = _attribute(alignment, "val") if alignment is not None else ""
+            text_nodes = node.findall("w:t", NS)
+            if kind in ("subscript", "superscript") and text_nodes and all(child.tag in (_q(W, "rPr"), _q(W, "t")) for child in node):
+                value = "".join("".join(text.itertext()) for text in text_nodes)
+                value = value.replace("\\", r"\backslash ").replace("{", r"\{").replace("}", r"\}").replace("$", r"\$")
+                output.append("$ {}%s{%s}$" % ("_" if kind == "subscript" else "^", value))
+                return
         if tag == _q(MC, "AlternateContent"):
             # Markup Compatibility content is an either/or representation. Prefer
             # the WPS DrawingML branch we can inspect, rather than also walking
