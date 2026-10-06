@@ -113,6 +113,7 @@
       label.append(box,node('span',`原题号 ${g.number||'—'} · ${g.type_label} · ${g.question_ids.length} 道小题 · ${g.tagged_count} 道已有标签`));header.append(label);card.append(header);
       const preview=node('div',undefined,'bank-question-preview');preview.innerHTML=g.html;card.append(preview);math(preview);
       const chips=node('div',undefined,'bank-tag-chips'),seen=new Set();for(const t of g.tags){if(seen.has(t.tag_id))continue;seen.add(t.tag_id);chips.append(node('span',t.name,'bank-tag-chip'));}card.append(chips);
+      const reference=node('details',undefined,'bank-reference');reference.append(node('summary','展开答案与解析'));const solution=node('div');solution.innerHTML=g.solution_html;reference.append(solution);card.append(reference);reference.addEventListener('toggle',()=>{if(reference.open)math(solution);});
       const details=node('details');details.append(node('summary','编辑题目、题型与标签管理'));const content=node('div');details.append(content);
       details.addEventListener('toggle',async()=>{if(!details.open||details.dataset.loaded)return;details.dataset.loaded='1';content.textContent='正在加载…';try{await openGroup(g.question_ids[0],content);}catch(e){delete details.dataset.loaded;content.textContent=e.message;}});
       card.append(details);$('results').append(card);

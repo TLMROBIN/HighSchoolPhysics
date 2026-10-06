@@ -1372,6 +1372,8 @@ def confirm_candidates(conn, actor, task_id, payload):
             if unresolved:
                 conn.rollback()
                 raise IngestionError("review_required", "Resolve or explicitly review all open items before publishing", 422, {"issue_count": len(unresolved)})
+            from .choice_answers import prepare_answers, row_answer
+            document = prepare_answers(document, reviewed=payload.get("reviewed") is True)
             content_rows = _question_rows(document, document["stem_md"])
             reuse_question_ids = entry["reuse_question_ids"]
             valid_child_keys = {row["child_key"] for row in content_rows}
@@ -1449,6 +1451,7 @@ def confirm_candidates(conn, actor, task_id, payload):
                         raise IngestionError("existing_question_unavailable", "Existing question is not available for this school's first full-content binding", 409)
                     conn.execute(
                         """update questions set stem=?,options_json=?,
+                             answer_json=case when ?<>'{}' then ? else answer_json end,
                              analysis=case when ?<>'' then ? else analysis end,
                              question_type=?,source=?,media_json=?,original_paper_id=?,import_batch_id=?,parser_task_id=?,
                              original_page=?,original_question_number=?,source_school=?,source_publisher=?,exam_type=?,
@@ -1456,6 +1459,7 @@ def confirm_candidates(conn, actor, task_id, payload):
                            where id=? and school_id=?""",
                         (
                             question_values[0], question_values[1],
+                            json.dumps(row_answer(content_row), ensure_ascii=False), json.dumps(row_answer(content_row), ensure_ascii=False),
                             _legacy_question_text(content_row["analysis_md"]), _legacy_question_text(content_row["analysis_md"]),
                             *question_values[2:], question_id, actor["school_id"],
                         ),
@@ -1471,7 +1475,7 @@ def confirm_candidates(conn, actor, task_id, payload):
                             actor["school_id"],
                             question_values[0],
                             question_values[1],
-                            "{}",
+                            json.dumps(row_answer(content_row), ensure_ascii=False),
                             _legacy_question_text(content_row["analysis_md"]),
                             question_type,
                             task["file_name"],

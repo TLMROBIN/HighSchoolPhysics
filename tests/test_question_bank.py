@@ -67,6 +67,68 @@ class QuestionBankTests(unittest.TestCase):
         result=document_ingestion.confirm_candidates(self.conn,self.user,task,{'request_key':'publish-'+task,'items':refs,'reviewed':True})
         return result
 
+    def test_recovery_only_fills_empty_unused_draft_snapshots(self):
+        from highschoolphysics.answer_recovery import recover
+        from highschoolphysics.document_models import canonical_sha256
+        result=self.import_batch()
+        ids=question_bank.batch_question_ids(self.conn,result['batch_id'],self.user['school_id'])
+        task=self.conn.execute('select parser_task_id from questions where id=?',(ids[0],)).fetchone()[0]
+        for qid in ids:
+            binding=question_bank.content(self.conn,qid,self.user['school_id'])
+            d=binding['document'];d.update(answer_md='',analysis_md='',answer_state='missing',grading_rule=None)
+            self.conn.execute('update question_content_revisions set document_json=?,content_sha256=?,answer_state=? where id=?',(json.dumps(d),canonical_sha256(d),'missing',binding['current_revision_id']))
+            self.conn.execute("update questions set answer_json='{}',analysis='' where id=?",(qid,))
+        self.conn.commit()
+        for qid in ids:
+            self.post('/api/question-bank/tags',{'entries':[self.entry(qid)]})
+        aid=learning.api(self.repo,self.user,'assessment',dict(title='空答案修复',class_id='class-physics-1',questions=ids))['url'].split('=')[1]
+        published=learning.api(self.repo,self.user,'assessment',dict(title='冻结考试保护',class_id='class-physics-1',questions=ids))['url'].split('=')[1]
+        self.conn.execute("update assessment_sessions set grading_status='published' where id=?",(published,));self.conn.commit()
+        frozen=[tuple(r) for r in self.conn.execute('select * from question_version_snapshots where assessment_id=? order by id',(published,))]
+        # Protect one draft snapshot with an existing teacher key.
+        self.conn.execute('update question_version_snapshots set answer_json=? where assessment_id=? and position=2',(json.dumps('B'),aid));self.conn.commit()
+        old_key=self.conn.execute('select answer_json from question_version_snapshots where assessment_id=? and position=2',(aid,)).fetchone()[0]
+        entries={str(n):[dict(markdown='A\n\n故选A。',source_spans=[],asset_refs=[])] for n in (1,2)}
+        with patch('highschoolphysics.answer_recovery._answer_groups',return_value=entries):
+            preview=recover(self.repo,self.user,task,task)
+            self.assertEqual(len(preview['recovered']),2)
+            self.assertEqual(self.repo.get_question(ids[0])['answer'],{})
+            applied=recover(self.repo,self.user,task,task,apply=True)
+            self.assertEqual(len(applied['snapshots_filled']),1)
+            repeated=recover(self.repo,self.user,task,task,apply=True)
+            self.assertEqual(repeated['recovered'],[])
+        self.assertEqual(self.conn.execute('select answer_json from question_version_snapshots where assessment_id=? and position=2',(aid,)).fetchone()[0],old_key)
+        self.assertEqual(self.conn.execute('select count(*) from student_responses where assessment_id=?',(aid,)).fetchone()[0],0)
+        self.assertFalse(self.conn.execute('pragma foreign_key_check').fetchall())
+        self.assertEqual(frozen,[tuple(r) for r in self.conn.execute('select * from question_version_snapshots where assessment_id=? order by id',(published,))])
+
+    def test_imported_choice_answer_grades_first_and_redo_separately(self):
+        result = self.import_batch()
+        ids = question_bank.batch_question_ids(self.conn,result['batch_id'],self.user['school_id'])
+        for qid in ids:
+            self.assertEqual(self.repo.get_question(qid)['answer']['answer'], 'A')
+            self.post('/api/question-bank/tags',{'entries':[self.entry(qid)]})
+        listing = question_bank.library(self.repo,self.user,batch_id=result['batch_id'])
+        self.assertIn('使用牛顿第二定律', listing['groups'][0]['solution_html'])
+        aid = learning.api(self.repo,self.user,'assessment',dict(title='答案闭环',class_id='class-physics-1',questions=ids))['url'].split('=')[1]
+        users = self.conn.execute('select u.* from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=?',(aid,)).fetchall()
+        records = [dict(student=u['username'],number=str(n+1),answer='B') for u in users for n in range(len(ids))]
+        payload = dict(assessment_id=aid,records=records,request_key='first-choice-records')
+        preview = learning.api(self.repo,self.user,'answers',payload)
+        self.assertTrue(all(r['outcome']=='wrong' for r in preview['records']))
+        learning.api(self.repo,self.user,'answers',dict(payload,confirm=True,preview_token=preview['preview_token']))
+        learning.api(self.repo,self.user,'publish',{'assessment_id':aid})
+        wrong = self.conn.execute('select * from wrong_questions where assessment_id=? and student_id=?',(aid,users[0]['id'])).fetchone()
+        for n,(answer,outcome) in enumerate([('B','wrong'),('A','correct')]):
+            attempt=learning.submit(self.repo,users[0]['id'],dict(wrong_id=wrong['id'],answer=answer,request_key='redo-choice-'+str(n)))
+            self.assertEqual(attempt['outcome'],outcome)
+        self.assertEqual(self.conn.execute('select initial_answer from student_responses where id=?',(wrong['response_id'],)).fetchone()[0],'B')
+        from highschoolphysics.learning_views import student
+        page=student(self.repo,dict(users[0]),{})
+        self.assertIn('后续复习记录',page)
+        self.assertIn('选择：B',page)
+        self.assertIn('选择：A',page)
+
     def test_imported_bank_type_filters_and_full_stem_html(self):
         result = self.import_batch(bank_type='experiment')
         ids = question_bank.batch_question_ids(self.conn, result['batch_id'], self.user['school_id'])

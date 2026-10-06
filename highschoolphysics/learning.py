@@ -153,6 +153,8 @@ def submit(repo, actor, payload):
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
         purpose='verify' if payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date()) else 'learn'
         question_snapshot = snapshot(c, wrong)
+        if question_snapshot["question_type"] in ("single_choice", "multiple_choice") and not str(answer).strip():
+            raise InvalidRequest("请先选择选项，再提交作答")
         outcome = outcome_for_snapshot(c, question_snapshot, wrong["school_id"], answer)
         aid='redo-'+uuid.uuid4().hex[:12]
         c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,answer,status,outcome,purpose,request_key,submitted_at) values(?,?,?,?,?,?,?,?,?,?)',(aid,wrong['school_id'],wrong['id'],actor,answer,'submitted' if outcome=='pending' else 'reviewed',outcome,purpose,key,now()))

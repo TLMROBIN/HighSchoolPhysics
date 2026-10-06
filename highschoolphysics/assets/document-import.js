@@ -480,6 +480,7 @@
           const checkbox = document.createElement("input");
           checkbox.type = "checkbox";
           checkbox.dataset.answerMatch = "true";
+          checkbox.checked = true;
           checkbox.dataset.itemId = match.item_id;
           checkbox.dataset.answerNumber = match.answer_number;
           checkbox.dataset.expectedRevision = String(match.expected_revision);
@@ -527,6 +528,7 @@
         });
         setText(summary, `找到 ${result.matches.length} 条唯一匹配建议；${result.issues.length} 项无法自动关联。未勾选的建议不会写入。`);
         previewPanel.hidden = false;
+        previewPanel.dataset.answerTaskId = answerTaskId;
         matchList.querySelectorAll("[data-answer-match]").forEach((checkbox) => checkbox.addEventListener("change", setApplyEnabled));
         setApplyEnabled();
         setText(answerStatus, "匹配预览完成。答案正文仍需人工核对，确认写入后也保持待复核状态。");
@@ -1142,6 +1144,17 @@
       for (const card of selected) {
         const saved = await saveCard(card, false);
         card.dataset.revision = String(saved.review_revision);
+      }
+      const answerMappings = Array.from(review.querySelectorAll("[data-answer-match]:checked"))
+        .filter(box => selected.some(card => card.dataset.documentItem === box.dataset.itemId))
+        .map(box => ({item_id:box.dataset.itemId, answer_number:box.dataset.answerNumber,
+          expected_revision:Number(selected.find(card => card.dataset.documentItem===box.dataset.itemId).dataset.revision),
+          answer_markdown:box.closest(".answer-match-entry").querySelector("[data-answer-markdown]").value}));
+      if (answerMappings.length) {
+        const attached = await request(`/api/documents/tasks/${encodeURIComponent(taskId)}/attach-answers`, {
+          answer_task_id:review.querySelector("[data-answer-match-preview]").dataset.answerTaskId, mappings:answerMappings, request_key:randomKey()
+        });
+        for (const item of attached.attached) selected.find(card => card.dataset.documentItem===item.item_id).dataset.revision=String(item.review_revision);
       }
       const result = await request(`/api/documents/tasks/${encodeURIComponent(taskId)}/confirm`, {
         request_key: randomKey(),

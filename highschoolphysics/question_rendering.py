@@ -263,6 +263,9 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
         if document.get("analysis_md"):
             answer_parts.append(render_markdown(document["analysis_md"], asset_url))
         if answer_parts:
+            answer_unit = selected or document
+            if answer_unit.get('kind') in ('single_choice', 'multiple_choice') and answer_unit.get('answer_state') != 'verified':
+                answer_parts.insert(0, '<p class="answer-review-note">标准答案待确认：原文答案缺失、冲突或尚未核对，暂不自动判定对错。</p>')
             parts.append('<section class="question-solution"><h3>参考答案与解析</h3>%s</section>' % "".join(answer_parts))
     parts.append("</article>")
     return "".join(parts)

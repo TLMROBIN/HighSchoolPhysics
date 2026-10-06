@@ -463,4 +463,7 @@ def render_snapshot_solution(conn, snapshot_id, school_id, base_path=""):
     else:
         fields = (document.get("answer_md", ""), document.get("analysis_md", ""))
     rendered = "".join(render_markdown(field, asset_url) for field in fields if field)
+    unit = selected if content["child_key"] else document
+    if rendered and unit.get('kind') in ('single_choice', 'multiple_choice') and content['answer_state'] != 'verified':
+        rendered = '<p class="answer-review-note">标准答案待确认：原文答案存在冲突或尚未核对，暂不自动判定对错。</p>' + rendered
     return '<section class="question-solution"><h3>参考答案与解析</h3>%s</section>' % rendered if rendered else ""

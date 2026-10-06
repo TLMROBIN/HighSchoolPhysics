@@ -154,10 +154,15 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size
         url = lambda aid: base_path+'/api/question-bank/assets/'+quote(aid)+'?question_id='+quote(qid)
         if binding:
             group['html'] = render_question(binding['document'], asset_url=url, compact_layout=True)
+            full = render_question(binding['document'], asset_url=url, include_solution=True, compact_layout=True)
+            marker = '<section class="question-solution">'
+            group['solution_html'] = marker + full.split(marker, 1)[1].split('</section>', 1)[0] + '</section>' if marker in full else '<p>答案与解析尚未导入，请在导入任务中保存答案对照。</p>'
         else:
             q = repo.get_question(qid)
             document = {'number': group['number'], 'stem_md': q['stem'], 'options': [{'key': k, 'markdown': v} for k,v in q['options'].items()], 'children': []}
             group['html'] = render_question(document, compact_layout=True)
+            answer = q['answer'].get('answer', '') if isinstance(q['answer'], dict) else q['answer']
+            group['solution_html'] = render_markdown('参考答案：'+str(answer or '待确认')) + render_markdown(q['analysis'])
         group['type_label'] = BANK_TYPES[group['bank_type']]
         group.pop('search_text', None)
     return {'batches': batches, 'papers': list_papers(repo, user), 'groups': visible,
@@ -315,8 +320,10 @@ def save_content(repo, user, qid, payload):
             if not d['stem_md'].strip():
                 raise InvalidRequest('题干不能为空')
             for part in [d,*d['children']]:
-                if part.get('grading_rule') and part.get('answer_md') != next((x.get('answer_md') for x in [old,*old['children']] if x.get('key','')==part.get('key','')),None):
+                if part.get('kind') not in ('single_choice', 'multiple_choice') and part.get('grading_rule') and part.get('answer_md') != next((x.get('answer_md') for x in [old,*old['children']] if x.get('key','')==part.get('key','')),None):
                     raise InvalidRequest('此题使用自定义答案核对规则，请先同步调整规则')
+            from .choice_answers import prepare_answers, row_answer
+            d = prepare_answers(d, reviewed=True)
             from .document_ingestion import _question_rows, _legacy_question_text
             revision_id='revision-'+uuid.uuid4().hex
             n=c.execute('select max(revision_no)+1 from question_content_revisions where group_id=?',(binding['group_id'],)).fetchone()[0]
@@ -327,7 +334,7 @@ def save_content(repo, user, qid, payload):
             rows={r['child_key']:r for r in _question_rows(d,d['stem_md'])}
             for b in c.execute('select question_id,child_key from question_content_bindings where group_id=?',(binding['group_id'],)).fetchall():
                 r=rows[b['child_key']]
-                c.execute('''update questions set stem=?,options_json=?,answer_json=?,analysis=?,original_question_number=?,version=version+1 where id=?''',(_legacy_question_text(r['stem']),dumps({o['key']:_legacy_question_text(o['markdown']) for o in r['options']}),dumps(r['answer_md']),_legacy_question_text(r['analysis_md']),d['number'],b['question_id']))
+                c.execute('''update questions set stem=?,options_json=?,answer_json=?,analysis=?,original_question_number=?,version=version+1 where id=?''',(_legacy_question_text(r['stem']),dumps({o['key']:_legacy_question_text(o['markdown']) for o in r['options']}),dumps(row_answer(r)),_legacy_question_text(r['analysis_md']),d['number'],b['question_id']))
         else:
             fields=payload.get('fields',{})
             if not isinstance(fields,dict) or not isinstance(fields.get('stem'),str) or not fields['stem'].strip() or not isinstance(fields.get('options'),dict) or not isinstance(fields.get('answer'),str) or not isinstance(fields.get('analysis'),str):

@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261006-teacher-layout-v2"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
-DOCUMENT_ASSET_VERSION = "20261006-bank-types-v2"
+DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
 
 def ensure_database(path, demo_mode=False):
@@ -115,8 +115,8 @@ def render_layout(title, user, body, active="", question_math=False):
         asset_version=escape(ASSET_VERSION),
         user_text=user_text,
         body=body,
-        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-filters-v3">' if 'data-question-bank' in body else '',
-        bank_scripts='<script defer src="/assets/question-bank.js?v=20261006-filters-v3"></script>' if 'data-question-bank' in body else '',
+        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-answers-v4">' if 'data-question-bank' in body else '',
+        bank_scripts='<script defer src="/assets/question-bank.js?v=20261006-answers-v4"></script>' if 'data-question-bank' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(
