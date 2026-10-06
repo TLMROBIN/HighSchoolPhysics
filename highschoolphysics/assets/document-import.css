@@ -295,6 +295,22 @@
   overflow-wrap: anywhere;
 }
 
+.document-task-delete {
+  margin-left: 0.5rem;
+  border: 0;
+  padding: 0.25rem 0;
+  color: #a32929;
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.document-task-delete:disabled {
+  color: #8290a0;
+  cursor: wait;
+}
+
 .document-limits,
 .document-empty,
 .source-unavailable {

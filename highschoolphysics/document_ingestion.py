@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -1512,6 +1513,171 @@ def task_cancel(conn, actor, task_id):
         conn.execute("update document_parse_tasks set cancel_requested=1,updated_at=? where id=?", (_now(), task_id))
     conn.commit()
     return {"task_id": task_id, "status": "cancelled" if row["status"] == "queued" else "cancelling"}
+
+
+def delete_task(conn, actor, task_id, document_root=None):
+    """Delete an unpublished import task and its unreferenced document files."""
+    task = _task_for_actor(conn, actor, task_id)
+    if task["status"] in ("queued", "running"):
+        raise StateConflict("请先取消仍在处理的导入任务，任务结束后再删除")
+
+    published = conn.execute(
+        "select count(*) from import_item_publications publication "
+        "join parsed_question_items item on item.id=publication.parsed_item_id "
+        "where item.parse_task_id=?", (task_id,),
+    ).fetchone()[0]
+    linked_questions = conn.execute(
+        "select count(*) from questions where parser_task_id=? or import_batch_id=?",
+        (task_id, task["import_batch_id"]),
+    ).fetchone()[0]
+    if published or linked_questions:
+        raise StateConflict("该导入任务已有关联的已入库题目，不能删除，以免破坏题目来源记录")
+
+    store = DocumentStore(document_root or _store_for_connection(conn).root)
+    removed_keys = set()
+    conversion_ids = set()
+    upload_ids = set()
+    conn.execute("begin immediate")
+    try:
+        fresh = conn.execute(
+            "select status,input_document_id,conversion_id,original_paper_id,import_batch_id "
+            "from document_parse_tasks where id=?", (task_id,),
+        ).fetchone()
+        if fresh is None:
+            raise ResourceNotFound("Document task not found")
+        if fresh["status"] in ("queued", "running"):
+            raise StateConflict("请先取消仍在处理的导入任务，任务结束后再删除")
+        if conn.execute(
+            "select 1 from import_item_publications publication "
+            "join parsed_question_items item on item.id=publication.parsed_item_id "
+            "where item.parse_task_id=? limit 1", (task_id,),
+        ).fetchone() or conn.execute(
+            "select 1 from questions where parser_task_id=? or import_batch_id=? limit 1",
+            (task_id, fresh["import_batch_id"]),
+        ).fetchone():
+            raise StateConflict("该导入任务已有关联的已入库题目，不能删除，以免破坏题目来源记录")
+
+        upload_rows = conn.execute(
+            "select id from document_uploads where task_id=?", (task_id,),
+        ).fetchall()
+        upload_ids.update(row["id"] for row in upload_rows)
+        for row in conn.execute(
+            "select part.storage_key from document_upload_parts part "
+            "join document_uploads upload on upload.id=part.upload_id where upload.task_id=?", (task_id,),
+        ):
+            removed_keys.add(row["storage_key"])
+
+        if fresh["conversion_id"]:
+            conversion_ids.add(fresh["conversion_id"])
+        conversion_rows = conn.execute(
+            "select id,markdown_key,layout_key,manifest_key from document_conversions where task_id=?",
+            (task_id,),
+        ).fetchall()
+        for conversion in conversion_rows:
+            conversion_ids.add(conversion["id"])
+            removed_keys.update((conversion["markdown_key"], conversion["layout_key"], conversion["manifest_key"]))
+
+        file_rows = conn.execute(
+            "select id,storage_key from document_files where id=?",
+            (fresh["input_document_id"],),
+        ).fetchall() if fresh["input_document_id"] else []
+        file_ids = [row["id"] for row in file_rows]
+        item_ids = [row[0] for row in conn.execute(
+            "select id from parsed_question_items where parse_task_id=?", (task_id,),
+        )]
+        for item_id in item_ids:
+            if conn.execute("select 1 from question_content_groups where source_item_id=?", (item_id,)).fetchone():
+                raise StateConflict("该导入任务已有题目内容记录，不能删除，以免破坏来源记录")
+        conn.execute("delete from parsed_question_items where parse_task_id=?", (task_id,))
+        conn.execute("delete from document_upload_parts where upload_id in (select id from document_uploads where task_id=?)", (task_id,))
+        conn.execute("delete from document_uploads where task_id=?", (task_id,))
+        conn.execute("update document_parse_tasks set conversion_id=NULL,input_document_id=NULL where id=?", (task_id,))
+        for file_row in file_rows:
+            file_id = file_row["id"]
+            still_referenced = conn.execute(
+                "select 1 from document_parse_tasks where input_document_id=? union all "
+                "select 1 from document_uploads where document_file_id=? union all "
+                "select 1 from document_files where parent_file_id=? limit 1",
+                (file_id, file_id, file_id),
+            ).fetchone()
+            if still_referenced:
+                continue
+            removed_keys.add(file_row["storage_key"])
+            conn.execute("delete from document_files where id=?", (file_id,))
+
+        for conversion_id in conversion_ids:
+            asset_ids = [row[0] for row in conn.execute(
+                "select distinct asset_id from conversion_asset_refs where conversion_id=?", (conversion_id,),
+            )]
+            conn.execute("delete from conversion_asset_refs where conversion_id=?", (conversion_id,))
+            conn.execute("delete from document_conversions where id=?", (conversion_id,))
+            for asset_id in asset_ids:
+                asset = conn.execute("select storage_key from document_assets where id=?", (asset_id,)).fetchone()
+                if asset and not conn.execute(
+                    "select 1 from conversion_asset_refs where asset_id=? union all "
+                    "select 1 from content_asset_refs where asset_id=? limit 1", (asset_id, asset_id),
+                ).fetchone():
+                    removed_keys.add(asset["storage_key"])
+                    conn.execute("delete from document_assets where id=?", (asset_id,))
+
+        batch_id = fresh["import_batch_id"]
+        paper_id = fresh["original_paper_id"]
+        conn.execute("delete from document_parse_tasks where id=?", (task_id,))
+        if batch_id and not conn.execute(
+            "select 1 from document_parse_tasks where import_batch_id=? limit 1", (batch_id,),
+        ).fetchone():
+            conn.execute("delete from question_import_batches where id=?", (batch_id,))
+        if paper_id and not conn.execute(
+            "select 1 from document_files where original_paper_id=? union all "
+            "select 1 from question_import_batches where original_paper_id=? union all "
+            "select 1 from questions where original_paper_id=? limit 1", (paper_id, paper_id, paper_id),
+        ).fetchone():
+            conn.execute("delete from original_papers where id=?", (paper_id,))
+        _audit(conn, actor, "document_task_deleted", "document_parse_task", task_id, {
+            "file_count": len(file_ids), "conversion_count": len(conversion_ids),
+        })
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+    cleanup_errors = []
+    def safe_path(parts):
+        lexical = store.root.joinpath(*parts)
+        resolved = store._path(*parts)
+        if lexical != resolved or lexical.is_symlink():
+            raise DocumentStoreError("invalid_path", "Refusing to remove a symlinked storage path")
+        return lexical
+
+    for key in removed_keys:
+        try:
+            path = safe_path(key.split("/"))
+            if path.is_file():
+                path.unlink()
+        except (OSError, DocumentStoreError):
+            cleanup_errors.append(key)
+    for conversion_id in conversion_ids:
+        try:
+            path = safe_path(["schools", actor["school_id"], "conversions", conversion_id])
+            if path.is_dir():
+                shutil.rmtree(path)
+        except (OSError, DocumentStoreError):
+            cleanup_errors.append("conversion:" + conversion_id)
+    for upload_id in upload_ids:
+        try:
+            path = safe_path(["staging", upload_id])
+            if path.is_dir():
+                shutil.rmtree(path)
+        except (OSError, DocumentStoreError):
+            cleanup_errors.append("staging:" + upload_id)
+    try:
+        path = safe_path(["work", task_id])
+        if path.is_dir():
+            shutil.rmtree(path)
+    except (OSError, DocumentStoreError):
+        cleanup_errors.append("work:" + task_id)
+    return {"task_id": task_id, "deleted": True, "cleanup_errors": cleanup_errors}
 
 
 def retry_task(conn, actor, task_id, request_key):

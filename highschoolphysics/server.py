@@ -4686,11 +4686,13 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     result = document_ingestion.cancel_upload(conn, user, upload_id, self.db_path, root)
                 self._send_json({"ok": True, "result": result}, HTTPStatus.ACCEPTED if operation == "complete" else HTTPStatus.OK)
                 return
-            match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(cancel|retry|confirm|reorder|sources|restructure|attach-answers)", path)
+            match = re.fullmatch(r"/api/documents/tasks/([A-Za-z0-9_-]{1,96})/(cancel|delete|retry|confirm|reorder|sources|restructure|attach-answers)", path)
             if match:
                 task_id, operation = match.groups()
                 if operation == "cancel":
                     result = document_ingestion.task_cancel(conn, user, task_id)
+                elif operation == "delete":
+                    result = document_ingestion.delete_task(conn, user, task_id, root)
                 elif operation == "retry":
                     result = document_ingestion.retry_task(conn, user, task_id, payload.get("request_key"))
                 elif operation == "reorder":

@@ -35,7 +35,7 @@ def documents_home(user, tasks):
     rows = []
     for task in tasks:
         task_id = task["id"]
-        review = '<a href="/documents/review?task_id=%s">打开复核</a>' % _e(task_id)
+        review = '<a href="/documents/review?task_id=%s">打开复核</a> <button type="button" class="document-task-delete" data-task-id="%s" data-file-name="%s">删除任务</button>' % (_e(task_id), _e(task_id), _e(task["file_name"]))
         rows.append(
             "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>"
             % (

@@ -254,6 +254,13 @@
             link.href = url(`/documents/review?task_id=${encodeURIComponent(task.id)}`);
             link.textContent = "打开复核";
             action.append(link);
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "document-task-delete";
+            remove.dataset.taskId = task.id;
+            remove.dataset.fileName = task.file_name || "";
+            remove.textContent = "删除任务";
+            action.append(document.createTextNode(" "), remove);
             row.append(action);
             body.append(row);
           });
@@ -266,6 +273,23 @@
         polling = false;
       }
     };
+    taskList.addEventListener("click", async (event) => {
+      const button = event.target.closest(".document-task-delete");
+      if (!button || button.disabled) return;
+      const fileName = button.dataset.fileName || "此文件";
+      if (!window.confirm(`确定删除“${fileName}”的导入任务及未入库的解析结果和专属文件吗？此操作不可撤销。已入库题目会受到保护；有关联已入库题目的任务无法删除。`)) return;
+      button.disabled = true;
+      try {
+        const result = await request(`/api/documents/tasks/${encodeURIComponent(button.dataset.taskId)}/delete`, {});
+        if (result.cleanup_errors && result.cleanup_errors.length) {
+          window.alert(`任务已删除，但有 ${result.cleanup_errors.length} 个文件未能清理，请稍后检查存储目录。`);
+        }
+        await refreshTasks();
+      } catch (error) {
+        window.alert(error.message || "删除任务失败。");
+        button.disabled = false;
+      }
+    });
     window.setInterval(refreshTasks, 5000);
     document.addEventListener("visibilitychange", refreshTasks);
   }
