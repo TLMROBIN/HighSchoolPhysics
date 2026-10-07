@@ -125,6 +125,8 @@ def progress(conn, wrong, today=None):
     pending=any(a['outcome']=='pending' and c_active(conn,a['wrong_question_id']) for a in attempts)
     if not originals:
         return dict(count=0,due=str(today),status='本次错误记录已撤销',last='已更正',pending=False,available=False)
+    if conn.execute('select 1 from student_mastered_wrongs where student_id=? and wrong_id=?', (wrong['student_id'], wrong['id'])).fetchone():
+        return dict(count=count,due=str(due),status='学生标记已掌握',last=last,pending=pending,available=False,manually_mastered=True)
     status='待教师确认' if pending else '本题已巩固' if count>=3 else '等待下次验证' if due>today else '需再练'
     return dict(count=count,due=str(due),status=status,last=last,pending=pending,available=not pending and count<3 and due<=today)
 
@@ -253,7 +255,7 @@ def api(repo,user,action,p,base_path=""):
     if action.startswith('diagnosis-'):
         from .diagnosis import api as diagnosis_api
         return diagnosis_api(repo,user,action,p)
-    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit'):
+    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit','wrong-mastered'):
         from .student_learning import api as student_api
         return student_api(repo,user,action,p,base_path)
     if action=='answers':

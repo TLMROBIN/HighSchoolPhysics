@@ -18,10 +18,10 @@
   compactFilters.addEventListener('change',()=>{if(compactFilters.matches)close();else sync();});sync();
  });
  document.querySelectorAll('.student-workspace .learning-form').forEach(f=>{
-  const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences'].includes(action))return;
+  const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences','wrong-mastered'].includes(action))return;
   const requestKey=key();f.addEventListener('submit',async e=>{
-   e.preventDefault();e.stopImmediatePropagation();const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit],button:not([type])');button.disabled=true;status.textContent='正在保存…';
-   try{const d=await request(action,{...payload(f),request_key:requestKey});location.assign(d.url||'app');}
+   e.preventDefault();e.stopImmediatePropagation();if(action==='wrong-mastered'&&!confirm('确认已掌握这道题？确认后整道题将移出错题本，不再提示复习。首次作答和重做记录会保留。'))return;const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit],button:not([type])');button.disabled=true;status.textContent='正在保存…';
+   try{const d=await request(action,{...payload(f),request_key:requestKey,...(action==='wrong-mastered'?{confirmed:true}:{})});location.assign(d.url||'app');}
    catch(err){status.textContent=err.message;button.disabled=false;}
   });
  });

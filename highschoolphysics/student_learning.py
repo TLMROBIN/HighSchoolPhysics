@@ -41,6 +41,9 @@ def migrate(c):
         wrong_id text not null references student_personal_wrongs(id),answer text not null,
         outcome text not null,self_reported integer not null default 0,submitted_at text not null,
         request_key text not null,unique(student_id,request_key))''')
+    c.execute('''create table if not exists student_mastered_wrongs(
+        student_id text not null references users(id),wrong_id text not null,
+        mastered_at text not null,primary key(student_id,wrong_id))''')
     personal_cols = {r['name'] for r in c.execute('pragma table_info(student_personal_redos)')}
     if 'purpose' not in personal_cols:
         c.execute("alter table student_personal_redos add column purpose text not null default 'verify'")
@@ -137,6 +140,21 @@ def api(repo, user, action, p, base_path=''):
 def _api(repo, user, action, p, base_path=''):
     require_student(user)
     c, uid = repo.conn, user['id']
+    if action == 'wrong-mastered':
+        if p.get('confirmed') is not True:
+            raise InvalidRequest('请先确认已掌握并移出错题本')
+        wid = str(p.get('wrong_id', ''))
+        if c.execute('select 1 from student_mastered_wrongs where student_id=? and wrong_id=?', (uid, wid)).fetchone():
+            return {'message': '已移出错题本，不再提示复习', 'url': 'app?module=wrong&mastered=1'}
+        g = group_for(repo, user, wid)
+        # Retain source errors and attempts. Dismiss all existing duplicate sources of each member.
+        ids = {w['id'] for w in g['members']}
+        for w in g['members']:
+            ids.update(r[0] for r in c.execute('select id from wrong_questions where student_id=? and question_id=?', (uid, w['question_id'])))
+            ids.update(r[0] for r in c.execute('''select w.id from student_personal_wrongs w
+                join student_bank_trials t on t.id=w.trial_id where w.student_id=? and t.question_id=?''', (uid, w['question_id'])))
+        c.executemany('insert or ignore into student_mastered_wrongs values(?,?,?)', [(uid, item, learning.now()) for item in ids])
+        return {'message': '已移出错题本，不再提示复习', 'url': 'app?module=wrong&mastered=1'}
     if action in ('group-solution','group-submit'):
         g=group_for(repo,user,p.get('wrong_id',''))
         members=review_members(g)
@@ -300,8 +318,10 @@ def wrongs(repo,user):
     c=repo.conn
     rows=[dict(r) for r in c.execute('''select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id
         where w.student_id=? and w.is_active=1 and a.grading_status='published' order by w.created_at desc,w.id''',(user['id'],))]
+    mastered={r[0] for r in c.execute('select wrong_id from student_mastered_wrongs where student_id=?', (user['id'],))}
     unique={}
     for w in rows:
+        if w['id'] in mastered: continue
         if w['question_id'] in unique: continue
         s=learning.snapshot(c,w)
         w.update(snapshot=s,kind=s['question_type'],tag_list=loads(s['tag_snapshot_json'],[]),stem=s['stem'],personal=False)
@@ -310,7 +330,7 @@ def wrongs(repo,user):
     for r in c.execute('''select w.id,w.trial_id,w.created_at,t.* from student_personal_wrongs w
         join student_bank_trials t on t.id=w.trial_id where w.student_id=? order by w.created_at desc''',(user['id'],)):
         w=dict(r);w['id']=r[0];w['trial_id']=r[1]
-        if w['question_id'] in unique: continue
+        if w['id'] in mastered or w['question_id'] in unique: continue
         w.update(personal=True,kind=w['question_type'],tag_list=loads(w['tags_json'],[]),stem=loads(w['document_json'],{})['stem_md'])
         w['progress']=personal_progress(c,w);unique[w['question_id']]=w
     stats=statistics(c,list(unique))
@@ -670,12 +690,13 @@ def page(repo,user,params,base_path=''):
         out.append(group_practice(repo,user,w,base_path,next_url))
     elif module=='wrong':
         out.append('<h2>错题本</h2>')
+        if value('mastered'):out.append('<p role="status">已移出错题本，不再提示复习。</p>')
         tag_sets=tag_filters(repo,user,params)
         matched=[g for g in all_wrongs if any(match(w,params,tag_sets) for w in g['members'])]
         cards=['<p>共 %s 道错题</p>'%len(matched)]
         for i,g in enumerate(matched,1):
             w=g['anchor'];title=('第 %s 题'%g['number']) if g['number'] else ('错题 %s'%i)
-            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">查看、诊断与重做</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
+            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">查看、诊断与重做</a>%s</article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id']),form('wrong-mastered',hidden('wrong_id',g['id'])+'<button type="submit">已掌握</button>')))
         if not matched:cards.append('<p>没有匹配的错题，请调整筛选条件。</p>')
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
@@ -685,6 +706,6 @@ def page(repo,user,params,base_path=''):
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
     out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261007-v3"><script src="assets/diagnosis.js?v=20261007-v3" defer></script>')
-    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-student-tablet-v3" defer></script>')
+    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-mastered-v1" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

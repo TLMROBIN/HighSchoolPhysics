@@ -70,6 +70,45 @@ class StudentLearningTests(unittest.TestCase):
         html=learning_views.student(self.repo,self.user,{'practice':[w['id']]})
         self.assertNotIn('textarea',html);self.assertNotIn('练习方式',html);self.assertIn('第 2 次重做',html)
 
+    def test_mastered_requires_confirmation_and_preserves_exam_evidence(self):
+        g=student_learning.group_wrongs(self.repo,self.user)[0]
+        wid=g['id']
+        before=[tuple(r) for r in self.c.execute('select * from student_responses')]
+        wrongs=[tuple(r) for r in self.c.execute('select * from wrong_questions')]
+        attempts=[tuple(r) for r in self.c.execute('select * from redo_attempts')]
+        with self.assertRaises(InvalidRequest):learning.api(self.repo,self.user,'wrong-mastered',dict(wrong_id=wid))
+        with self.assertRaises(PermissionDenied):learning.api(self.repo,self.other,'wrong-mastered',dict(wrong_id=wid,confirmed=True))
+        result=learning.api(self.repo,self.user,'wrong-mastered',dict(wrong_id=wid,confirmed=True))
+        self.assertEqual(result,learning.api(self.repo,self.user,'wrong-mastered',dict(wrong_id=wid,confirmed=True)))
+        self.assertFalse(any(w['id']==wid for w in student_learning.wrongs(self.repo,self.user)))
+        self.assertFalse(learning.progress(self.c,g['anchor'])['available'])
+        self.assertEqual(before,[tuple(r) for r in self.c.execute('select * from student_responses')])
+        self.assertEqual(wrongs,[tuple(r) for r in self.c.execute('select * from wrong_questions')])
+        self.assertEqual(attempts,[tuple(r) for r in self.c.execute('select * from redo_attempts')])
+        with self.assertRaises(PermissionDenied):student_learning.page(self.repo,self.user,{'practice':[wid]})
+        learning.migrate(self.c)
+        self.assertFalse(any(w['id']==wid for w in student_learning.wrongs(self.repo,self.user)))
+
+    def test_mastered_personal_question_removed_from_review(self):
+        t=self.trial()
+        student_learning.api(self.repo,self.user,'bank-submit',dict(trial_id=t['id'],answer='A'))
+        student_learning.api(self.repo,self.user,'bank-add-wrong',dict(trial_id=t['id']))
+        w=next(w for w in student_learning.wrongs(self.repo,self.user) if w['personal'])
+        learning.api(self.repo,self.user,'wrong-mastered',dict(wrong_id=w['id'],confirmed=True))
+        self.assertFalse(any(item['personal'] for item in student_learning.wrongs(self.repo,self.user)))
+        self.assertEqual(1,self.c.execute('select count(*) from student_personal_wrongs').fetchone()[0])
+        self.assertEqual('wrong',student_learning.owned_trial(self.c,self.user,t['id'])['outcome'])
+
+    def test_mastered_group_removes_every_wrong_part(self):
+        g=self.grouped_fixture()
+        learning.api(self.repo,self.user,'wrong-mastered',dict(wrong_id=g['id'],confirmed=True))
+        ids={w['id'] for w in g['members']}
+        self.assertTrue(len(ids)>1)
+        self.assertFalse(ids & {w['id'] for w in student_learning.wrongs(self.repo,self.user)})
+        page=student_learning.page(self.repo,self.user,{'module':['wrong'],'mastered':['1']})
+        self.assertIn('已移出错题本，不再提示复习',page)
+        for wid in ids:self.assertNotIn('practice='+wid,page)
+
     def test_first_choice_record_folded_and_fill_score_from_evidence(self):
         rows=student_learning.wrongs(self.repo,self.user)
         choice=next(w for w in rows if w['kind'] in student_learning.CHOICE)
