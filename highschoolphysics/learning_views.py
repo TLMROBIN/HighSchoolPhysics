@@ -453,7 +453,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-exam-nav-v1"><script src="assets/learning.js?v=20261007-student-exam-nav-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-exam-nav-v2"><script src="assets/learning.js?v=20261007-student-exam-nav-v2" defer></script>'
 def base(user,title="错题与学习记录"):
     if user['role']=='student':
         return '<section class="panel learning"><h1>历史考试与作答</h1><nav><a href="app">学生首页</a> · <a href="app?module=history">历史测试</a></nav><p>这里保留考试首次作答与导入得分，后续练习不会覆盖这些记录。</p>'
@@ -815,6 +815,8 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
     if not staff and a['grading_status']!='published':
         from .errors import PermissionDenied
         raise PermissionDenied('尚未发布')
+    if not staff:
+        body[0]=body[0].replace('class="panel learning"','class="panel learning student-exam-workspace"',1)
     body.append('<h2>%s</h2>'%esc(a['title']))
     qs=c.execute('''select s.*,q.original_question_number,
                            binding.revision_id as content_revision_id,
