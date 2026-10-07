@@ -433,7 +433,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-review-charts-v3"><script src="assets/learning.js?v=20261007-review-charts-v3" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-chart-scroll-v4"><script src="assets/learning.js?v=20261007-chart-scroll-v4" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -812,7 +812,7 @@ def _exam_tag_charts(groups):
                 out.append('<g><title>%s · %s：%s</title><rect x="%.2f" y="%.2f" width="18" height="%.2f" fill="%s"/><text x="%.2f" y="%.2f" text-anchor="middle" class="tag-chart-value">%s</text></g>' % (
                     esc(g['name']),metrics[j],esc(value),x,310-percent*2.6,percent*2.6,colors[j],x+9,max(42,304-percent*2.6),'%.0f' % percent if denominator else '—'))
             out.append('<text transform="translate(%.2f 332) rotate(40)" class="tag-chart-label">%s</text>' % (center-25,esc(g['name'])))
-        out.append('</svg></div></section>')
+        out.append('</svg></div><div class="tag-chart-scroll-controls"><button type="button" data-chart-scroll="left" aria-label="向左滚动图表">←</button><label>横向滚动<input type="range" data-chart-scroll-range min="0" max="0" value="0" step="1" aria-label="横向滚动图表"></label><button type="button" data-chart-scroll="right" aria-label="向右滚动图表">→</button></div></section>')
     return ''.join(out) + '</section>'
 
 

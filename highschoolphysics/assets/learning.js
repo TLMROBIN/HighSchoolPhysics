@@ -24,6 +24,14 @@
   document.querySelectorAll('[data-tag-tab]').forEach(tab=>tab.setAttribute('aria-pressed',String(tab===button)));
   document.getElementById('exam-tag-statistics')?.scrollIntoView({block:'start'});
  }));
+ document.querySelectorAll('[data-tag-panel]').forEach(panel=>{
+  const box=panel.querySelector('.tag-chart-scroll'),range=panel.querySelector('[data-chart-scroll-range]');if(!box||!range)return;
+  const update=()=>{const max=Math.max(0,box.scrollWidth-box.clientWidth);range.max=max;range.value=box.scrollLeft;range.disabled=max===0;panel.querySelectorAll('[data-chart-scroll]').forEach(button=>{button.disabled=max===0||(button.dataset.chartScroll==='left'?box.scrollLeft<=0:box.scrollLeft>=max-1);});};
+  range.addEventListener('input',()=>{box.scrollLeft=Number(range.value);update();});
+  box.addEventListener('scroll',update,{passive:true});
+  panel.querySelectorAll('[data-chart-scroll]').forEach(button=>button.addEventListener('click',()=>{box.scrollBy({left:(button.dataset.chartScroll==='left'?-1:1)*box.clientWidth*.7,behavior:'smooth'});}));
+  new ResizeObserver(update).observe(box);update();
+ });
  document.querySelectorAll('[data-card-viewer]').forEach(viewer=>{
   const viewport=viewer.querySelector('.review-card-viewport'),img=viewport.querySelector('img'),output=viewer.querySelector('[data-viewer-scale]');
   let scale=1,base=1,x=0,y=0,drag=null;
