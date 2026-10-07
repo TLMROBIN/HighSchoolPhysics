@@ -388,7 +388,8 @@ def group_practice(repo,user,g,base_path,next_url):
     # Preserve the ordinary choice workflow for a stand-alone question.
     if not g['document'].get('children'):
         return practice(repo,user,g['anchor'],base_path,next_url)
-    body=wrong_render(c,g['anchor'],user,base_path)+group_first_record(c,g,user)
+    from .diagnosis import panel
+    body=wrong_render(c,g['anchor'],user,base_path)+group_first_record(c,g,user)+panel(g['id'],g['members'])
     fields=[]
     for i,w in enumerate(members):
         label=esc(w['part_label'])
@@ -522,6 +523,9 @@ def practice(repo,user,w,base_path,next_url):
                 raw=loads(s['options_json'],{})
                 if isinstance(raw,list):raw={chr(65+i):v for i,v in enumerate(raw)}
                 options=[dict(key=k,html=render_markdown(v)) for k,v in raw.items()]
+    if not trial:
+        from .diagnosis import panel
+        stem+=panel(w['id'],[w])
     choice=kind in CHOICE
     answer=controls(options,kind)+'<button type="submit">提交作答</button>' if choice else '<p>在纸上完成这道题，查看答案后标注本次结果。</p><div data-self-controls hidden><button type="submit" name="self_outcome" value="correct">我做对了</button><button type="submit" name="self_outcome" value="wrong">我做错了</button></div>'
     f=form(action,identifier+answer)
@@ -643,7 +647,8 @@ def page(repo,user,params,base_path=''):
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
     out.append(form('student-preferences',settings)+'</details></header>')
     out.append('<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>'%len(due))
-    modules=(('wrong','错题本'),('history','历史测试'),('graph','知识图谱'),('bank','题库'))
+    # Temporarily hide the graph entry while keeping its page and data for restoration.
+    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
@@ -662,7 +667,7 @@ def page(repo,user,params,base_path=''):
         cards=['<p>共 %s 道错题</p>'%len(matched)]
         for i,g in enumerate(matched,1):
             w=g['anchor'];title=('第 %s 题'%g['number']) if g['number'] else ('错题 %s'%i)
-            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">重做这道题</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
+            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">查看、诊断与重做</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
         if not matched:cards.append('<p>没有匹配的错题，请调整筛选条件。</p>')
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
@@ -671,6 +676,7 @@ def page(repo,user,params,base_path=''):
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
+    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261007-v1"><script src="assets/diagnosis.js?v=20261007-v1" defer></script>')
     out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-student-tablet-v3" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()
