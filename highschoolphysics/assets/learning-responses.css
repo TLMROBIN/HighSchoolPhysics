@@ -123,3 +123,5 @@
 .tag-chart-legend span { display:flex; align-items:center; gap:6px; }
 .tag-chart-legend i { display:inline-block; width:12px; height:12px; border-radius:2px; }
 @media(max-width:850px) { .exam-review-item { grid-template-columns:minmax(0,1fr); } .review-card-viewport { height:420px; } }
+/* Keep module switching reachable while scrolling down to the chart. */
+.panel.learning:has(.exam-results-layout) { overflow:visible; }
