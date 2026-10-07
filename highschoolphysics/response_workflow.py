@@ -428,6 +428,8 @@ def _decode_card_image(value, label):
 def unmatched_cards(repo, user, p):
     conn = repo.conn
     operation = p.get("operation")
+    if operation == "reassign":
+        return reassign_student_answers(repo, user, p)
     if operation == "save":
         a = assessment(repo, user, p["assessment_id"])
         if a["grading_status"] == "published":
@@ -509,6 +511,8 @@ def unmatched_cards(repo, user, p):
                     "front_image_base64": card["front_image_base64"],
                     "back_image_base64": card["back_image_base64"],
                 }
+                if card.get("student_id"):
+                    card_payload["student_id"] = card["student_id"]
                 card_hash = digest(card_payload)
                 old = conn.execute(
                     "select id,payload_hash from unmatched_answer_cards where assessment_id=? and request_key=?",
@@ -529,6 +533,22 @@ def unmatched_cards(repo, user, p):
                      card_hash, class_name, source_file, front_page, back_page, detected_name,
                      identity_note, dumps(normalized_records), front_image, front_mime,
                      back_image, back_mime, timestamp()))
+                linked_student = card.get("student_id")
+                if linked_student:
+                    student = conn.execute("""select u.id,g.name class_name from users u
+                        join class_groups g on g.id=u.class_id
+                        join assessment_participants ap on ap.student_id=u.id and ap.assessment_id=?
+                        where u.id=? and u.school_id=? and u.status='active' and ap.status='present'""",
+                        (a["id"], linked_student, user["school_id"])).fetchone()
+                    if not student or student["class_name"] != class_name:
+                        raise InvalidRequest("原卡关联学生不属于本次考试班级")
+                    if not conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",
+                                        (a["id"], linked_student)).fetchone():
+                        raise InvalidRequest("原卡关联学生尚无作答记录")
+                    conn.execute("""update unmatched_answer_cards set status='assigned',assigned_student_id=?,
+                        assigned_by=?,assigned_at=? where id=?""",
+                        (linked_student, user["id"], timestamp(), card_id))
+                    _audit(conn, user, "answer_card_source_linked", card_id, {"student_id": linked_student})
                 ids.append(card_id)
             _audit(conn, user, "unmatched_answer_cards_saved", a["id"], {"count": len(ids)})
             conn.commit()
@@ -598,6 +618,63 @@ def unmatched_cards(repo, user, p):
     conn.commit()
     return {"message": "已指定%s，%s条作答已写入考试" % (student["display_name"], len(records)),
             "student_id": student_id, "imported_count": len(records), "batch_id": saved.get("batch_id")}
+
+
+def student_answer_fingerprint(rows):
+    return digest(sorted((r["id"], r["updated_at"]) for r in rows))
+
+
+def reassign_student_answers(repo, user, p):
+    """Move an unpublished student's complete answer set, retaining evidence IDs."""
+    conn = repo.conn
+    conn.commit()
+    conn.execute("begin immediate")
+    try:
+        a = assessment(repo, user, p["assessment_id"])
+        if a["grading_status"] == "published":
+            raise StateConflict("已发布的考试不能重新指定作答学生")
+        source = str(p.get("source_student_id") or "")
+        target = str(p.get("student_id") or "")
+        if source == target:
+            raise InvalidRequest("请选择其他学生")
+        students = {}
+        for uid in (source, target):
+            row = conn.execute("""select u.id,u.display_name,u.class_id from users u
+                join assessment_participants ap on ap.student_id=u.id and ap.assessment_id=?
+                where u.id=? and u.school_id=? and u.status='active' and ap.status='present'""",
+                (a["id"], uid, user["school_id"])).fetchone()
+            if not row:
+                raise InvalidRequest("请选择本次考试的参试学生")
+            students[uid] = row
+        if students[source]["class_id"] != students[target]["class_id"]:
+            raise InvalidRequest("只能重新指定给同班学生")
+        rows = conn.execute("select * from student_responses where assessment_id=? and student_id=? order by id",
+                            (a["id"], source)).fetchall()
+        if not rows or student_answer_fingerprint(rows) != p.get("response_fingerprint"):
+            raise StateConflict("原学生作答已变化，请刷新后重新核对")
+        if conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",
+                        (a["id"], target)).fetchone():
+            raise StateConflict("目标学生已有作答，请先核对其答题卡；未覆盖任何记录")
+        if conn.execute("""select 1 from wrong_questions w join student_responses r on r.id=w.response_id
+            where r.assessment_id=? and r.student_id=?""", (a["id"], source)).fetchone():
+            raise StateConflict("作答已有错题本记录，不能重新指定学生")
+        reason = str(p.get("reason") or "").strip()
+        if not reason or len(reason) > 1000:
+            raise InvalidRequest("请填写重新指定的原因（最多1000字）")
+        conn.execute("update student_responses set student_id=?,updated_at=? where assessment_id=? and student_id=?",
+                     (target, timestamp(), a["id"], source))
+        conn.execute("""update unmatched_answer_cards set assigned_student_id=?,assigned_by=?,assigned_at=?
+            where assessment_id=? and assigned_student_id=? and status='assigned'""",
+            (target, user["id"], timestamp(), a["id"], source))
+        _audit(conn, user, "student_answers_reassigned", a["id"], {
+            "from_student_id": source, "to_student_id": target, "reason": reason,
+            "response_ids": [r["id"] for r in rows], "count": len(rows)})
+        conn.commit()
+        return {"message": "已将%s的%s条作答重新指定给%s，评分与原始证据已保留" %
+                (students[source]["display_name"], len(rows), students[target]["display_name"]), "count": len(rows)}
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def unmatched_card_image(repo, user, card_id, side):

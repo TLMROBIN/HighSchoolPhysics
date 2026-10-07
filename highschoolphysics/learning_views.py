@@ -342,6 +342,53 @@ def _unmatched_answer_cards(c, assessment_id):
     return ''.join(body)
 
 
+def _student_answer_cards(c, assessment_id):
+    from .response_workflow import student_answer_fingerprint
+    students = [dict(r) for r in c.execute("""select u.id,u.display_name,g.name class_name,
+        (select count(*) from student_responses r where r.assessment_id=p.assessment_id and r.student_id=u.id) response_count
+        from assessment_participants p join users u on u.id=p.student_id
+        join class_groups g on g.id=u.class_id where p.assessment_id=? and p.status='present'
+        and u.status='active' order by g.name,u.display_name""", (assessment_id,))]
+    body = ['<section class="student-answer-cards"><h3>查看学生答题卡 / 重新指定作答</h3>'
+            '<p>展开学生查看已保存的原卡与作答。重新指定会转移该学生本次考试的全部作答和原卡关联，保留评分与证据。目标学生须为同班且尚无作答；请先核对原卡姓名。</p>']
+    for student in students:
+        if not student["response_count"]:
+            continue
+        uid = student["id"]
+        rows = c.execute("""select r.*,s.position from student_responses r
+            join question_version_snapshots s on s.id=r.snapshot_id
+            where r.assessment_id=? and r.student_id=? order by s.position""", (assessment_id, uid)).fetchall()
+        body.append('<details class="unmatched-answer-card" id="student-card-%s"><summary>%s · %s · %s条作答</summary>' %
+                    (esc(uid), esc(student["class_name"]), esc(student["display_name"]), len(rows)))
+        cards = c.execute("select * from unmatched_answer_cards where assessment_id=? and assigned_student_id=? and status='assigned'",
+                          (assessment_id, uid)).fetchall()
+        for card in cards:
+            body.append('<p>原卡：%s，正面第%s页 / 背面第%s页。%s</p><div class="unmatched-card-images">'
+                        '<a href="exam-unmatched-card-media?id=%s&side=front" target="_blank"><img loading="lazy" src="exam-unmatched-card-media?id=%s&side=front" alt="答题卡正面"></a>'
+                        '<a href="exam-unmatched-card-media?id=%s&side=back" target="_blank"><img loading="lazy" src="exam-unmatched-card-media?id=%s&side=back" alt="答题卡背面"></a></div>' %
+                        (esc(card["source_file"]), card["front_page"], card["back_page"], esc(card["identity_note"]),
+                         quote(card["id"]), quote(card["id"]), quote(card["id"]), quote(card["id"])))
+        if not cards:
+            body.append('<p>尚未保存关联的答题卡图片。</p>')
+        body.append('<table><tr><th>作答序号</th><th>学生答案</th><th>得分 / 满分</th></tr>')
+        for row in rows:
+            evidence = c.execute("select * from response_evidence where response_id=? order by rowid desc limit 1", (row["id"],)).fetchone()
+            score = '—'
+            if evidence and evidence["imported_score"] is not None:
+                score = '%s / %s' % (evidence["imported_score"], evidence["imported_max_score"] or '—')
+            body.append('<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (row["position"], esc(row["final_answer"] or '空白 / 仅得分'), esc(score)))
+        body.append('</table>')
+        targets = [(t["id"], t["display_name"]) for t in students if t["class_name"] == student["class_name"] and t["id"] != uid and not t["response_count"]]
+        body.append(form('unmatched-cards', hidden('operation', 'reassign') + hidden('assessment_id', assessment_id) +
+                         hidden('source_student_id', uid) + hidden('response_fingerprint', student_answer_fingerprint(rows)) +
+                         '<label>重新指定给%s</label>' % select('student_id', targets) +
+                         '<label>更正原因<input name="reason" required maxlength="1000" placeholder="核对原卡姓名后填写"></label>' +
+                         '<label><input type="checkbox" required>已核对原卡，确认转移以上全部作答</label><button>确认重新指定作答</button>'))
+        body.append('</details>')
+    body.append('</section>')
+    return ''.join(body)
+
+
 def answer_controls(c, snapshot_row, user, base_path=""):
     option_rows = render_snapshot_options(c, snapshot_row["id"], user["school_id"], base_path)
     multiple = snapshot_row["question_type"] == "multiple_choice"
@@ -378,7 +425,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261006-unmatched-cards-v1"><script src="assets/learning.js?v=20261006-unmatched-cards-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-cards-v1"><script src="assets/learning.js?v=20261007-student-cards-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -645,6 +692,7 @@ def exams(repo,user,aid=None,base_path=""):
         body.append(form('scan-upload',hidden('assessment_id',aid)+'<label>选择答题卡扫描件<input type="file" class="response-scan-files" accept=".pdf,.png,.jpg,.jpeg" multiple required></label><button>识别与自动批改</button><div class="scan-progress" hidden><label class="scan-progress-label">等待后台识别</label><progress max="100" aria-label="答题卡识别进度"></progress><p class="scan-progress-count" aria-live="polite"></p></div><div class="response-preview"></div><button type="button" class="confirm-answers" hidden>确认保存识别结果</button>'))
         body.append('</section></div>')
         body.append(_unmatched_answer_cards(c, aid))
+        body.append(_student_answer_cards(c, aid))
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
         body.append('<p>应有 %s 条，已录入 %s 条，待确认 %s 条。缺失不能当作空白。</p>'%(expected,actual,sum(r['outcome']=='pending' for r in rs)))

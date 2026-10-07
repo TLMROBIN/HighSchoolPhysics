@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261006-unmatched-cards-v1"
+ASSET_VERSION = "20261007-student-cards-v1"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
