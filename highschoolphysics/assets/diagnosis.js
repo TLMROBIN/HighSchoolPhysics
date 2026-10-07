@@ -1,4 +1,5 @@
 (() => {
+  const requestKey=()=>globalThis.crypto?.randomUUID?.()||'diagnosis-'+Date.now()+'-'+Math.random().toString(36).slice(2);
   const labels={condition:'题意与条件',model:'模型与规律',plan:'思路与步骤',execution:'列式、计算或检验',unsure:'说不清卡在哪里'};
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   document.querySelectorAll('[data-diagnosis-wrong]').forEach(panel=>{
@@ -6,7 +7,7 @@
     let state=null,busy=false,generation=0;
     async function call(action,p={}) {
       const response=await fetch('api/learning/diagnosis-'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({wrong_id:panel.dataset.diagnosisWrong,question_id:target.value,...p})});
-      const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||result.message||'操作失败');return result.result;
+      const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error?.message||result.message||'操作失败');return result.result;
     }
     function render(result) {
       state=result.state;
@@ -36,8 +37,8 @@
       body.querySelectorAll('button').forEach(b=>b.disabled=true);
       try{render(await call(action,p));}catch(e){let output=body.querySelector('[data-diagnosis-error]');if(!output){output=document.createElement('p');output.dataset.diagnosisError='';output.setAttribute('role','alert');body.append(output);}output.textContent=e.message;body.querySelectorAll('button').forEach(b=>b.disabled=false);}finally{busy=false;target.disabled=false;}
     }
-    body.addEventListener('submit',e=>{e.preventDefault();const form=e.target;if(form.matches('[data-diagnosis-start]'))perform('start',{mode:e.submitter.value,self_report:form.elements.self_report.value,note:form.elements.note.value});else if(form.matches('[data-diagnosis-answer]'))perform('event',{session_id:state.session_id,event:'answer',answer:Number(form.elements.answer.value),cursor:state.cursor,request_key:crypto.randomUUID()});});
-    body.addEventListener('click',e=>{const b=e.target.closest('[data-diagnosis-event],[data-diagnosis-confirm]');if(!b)return;perform('event',{session_id:state.session_id,event:b.dataset.diagnosisEvent||'finish',confirmation:b.dataset.diagnosisConfirm||'',cursor:state.cursor,request_key:crypto.randomUUID()});});
+    body.addEventListener('submit',e=>{e.preventDefault();const form=e.target;if(form.matches('[data-diagnosis-start]'))perform('start',{mode:e.submitter.value,self_report:form.elements.self_report.value,note:form.elements.note.value});else if(form.matches('[data-diagnosis-answer]'))perform('event',{session_id:state.session_id,event:'answer',answer:Number(form.elements.answer.value),cursor:state.cursor,request_key:requestKey()});});
+    body.addEventListener('click',e=>{const b=e.target.closest('[data-diagnosis-event],[data-diagnosis-confirm]');if(!b)return;perform('event',{session_id:state.session_id,event:b.dataset.diagnosisEvent||'finish',confirmation:b.dataset.diagnosisConfirm||'',cursor:state.cursor,request_key:requestKey()});});
     async function load(){const current=++generation;body.textContent='正在读取诊断…';try{const r=await call('state');if(current===generation)render(r);}catch(e){if(current===generation)body.textContent=e.message;}}
     target.addEventListener('change',load);load();
   });
