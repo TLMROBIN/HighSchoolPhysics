@@ -241,7 +241,10 @@ def _prepare(repo, user, p, trusted_scan=False):
             raise InvalidRequest('第 %s 条得分/满分无效' % index)
         content=snapshot_content(conn,s['id'],user['school_id'])
         rule=loads(s['grading_rule_json'],{})
-        score_only=score is not None and not answer.strip()
+        confirmed_blank = row.get('answer_blank') is True
+        if confirmed_blank and (answer.strip() or score != 0 or maximum is None):
+            raise InvalidRequest('明确空白记录需提供空答案、0分和满分')
+        score_only=score is not None and not answer.strip() and not confirmed_blank
         score_with_answer=score is not None and maximum is not None and bool(answer.strip())
         kind = (content or {}).get('document',{}).get('kind') or rule.get('type')
         if score_only and rule.get('bank_type') not in ('experiment','solution') and kind not in ('experiment','structured','short_answer'):
