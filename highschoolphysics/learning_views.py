@@ -696,7 +696,29 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
     for p, positions in partial:
         body.append('<tr><td>%s · %s</td><td>%s</td><td><a href="#student-card-%s" data-show-student-card="%s">查看答题卡</a></td></tr>' %
                     (esc(p['class_name']), esc(p['display_name']), ', '.join(map(str, positions)), esc(p['student_id']), esc(p['student_id'])))
-    body.append('</table></details></section>')
+    body.append('</table></details>')
+    students = {p['student_id']: p for p in present}
+    question_map = {q['id']: q for q in questions}
+    pending = [r for r in responses if r['outcome'] == 'pending' and r['student_id'] in students]
+    body.append('<section id="exam-pending-reviews" class="exam-pending-reviews"><h4>待确认作答（%s项）</h4>' % len(pending))
+    if pending:
+        body.append('<p>查看原始答题卡，核对答案并选择结果，填写依据后确认复核。全部确认后才可发布。</p>'
+                    '<table><tr><th>班级 / 学生</th><th>题目</th><th>待确认作答</th><th>答题卡 / 复核</th></tr>')
+        for r in pending:
+            p = students[r['student_id']]
+            q = question_map[r['snapshot_id']]
+            content = snapshot_content(c, q['id'], r['school_id']) or {}
+            number = (content.get('document') or {}).get('number') or q['original_question_number'] or q['position']
+            label = '第%s题 %s' % (number, content.get('child_label', ''))
+            body.append('<tr><td>%s · %s</td><td>%s<br><small>作答序号 %s</small></td><td>%s</td><td>'
+                        '<a href="#student-card-%s" data-show-student-card="%s">查看答题卡</a>%s</td></tr>' % (
+                            esc(p['class_name']), esc(p['display_name']), esc(label), q['position'],
+                            esc(r['final_answer'] or r['initial_answer'] or '未识别到答案'),
+                            esc(r['student_id']), esc(r['student_id']), response_controls(r, False)))
+        body.append('</table>')
+    else:
+        body.append('<p>当前没有等待复核的作答。</p>')
+    body.append('</section></section>')
     return ''.join(body)
 
 
