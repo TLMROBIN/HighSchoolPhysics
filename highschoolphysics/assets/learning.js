@@ -1,5 +1,24 @@
 /* Drafts remain until server acknowledgement; retries reuse the same request key. */
 (()=>{
+ document.querySelectorAll('.exam-stat-filter').forEach(form=>{
+  form.addEventListener('submit',()=>{form.action='exams'+location.hash;});
+  form.querySelector('[data-exam-select-all]')?.addEventListener('click',()=>{form.querySelectorAll('input[type=checkbox]').forEach(input=>{input.checked=true;});form.requestSubmit();});
+  form.querySelectorAll('input[type=checkbox]').forEach(input=>input.addEventListener('change',()=>form.requestSubmit()));
+ });
+ const openExamQuestion=hash=>{
+  if(!/^#exam-question-\d+$/.test(hash))return;
+  const target=document.getElementById(hash.slice(1));if(!target)return;
+  target.closest('.assessment-question-details').open=true;
+  document.querySelectorAll('[data-exam-question]').forEach(link=>{if(link.hash===hash)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');});
+  target.scrollIntoView({block:'start'});target.focus({preventScroll:true});
+ };
+ document.querySelectorAll('[data-exam-question]').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();history.replaceState(null,'',link.hash);openExamQuestion(link.hash);}));
+ window.addEventListener('hashchange',()=>openExamQuestion(location.hash));
+ openExamQuestion(location.hash);
+ // Close sibling categories even on WebViews without support for details[name].
+ document.querySelectorAll('.answer-category').forEach(category=>category.addEventListener('toggle',()=>{
+  if(category.open)category.parentElement.querySelectorAll('.answer-category').forEach(other=>{if(other!==category)other.open=false;});
+ }));
  const request=async(action,p)=>{const r=await fetch('api/learning/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json();if(!r.ok||d.ok===false)throw Error(d.error?.message||d.message||'提交失败，请重试');return d.result||d;};
  const fileBase64=file=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(Error('文件读取失败'));reader.readAsDataURL(file);});
  const upload=async(action,p)=>{const text=JSON.stringify(p);if(new TextEncoder().encode(text).length<700000)return request(action,p);let uploadId='';const size=200000,total=Math.ceil(text.length/size);for(let index=0;index<total;index++){const result=await request('response-upload-chunk',{upload_id:uploadId,index,total,text:text.slice(index*size,(index+1)*size)});uploadId=result.upload_id;}return request(action,{upload_id:uploadId});};
