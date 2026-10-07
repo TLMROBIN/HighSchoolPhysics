@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-07-16T22:15:37Z",
+  "generatedAt": "2026-10-07T03:58:31.116537Z",
   "title": "Design System: HighSchoolPhysics",
   "extensions": {
     "colorMeta": {
@@ -105,7 +105,8 @@
     ],
     "breakpoints": [
       {"name": "compact-form", "value": "760px"},
-      {"name": "single-column", "value": "820px"}
+      {"name": "single-column", "value": "820px"},
+      {"name": "student-compact", "value": "700px"}
     ]
   },
   "components": [
@@ -172,6 +173,20 @@
       "description": "学生首页的紧凑证据摘要，使用数字和文字而非只靠颜色。",
       "html": "<div class=\"ds-mastery-summary\"><strong>3</strong><span>待重做</span></div>",
       "css": ".ds-mastery-summary { display: grid; gap: 2px; min-width: 96px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; } .ds-mastery-summary strong { font-size: 24px; line-height: 1.1; } .ds-mastery-summary span { color: var(--bluegray); font-size: 14px; line-height: 1.3; }"
+    },
+    {
+      "name": "学生学习模块导航",
+      "kind": "nav",
+      "description": "待复习入口只显示题数；四个模块等宽排列，窄屏保持四列，当前项以松绿底部线与 aria-current 表达。",
+      "html": "<a class=\"ds-review-count\" href=\"app?review=1\">待复习 <strong>3</strong> 题</a><nav class=\"ds-student-nav\" aria-label=\"学习模块\"><a href=\"app?module=wrong\" aria-current=\"page\">错题本</a><a href=\"app?module=history\">历史测试</a><a href=\"app?module=graph\">知识图谱</a><a href=\"app?module=bank\">题库</a></nav>",
+      "css": ".ds-review-count { display:flex; align-items:center; justify-content:center; gap:8px; padding:18px; background:#dff3ef; color:#08766f; font-size:18px; text-decoration:none; border-radius:8px; } .ds-review-count strong { font-variant-numeric:tabular-nums; } .ds-student-nav { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:24px 0 32px; border-bottom:1px solid #d8dee8; font-family:-apple-system, BlinkMacSystemFont, \"PingFang SC\", sans-serif; } .ds-student-nav a { display:flex; align-items:center; justify-content:center; min-height:64px; font-weight:600; text-decoration:none; color:#41556f; } .ds-student-nav a[aria-current] { color:#08766f; border-bottom:3px solid #08766f; } .ds-student-nav a:hover { background:#f4f7f9; } .ds-student-nav a:focus-visible,.ds-review-count:focus-visible { outline:3px solid #08766f; outline-offset:3px; } @media(max-width:700px) { .ds-student-nav { gap:2px; } .ds-student-nav a { font-size:15px; } }"
+    },
+    {
+      "name": "学生紧凑答题选项",
+      "kind": "input",
+      "description": "原生单选或多选控件保持 18px；整个带文字的选项行与关注设置标签至少 44px，选项行间距 6px，行内控件与内容间距 8px。",
+      "html": "<fieldset class=\"ds-options\"><legend>选择你的答案</legend><label class=\"ds-option\"><input type=\"radio\" name=\"ds-answer\" value=\"A\"><span class=\"ds-option-key\">A.</span><span class=\"ds-option-body\">沿水平向右运动</span></label><label class=\"ds-option\"><input type=\"radio\" name=\"ds-answer\" value=\"B\"><span class=\"ds-option-key\">B.</span><span class=\"ds-option-body\">沿水平向左运动</span></label></fieldset>",
+      "css": ".ds-options { border:0; padding:0; margin:18px 0; display:grid; gap:6px; font:400 16px/1.55 -apple-system, BlinkMacSystemFont, \"PingFang SC\", sans-serif; color:#17212f; } .ds-options legend { margin-bottom:10px; font-weight:600; } .ds-option { display:flex; align-items:baseline; gap:8px; padding:8px 12px; min-height:44px; border:1px solid #d8dee8; border-radius:6px; cursor:pointer; } .ds-option input { width:18px; height:18px; min-height:0; margin:0; flex:0 0 18px; align-self:center; accent-color:#08766f; } .ds-option-key { flex:0 0 1.5em; font-weight:600; } .ds-option-body { flex:1; min-width:0; } .ds-option:hover { background:#f4f7f9; } .ds-option:has(input:checked) { border-color:#08766f; background:#dff3ef; } .ds-option input:focus-visible { outline:3px solid #08766f; outline-offset:3px; }"
     }
   ],
   "narrative": {

@@ -439,6 +439,7 @@ def render_snapshot_content(
         include_solution=include_solution,
         child_key=None if whole_group else content["child_key"] or None,
         include_options=include_options,
+        compact_layout=True,
     )
 
 

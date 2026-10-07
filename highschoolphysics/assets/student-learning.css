@@ -1,0 +1,77 @@
+.student-workspace { max-width: 1100px; margin-inline: auto; }
+.student-workspace-heading { display:flex; justify-content:space-between; align-items:start; gap:24px; }
+.student-workspace-heading h1 { margin:0 0 24px; }
+.student-workspace .student-settings { max-width:520px; }
+.student-workspace .student-settings summary,.student-workspace summary { cursor:pointer; min-height:44px; padding:10px 0; }
+.student-workspace .student-settings fieldset { margin:14px 0; }
+.student-workspace .student-settings fieldset label { display:inline-flex; align-items:center; gap:6px; margin:6px 12px 6px 0; }
+.student-workspace input[type=checkbox],.student-workspace input[type=radio] { width:18px; height:18px; min-height:0; margin:0; flex:0 0 18px; accent-color:#08766f; }
+.student-review-count { display:flex; align-items:center; justify-content:center; gap:8px; padding:18px; background:#dff3ef; color:#08766f; font-size:18px; text-decoration:none; border-radius:8px; }
+.student-review-count strong { font-variant-numeric:tabular-nums; }
+.student-workspace .student-module-nav { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:24px 0 32px; border-bottom:1px solid #d8dee8; }
+.student-workspace .student-module-nav a { display:flex; align-items:center; justify-content:center; min-height:64px; font-weight:600; text-decoration:none; color:#41556f; }
+.student-workspace .student-module-nav a[aria-current] { color:#08766f; border-bottom:3px solid #08766f; }
+.student-workspace .student-module-nav a:hover,.student-workspace .student-option:hover { background:#f4f7f9; }
+.student-workspace :is(a,button,input,select,summary):focus-visible { outline:3px solid #08766f; outline-offset:3px; }
+.student-workspace button { min-height:44px; }
+.student-workspace .student-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:20px 0 24px; }
+.student-workspace .student-filters label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.student-workspace .student-filters :is(input,select) { width:100%; min-height:44px; }
+.student-workspace .student-options { border:0; padding:0; margin:18px 0; display:grid; gap:6px; }
+.student-workspace .student-options legend { margin-bottom:10px; font-weight:600; }
+.student-workspace .student-option { display:flex; align-items:baseline; gap:8px; padding:8px 12px; min-height:44px; border:1px solid #d8dee8; border-radius:6px; cursor:pointer; line-height:1.55; }
+.student-workspace .student-option:has(input:checked) { border-color:#08766f; background:#dff3ef; }
+.student-workspace .student-option input { align-self:center; }
+.student-workspace .student-option .option-key { flex:0 0 1.5em; font-weight:600; }
+.student-workspace .student-option .option-body { flex:1; min-width:0; }
+.student-workspace .student-option p { margin:0; }
+.student-workspace .student-option .question-content-image { max-width:240px; max-height:180px; }
+.student-practice .solution-output { margin:18px 0; }
+.student-workspace .student-practice-form [data-self-controls] { display:flex; gap:12px; flex-wrap:wrap; }
+.student-workspace .student-practice-form [data-self-controls][hidden] { display:none; }
+.student-wrong,.student-bank-question { border-bottom:1px solid #d8dee8; padding:18px 0; }
+.student-workspace .question-content { line-height:1.65; }
+.student-workspace .question-content-image { max-width:min(100%,320px); max-height:260px; width:auto; height:auto; }
+.student-workspace .choice-figures .question-content-image { max-width:100%; max-height:260px; }
+.student-workspace .question-options { margin:10px 0; padding:0; }
+.student-workspace .question-options>li { padding:3px 0; }
+.student-workspace .question-children { padding:0; }
+.student-workspace .question-children>li>div>p:first-child { display:inline; margin:0; }
+.student-workspace .question-children>li>strong { float:none; display:inline; }
+.student-workspace .question-children>li>div { display:inline; }
+.student-workspace .question-content table { display:block; overflow-x:auto; }
+.student-workspace .student-tag-chart { margin:28px 0; }
+.student-workspace .student-tag-chart ol { list-style:none; padding:0; }
+.student-workspace .student-tag-chart li a { display:grid; grid-template-columns:minmax(160px,2fr) minmax(80px,3fr) 70px 160px; gap:14px; align-items:center; min-height:44px; text-decoration:none; color:#17212f; padding:8px 0; }
+.student-workspace .student-tag-chart meter { width:100%; height:16px; accent-color:#08766f; }
+.student-workspace .student-tag-chart meter::-webkit-meter-optimum-value { background:#08766f; }
+.student-workspace .student-tag-chart strong { text-align:right; font-variant-numeric:tabular-nums; }
+.student-workspace .student-tag-chart small { color:#41556f; }
+.student-workspace .student-exam-list,.student-workspace .student-history-list { list-style:none; padding:0; }
+.student-workspace .student-exam-list li,.student-workspace .student-history-list li { padding:14px 0; border-bottom:1px solid #d8dee8; }
+.student-workspace .student-exam-list time { margin-left:18px; color:#41556f; }
+.student-workspace .student-pagination,.student-workspace .student-add-wrong { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:24px 0; }
+.student-workspace .student-add-wrong p:first-child { flex-basis:100%; }
+.student-workspace .practice-next { display:inline-block; min-height:44px; padding:12px 18px; background:#08766f; color:#fff; border-radius:6px; }
+.student-workspace .practice-next[hidden] { display:none; }
+@media(max-width:700px) {
+ .student-workspace-heading { flex-wrap:wrap; gap:0; }
+ .student-workspace .student-settings { width:100%; margin-bottom:18px; }
+ .student-workspace .student-module-nav { gap:2px; }
+ .student-workspace .student-module-nav a { font-size:15px; }
+ .student-workspace .student-filters { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .student-workspace .student-tag-chart li a { grid-template-columns:minmax(90px,2fr) minmax(70px,2fr) 60px; gap:8px; }
+ .student-workspace .student-tag-chart small { grid-column:1/-1; }
+}
+.student-workspace .legacy-question-images img { max-width:min(100%,320px); max-height:260px; width:auto; height:auto; object-fit:contain; }
+
+.student-workspace .student-settings { border:0; padding:0; margin-top:0; }
+.student-workspace .student-settings>summary { padding:10px 14px; }
+.student-workspace .student-practice { border:0; padding:0; }
+.student-workspace .question-content { border:0; padding:0; margin:0; }
+.student-workspace .student-option { margin:0; }
+.student-workspace .student-tag-chart { border:0; padding:0; }
+
+.student-workspace .student-settings fieldset label { min-height:44px; padding:8px 4px; margin:0 12px 0 0; }
+
+.student-workspace [data-student-solution] { background:#fff; color:#08766f; border:1px solid #08766f; margin-top:14px; }

@@ -305,7 +305,10 @@ def question_fragment(c, snapshot_row, user, base_path="", include_solution=Fals
     difficulty = badges(c, units)
     if rendered is not None:
         return difficulty + rendered
-    old = '<div class="legacy-question-content"><p>%s</p>%s</div>' % (esc(snapshot_row["stem"]), images(c, snapshot_row["question_id"]))
+    options=loads(snapshot_row['options_json'],{})
+    if isinstance(options,list): options={chr(65+i):v for i,v in enumerate(options)}
+    document=dict(number='',stem_md=snapshot_row['stem'],children=[],options=[dict(key=k,markdown=v) for k,v in options.items()])
+    old = render_question(document,include_options=include_options,compact_layout=True) + '<div class="legacy-question-images">'+images(c,snapshot_row['question_id'])+'</div>'
     return difficulty + old
 
 
@@ -451,7 +454,11 @@ def question_part_context(c, snapshot_row, school_id):
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
 def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-chart-scroll-v4"><script src="assets/learning.js?v=20261007-question-difficulty-v1" defer></script>'
-def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
+def base(user,title="错题与学习记录"):
+    if user['role']=='student':
+        return '<section class="panel learning"><h1>历史考试与作答</h1><nav><a href="app">学生首页</a> · <a href="app?module=history">历史测试</a></nav><p>这里保留考试首次作答与导入得分，后续练习不会覆盖这些记录。</p>'
+    return '<section class="panel learning"><h1>%s</h1><nav><a href="teacher">教师工作台</a> · <a href="exams">周测与首次作答</a></nav><p>知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'%esc(title)
+
 
 def practice_history(c, user, wrong):
     rows = c.execute("""select a.answer,a.outcome,a.submitted_at from redo_attempts a
@@ -464,41 +471,9 @@ def practice_history(c, user, wrong):
         (esc(r['submitted_at']),esc(r['answer']) or '空白',LABELS[r['outcome']]) for r in rows) + '</ol>'
 
 def student(repo,user,params,base_path=""):
-    c=repo.conn;uid=user['id'];body=[base(user)]
-    wrongs=[dict(r) for r in c.execute("select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id where w.student_id=? and w.is_active=1 and a.grading_status='published' order by w.created_at desc,w.id",(uid,))]
-    unique={}
-    for w in wrongs: unique.setdefault(w['question_id'],w)
-    due=[w for w in unique.values() if progress(c,w)['available']]
-    limit_row=c.execute('select daily_limit from learning_settings where class_id=?',(user['class_id'],)).fetchone()
-    limit=limit_row[0] if limit_row else 5
-    body.append('<h2>今天到期 · %s 题</h2><p>每组最多 %s 题。先独立回想，再查看解析；同一道题按间隔答对三次，才显示本题已巩固。</p>'%(len(due),limit))
-    for w in due[:limit]: body.append('<p><a href="app?practice=%s">开始第 %s 次验证</a></p>'%(quote(w['id']),progress(c,w)['count']+1)+badge(statistics(c,[w['question_id']])[w['question_id']]))
-    if not due: body.append('<p>今天暂无到期题。可以查看错题，或进行不计验证次数的学习练习。</p>')
-    wid=(params.get('practice') or [''])[0]
-    if wid:
-        w=repo._require_wrong_question_student(uid,wid)
-        if w['id'] not in {x['id'] for x in wrongs}:
-            from .errors import PermissionDenied
-            raise PermissionDenied('尚未发布')
-        s=snapshot(c,w);p=progress(c,w)
-        body.append('<article><h2>作答练习</h2><p>%s · 验证 %s/3 · 下次日期 %s</p>%s%s%s%s'%(p['status'],p['count'],p['due'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,include_options=False,whole_group=True),fill_question_context(s),tags(s)))
-        controls=answer_controls(c,s,user,base_path)
-        body.append(form('submit',hidden('wrong_id',wid)+'<label>练习方式<select name="purpose"><option value="'+('verify' if p['available'] else 'learn')+'">'+('独立验证' if p['available'] else '学习练习')+'</option><option value="'+('learn' if p['available'] else 'verify')+'">'+('学习练习' if p['available'] else '提前独立作答（不提前增加验证进度）')+'</option></select></label>'+controls+'<button>提交作答</button>'))
-        body.append('<button type="button" class="learning-solution" data-id="%s">查看答案与解析，切换为学习练习</button><div class="solution-output" role="status"></div></article>'%esc(wid))
-    body.append('<h2 id="wrong">我的错题本</h2>')
-    for w in unique.values():
-        s=snapshot(c,w);p=progress(c,w)
-        tag=(params.get('tag') or [''])[0]
-        if tag and not any(t['name']==tag for t in loads(s['tag_snapshot_json'],[])):continue
-        r=c.execute('select initial_answer from student_responses where id=?',(w['response_id'],)).fetchone()
-        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65])+badge(statistics(c,[s['question_id']])[s['question_id']]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),first_answer_label(c,w['response_id'],r[0]),p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
-        body[-1] = body[-1].rsplit('</details>',1)[0] + practice_history(c,user,w) + '</details>'
-    body.append('<h2>最近的练习记录</h2><p>已复核仅表示结果已确认；本题是否巩固仍以三次间隔验证为准。</p><table><tr><th>题目</th><th>提交时间</th><th>作答</th><th>用途</th><th>结果 / 教师反馈</th></tr>')
-    for a in c.execute('select a.*,s.stem,s.question_id from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? order by a.submitted_at desc limit 20',(uid,)):
-        body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s %s</td></tr>'%(esc(a['stem'][:65])+badge(statistics(c,[a['question_id']])[a['question_id']]),esc(a['submitted_at']),esc(a['answer']) or '空白','独立验证' if a['purpose']=='verify' else '学习练习' if a['purpose']=='learn' else '历史记录',LABELS[a['outcome']],esc(a['feedback'])))
-    body.append('</table>')
-    body.append('<h2>知识点与能力关联导航</h2><p>点击标签查看关联的错题；标签表示题目关联，不作细分诊断。</p>'+metrics(repo,uid))
-    return ''.join(body)+'</section>'+footer()
+    from .student_learning import page
+    return page(repo,user,params,base_path)
+
 
 def first_answer_label(conn, response_id, answer):
     if answer:
@@ -936,7 +911,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                 media=(evidence['source_asset_id'] if staff and evidence else '') or loads(r.get('ocr_payload_json'),{}).get('media_id','')
                 correction_note = ('<p>经更正的作答：%s</p>' % (esc(r['final_answer']) or '空白')) if r['initial_answer']!=r['final_answer'] else ''
                 operations = ('<a href="exam-media?id=%s">答题卡</a>' % quote(media)) if media else ''
-                if staff and evidence and evidence['imported_score'] is not None:
+                if evidence and evidence['imported_score'] is not None:
                     correction_note += '<p>得分：%s%s</p>' % (esc(str(evidence['imported_score'])),(' / '+esc(str(evidence['imported_max_score']))) if evidence['imported_max_score'] is not None else '')
                 if staff:
                     operations += response_controls(r, a['grading_status']=='published')
@@ -944,7 +919,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                     latest=c.execute('select method,reason from response_decisions where id=?',(r['effective_decision_id'],)).fetchone()
                     if latest and latest['method']=='teacher_correction':
                         correction_note += '<p>教师更正说明：%s</p>' % esc(latest['reason'])
-                rendered_rows[r['id']]='<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="答题卡 / 复核">%s</td></tr>'%(esc(r['display_name'] + (' · '+(r['class_name'] or '未分班') if staff else '')),first_answer_label(c,r['id'],r['initial_answer']),correction_note,LABELS[r['outcome']],operations)
+                rendered_rows[r['id']]='<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="答题卡 / 复核">%s</td></tr>'%(esc(r['display_name'] + (' · '+(r['class_name'] or '未分班') if staff else '')),(first_answer_label(c,r['id'],r['initial_answer']) if staff or loads(q['grading_rule_json'],{}).get('type') in ('single_choice','multiple_choice') else ''),correction_note,LABELS[r['outcome']],operations)
                 if r['outcome']=='pending': continue
                 seen=set()
                 for t in loads(q['tag_snapshot_json'],[]):

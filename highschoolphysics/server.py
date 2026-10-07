@@ -45,7 +45,7 @@ from .question_content import visible_question_asset_ids
 
 
 ASSET_VERSION = "20261007-question-difficulty-v1"
-QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
+QUESTION_ASSET_VERSION = "20261007-student-v1"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
 
@@ -3176,6 +3176,30 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     self._send_html(render_layout(title, user, learning_views.navigation("intake") + document_views.document_review_page(task, items, source_assets, answer_groups, linked_paper_task), "teacher", question_math=True))
             elif path.startswith("/api/documents/"):
                 self._handle_documents_get(conn, user, path, parse_qs(parsed.query))
+            elif path.startswith("/api/student-question-assets/"):
+                if not user:
+                    raise PermissionDenied('请先登录')
+                from .student_learning import require_student,owned_trial,own_question
+                require_student(user)
+                if user['must_change_password']:
+                    raise PasswordChangeRequired('请先完成密码修改')
+                query=parse_qs(parsed.query)
+                trial_id=(query.get('trial_id') or [''])[0]
+                if trial_id:
+                    trial=owned_trial(conn,user,trial_id)
+                    revision_id=trial['revision_id']
+                    document=loads(trial['document_json'],{})
+                else:
+                    qid=(query.get('question_id') or [''])[0]
+                    own_question(PhysicsRepository(conn),user,qid)
+                    binding=question_bank.content(conn,qid,user['school_id'])
+                    if not binding: raise InvalidRequest('题目没有文档图片')
+                    revision_id=binding['current_revision_id'];document=binding['document']
+                asset_id=path.rsplit('/',1)[-1]
+                if asset_id not in visible_question_asset_ids(document,include_solution=bool(trial_id)):
+                    raise PermissionDenied('图片不属于该题目')
+                asset=self._load_export_asset(conn,user,asset_id,revision_id)
+                self._send_document_bytes(asset['data'],asset['mime_type'],asset_id,inline=True)
             elif path.startswith("/api/question-assets/"):
                 self._handle_question_asset_get(conn, user, path, parse_qs(parsed.query))
             elif path == "/":
@@ -4730,7 +4754,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             raise ResourceNotFound("Question asset not found")
         include_solution = (query.get("solution") or [""])[0].lower() in ("1", "true", "yes")
         if include_solution and user["role"] not in ("teacher", "admin"):
-            raise PermissionDenied("Only teachers can view answer and analysis assets")
+            viewed=conn.execute("""select 1 from learning_views v join question_version_snapshots s on s.question_id=v.question_id
+                join assessment_sessions a on a.id=s.assessment_id where v.student_id=? and s.id=? and a.grading_status='published'""",
+                (user['id'],snapshot_id)).fetchone()
+            if not viewed:
+                raise PermissionDenied('请先查看本题答案与解析')
         whole_group = (query.get("group") or [""])[0].lower() in ("1", "true", "yes")
         allowed_asset_ids = visible_question_asset_ids(
             json.loads(asset["document_json"]),

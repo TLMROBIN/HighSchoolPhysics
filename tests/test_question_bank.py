@@ -145,8 +145,8 @@ class QuestionBankTests(unittest.TestCase):
             self.assertEqual(attempt['outcome'],outcome)
         self.assertEqual(self.conn.execute('select initial_answer from student_responses where id=?',(wrong['response_id'],)).fetchone()[0],'B')
         from highschoolphysics.learning_views import student
-        page=student(self.repo,dict(users[0]),{})
-        self.assertIn('后续复习记录',page)
+        page=student(self.repo,dict(users[0]),{'module':['history']})
+        self.assertIn('最近练习结果',page)
         self.assertIn('选择：B',page)
         self.assertIn('选择：A',page)
 

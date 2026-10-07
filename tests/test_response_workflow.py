@@ -145,7 +145,7 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.c.execute('select count(*) from response_publications where assessment_id=?',(self.a,)).fetchone()[0],2)
         html=learning_views.exams(self.repo,self.student,self.a)
         self.assertIn('经更正的作答',html);self.assertIn('教师更正说明',html)
-        self.assertNotIn(w['id'],learning_views.student(self.repo,self.student,{}))
+        self.assertNotIn(w['id'],learning_views.student(self.repo,self.student,{'module':['wrong']}))
 
     def test_new_error_scheduled_from_correction_not_historical_date(self):
         self.save(self.payload('B'));learning.api(self.repo,self.admin,'publish',{'assessment_id':self.a})
@@ -161,7 +161,7 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(r['outcome'],'wrong')
         self.save(self.payload('A'));learning.api(self.repo,self.admin,'publish',{'assessment_id':self.a})
         self.correction(self.response(),'B','correct')
-        html=learning_views.student(self.repo,self.student,{})
+        html=learning_views.student(self.repo,self.student,{'module':['wrong']})
         original=self.c.execute('select id from wrong_questions where response_id=?',(r['id'],)).fetchone()[0]
         self.assertIn(original,html)
 

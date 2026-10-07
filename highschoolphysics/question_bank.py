@@ -27,6 +27,13 @@ def staff(user):
         raise PermissionDenied('请先完成密码修改')
 
 
+def reader(user):
+    if not user or user['role'] not in ('student','teacher','admin') or user['status'] != 'active':
+        raise PermissionDenied('需要有效的学校账号')
+    if user.get('must_change_password'):
+        raise PermissionDenied('请先完成密码修改')
+
+
 def question(repo, user, qid):
     staff(user)
     q = repo.get_question(qid)
@@ -85,14 +92,14 @@ def sync_import_paper(conn, batch_id, actor):
 
 
 def list_papers(repo, user):
-    staff(user)
+    reader(user)
     return [dict(r) for r in repo.conn.execute('''select p.*,count(pq.question_id) question_count from papers p
         join paper_questions pq on pq.paper_id=p.id where p.school_id=?
         group by p.id order by p.created_at desc,p.id''', (user['school_id'],))]
 
 
 def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size=20, question_type='', tag_family='', tag_id='', base_path=''):
-    staff(user)
+    reader(user)
     try:
         offset = max(0, int(offset))
         page_size = int(page_size)
@@ -177,7 +184,7 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size
 
 
 def taxonomy(repo, user):
-    staff(user)
+    reader(user)
     catalogs = {'knowledge': repo.knowledge_nodes(), 'ability': repo.ability_tags(), 'literacy': repo.literacy_tags()}
     paths = repo.knowledge_node_paths()
     return {kind: [{**t, 'path_text': ' / '.join(paths.get(t['id'], [t['name']])) if kind == 'knowledge' else t['name']}
@@ -443,6 +450,7 @@ def revoke_token(repo,user,tid):
 
 
 def get_api(repo,user,path,params,base_path='',agent_id=None):
+    staff(user)
     value=lambda key: (params.get(key) or [''])[0]
     if path=='/api/question-bank/library':
         return library(repo,user,value('batch_id'),value('paper_id'),value('search'),value('offset') or 0,

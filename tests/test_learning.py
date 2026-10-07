@@ -62,7 +62,8 @@ class LearningTests(unittest.TestCase):
  def test_views_hide_solution_and_other_student(self):
   user=dict(self.c.execute("select * from users where id='stu-1001'").fetchone())
   out=learning_views.student(self.repo,user,{'practice':[self.w['id']]})
-  self.assertNotIn('李华',out);self.assertIn('首次作答记录',out);self.assertNotIn('我的得分',out)
+  self.assertNotIn('李华',out);self.assertIn('第 1 次重做',out);self.assertNotIn('我的得分',out)
+  self.assertIn('首次作答记录',learning_views.student(self.repo,user,{'module':['wrong']}))
   self.assertNotIn('correct_answer_json',out)
   teacher_html=''.join(learning_views._teacher_question_groups(self.repo,self.admin))
   self.assertIn('教师工作台',learning_views.teacher(self.repo,self.admin,{}))

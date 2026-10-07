@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from .errors import InvalidRequest, PermissionDenied, StateConflict
 from .repository import loads, dumps
-from .question_content import render_snapshot_content, snapshot_content
+from .question_content import render_snapshot_content, render_snapshot_solution, snapshot_content
 
 LABELS = {'correct':'本次正确','wrong':'需再练','blank':'空白','pending':'待教师确认'}
 TZ = ZoneInfo('Asia/Shanghai')
@@ -29,6 +29,8 @@ def migrate(conn):
     if conn.execute("select 1 from sqlite_master where name='learning_state'").fetchone():
         from .response_workflow import migrate as migrate_evidence
         migrate_evidence(conn)
+        from .student_learning import migrate as migrate_student
+        migrate_student(conn)
         return
     # Keep a private, reversible pre-migration archive; never overwrite one.
     path = conn.execute('pragma database_list').fetchone()[2]
@@ -94,6 +96,8 @@ def migrate(conn):
     finally: conn.execute('pragma foreign_keys=on')
     from .response_workflow import migrate as migrate_evidence
     migrate_evidence(conn)
+    from .student_learning import migrate as migrate_student
+    migrate_student(conn)
 
 def check(rule, answer):
     from .outcomes import decide
@@ -137,6 +141,8 @@ def submit(repo, actor, payload):
     wrong=repo._require_wrong_question_student(actor,payload['wrong_id'])
     if repo.conn.execute('select grading_status from assessment_sessions where id=?',(wrong['assessment_id'],)).fetchone()[0]!='published': raise PermissionDenied('尚未发布')
     if not c_active(repo.conn,wrong['id']): raise StateConflict('该错误来源已撤销，请刷新错题本')
+    if payload.get('self_outcome') and payload.get('unified')!='1':
+        raise InvalidRequest('请通过学生自评入口提交')
     answer=payload.get('answer','')
     if isinstance(answer,list): answer=','.join(sorted(set(answer)))
     key=str(payload.get('request_key',''))
@@ -146,18 +152,25 @@ def submit(repo, actor, payload):
     try:
         old=c.execute('select * from redo_attempts where student_id=? and request_key=?',(actor,key)).fetchone()
         if old:
-            if old['answer']!=answer or old['wrong_question_id']!=wrong['id']: raise StateConflict('重复请求内容不一致')
+            if old['answer']!=answer or old['wrong_question_id']!=wrong['id'] or (payload.get('self_outcome') and old['outcome']!=payload['self_outcome']): raise StateConflict('重复请求内容不一致')
             c.rollback();return dict(old)
         if c.execute("select 1 from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where a.student_id=? and w.question_id=? and w.is_active=1 and a.outcome='pending'",(actor,wrong['question_id'])).fetchone(): raise StateConflict('这道题有一次作答待教师确认，请勿重复提交')
         p=progress(c,wrong)
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
-        purpose='verify' if payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date()) else 'learn'
+        purpose='verify' if payload.get('unified')=='1' or (payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date())) else 'learn'
         question_snapshot = snapshot(c, wrong)
         if question_snapshot["question_type"] in ("single_choice", "multiple_choice") and not str(answer).strip():
             raise InvalidRequest("请先选择选项，再提交作答")
-        outcome = outcome_for_snapshot(c, question_snapshot, wrong["school_id"], answer)
+        if payload.get('unified')=='1':
+            from .student_learning import self_outcome
+            outcome = self_outcome(question_snapshot['question_type'],payload,viewed)
+        else:
+            outcome = None
+        outcome = outcome or outcome_for_snapshot(c, question_snapshot, wrong["school_id"], answer)
         aid='redo-'+uuid.uuid4().hex[:12]
         c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,answer,status,outcome,purpose,request_key,submitted_at) values(?,?,?,?,?,?,?,?,?,?)',(aid,wrong['school_id'],wrong['id'],actor,answer,'submitted' if outcome=='pending' else 'reviewed',outcome,purpose,key,now()))
+        if payload.get('self_outcome'):
+            c.execute('update redo_attempts set self_reported=1 where id=?',(aid,))
         c.commit()
         return dict(c.execute('select * from redo_attempts where id=?',(aid,)).fetchone())
     except Exception: c.rollback();raise
@@ -232,6 +245,9 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
+    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit'):
+        from .student_learning import api as student_api
+        return student_api(repo,user,action,p,base_path)
     if action=='answers':
         if p.get('upload_id'):
             from .exam_import import staged_bundle
@@ -282,11 +298,12 @@ def api(repo,user,action,p,base_path=""):
             return {
                 "answer": answer,
                 "analysis": analysis,
-                "solution_html": render_snapshot_content(c, s["id"], school_id, base_path, include_solution=True),
-                "message": "已进入学习练习，本日不增加验证次数",
+                "solution_html": render_snapshot_solution(c,s["id"],school_id,base_path),
+                "message": "答案与解析已显示",
+                "solution_available": bool(render_snapshot_content(c,s["id"],school_id,base_path,include_solution=True) and (answer or analysis)),
             }
         from .fill_rules import reference_answer
-        return dict(answer=reference_answer(loads(s['grading_rule_json'],{})),analysis=q['analysis'],message='已进入学习练习，本日不增加验证次数')
+        return dict(answer=reference_answer(loads(s['grading_rule_json'],{})),analysis=q['analysis'],message='答案与解析已显示')
     if user['role'] not in ('admin','teacher'): raise PermissionDenied('需要教师身份')
     if action=='settings':
         group=c.execute('select * from class_groups where id=? and school_id=?',(p['class_id'],user['school_id'])).fetchone()

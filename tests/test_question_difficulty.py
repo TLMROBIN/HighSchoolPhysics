@@ -70,7 +70,7 @@ class QuestionDifficultyTests(unittest.TestCase):
         self.assertTrue(all('难度：' in g['html'] for g in listing['groups']))
         detail = question_bank.detail(self.repo,self.admin,self.qid)
         self.assertTrue(all('difficulty_stats' in u for u in detail['units']))
-        student_html = learning_views.student(self.repo,self.student,{})
+        student_html = learning_views.student(self.repo,self.student,{'module':['wrong']})
         self.assertIn('难度：',student_html)
         self.assertIn('正确率',student_html)
         teacher_html = ''.join(learning_views._teacher_question_groups(self.repo,self.admin))
