@@ -19,7 +19,7 @@
   }
   target.closest('.assessment-question-details').open=true;
   document.querySelectorAll('[data-exam-question]').forEach(link=>{if(link.hash===hash)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');});
-  target.scrollIntoView({block:'start'});target.focus({preventScroll:true});
+  (studentNav?target.closest('.assessment-question-group'):target).scrollIntoView({block:'start'});target.focus({preventScroll:true});
  };
  const studentExamNav=document.querySelector('.student-exam-nav');
  if(studentExamNav){

@@ -149,6 +149,6 @@
 .student-exam-nav td[data-outcome="wrong"] { color:#b42318; font-weight:600; }
 .student-exam-nav td:is([data-outcome="pending"],[data-outcome="missing"]) { color:#8a5a00; }
 .learning [id^="student-exam-group-"][hidden], .student-exam-empty[hidden] { display:none; }
-.learning [id^="student-exam-group-"] .assessment-subquestion { scroll-margin-top:var(--student-exam-scroll-offset,210px); }
+.learning [id^="student-exam-group-"], .learning [id^="student-exam-group-"] .assessment-subquestion { scroll-margin-top:var(--student-exam-scroll-offset,210px); }
 @media (max-width:600px) { .learning .student-exam-nav { padding:8px; } .student-exam-nav :is(th,td) { min-width:76px; padding:4px 6px; } }
 .learning.student-exam-workspace { overflow:visible; min-width:0; }
