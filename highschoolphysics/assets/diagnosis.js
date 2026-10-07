@@ -24,7 +24,8 @@
         html+='<button class="secondary" data-diagnosis-event="finish">结束诊断，继续重做</button>';
       } else {
         const problems=state.findings.filter(f=>!f.passed||f.assisted);
-        html+=`<h4>${problems.length?'建议优先回看的环节':'本次检查小结'}</h4><p>${problems.length?problems.map(f=>esc(f.stage)+(f.assisted?'（借助提示）':'')).join('、'):'已检查的步骤暂无明显困难，仍需通过独立重做验证。'}</p>`;
+        html+=`<h4>${problems.length?'建议优先回看的环节':'本次检查小结'}</h4><p>${!state.findings.length?'本次尚未完成检查，暂无足够诊断依据，可以直接重做。':problems.length?problems.map(f=>esc(f.stage)+(f.assisted?'（借助提示）':'')).join('、'):'已检查的步骤暂无明显困难，仍需通过独立重做验证。'}</p>`;
+        if(state.status==='ended')html+='<p class="diagnosis-note">本次提前结束，定位依据还不完整。</p>';
         html+='<p>'+esc(state.message)+'</p><details><summary>查看各步依据</summary>'+state.findings.map(f=>`<p><strong>${esc(f.stage)}：${f.passed?'通过':'待检查'}</strong> ${esc(f.explanation)}</p>`).join('')+'</details>';
         html+='<p>这个定位符合你的真实卡点吗？</p><div class="diagnosis-actions"><button class="secondary" data-diagnosis-confirm="agree">比较符合</button><button class="secondary" data-diagnosis-confirm="different">不太符合</button><button class="secondary" data-diagnosis-confirm="unsure">还说不清</button></div>';
       }

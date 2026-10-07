@@ -682,7 +682,7 @@ def page(repo,user,params,base_path=''):
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
-    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261007-v2"><script src="assets/diagnosis.js?v=20261007-v2" defer></script>')
+    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261007-v3"><script src="assets/diagnosis.js?v=20261007-v3" defer></script>')
     out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-student-tablet-v3" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()
