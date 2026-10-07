@@ -158,6 +158,25 @@ class StudentLearningTests(unittest.TestCase):
         self.assertEqual(1,practice.count('data-action="group-submit"'))
         self.assertIn('name="member_ids"',practice)
 
+    def test_active_practice_loads_figures_without_waiting_for_viewport(self):
+        g=self.grouped_fixture()
+        document=json.loads(self.c.execute('select document_json from question_content_revisions where id=?',(g['revision_id'],)).fetchone()[0])
+        document['stem_md']+='\n\n![电路图](asset:figure1)'
+        self.c.execute('update question_content_revisions set document_json=? where id=?',(json.dumps(document),g['revision_id']))
+        self.c.commit()
+        notebook=learning_views.student(self.repo,self.user,{'module':['wrong']})
+        self.assertIn('loading="lazy"',notebook)
+        practice=learning_views.student(self.repo,self.user,{'practice':[g['id']]})
+        self.assertIn('loading="eager"',practice)
+        self.assertNotIn('loading="lazy"',practice)
+        trial=self.trial()
+        document=json.loads(trial['document_json'])
+        document['stem_md']+='\n\n![示意图](asset:figure2)'
+        trial['document_json']=json.dumps(document)
+        rendered=student_learning.practice(self.repo,self.user,trial,'/physics','app')
+        self.assertIn('loading="eager"',rendered)
+        self.assertNotIn('loading="lazy"',rendered)
+
     def test_hierarchical_knowledge_opens_selection_and_parent_includes_children(self):
         items=[dict(id='book',name='教材'),dict(id='chapter',name='章节',parent_id='book'),dict(id='point',name='知识点',parent_id='chapter')]
         html=student_learning.knowledge_picker(items,'point')

@@ -413,7 +413,8 @@ def group_practice(repo,user,g,base_path,next_url):
         form='<form class="student-practice-form" data-action="group-submit" data-next="%s">%s<fieldset data-group-controls hidden><legend>标注需要复习的小问</legend>%s<button type="submit">提交本题复习结果</button></fieldset><div role="status"></div></form>'%(esc(next_url),hidden('wrong_id',g['id'])+hidden('member_ids',dumps([w['id'] for w in members])),''.join(fields))
     else:
         body+='<p>当前没有可提交的小问，待确认的小问需等待教师处理。</p>'
-    return '<article class="student-practice" id="practice"><h2>第 %s 次重做</h2>%s%s<button type="button" class="secondary" data-student-solution="group-solution" data-id="%s">查看答案与解析</button><div class="solution-output" role="status"></div><a class="practice-next" href="%s" hidden>下一题</a></article>'%(group_attempt_count(c,user,g)+1,body,form,esc(g['id']),esc(next_url))
+    # Load all active-exercise figures, including options, without a viewport gate.
+    return ('<article class="student-practice" id="practice"><h2>第 %s 次重做</h2>%s%s<button type="button" class="secondary" data-student-solution="group-solution" data-id="%s">查看答案与解析</button><div class="solution-output" role="status"></div><a class="practice-next" href="%s" hidden>下一题</a></article>'%(group_attempt_count(c,user,g)+1,body,form,esc(g['id']),esc(next_url))).replace('loading="lazy"', 'loading="eager"')
 
 
 def library_layout(sidebar,body):
@@ -542,7 +543,8 @@ def practice(repo,user,w,base_path,next_url):
         if w['outcome'] in ('wrong','blank'):
             result+=form('bank-add-wrong',hidden('trial_id',w['id'])+'<p>是否将这道题加入错题本？</p><button>加入错题本</button><a href="app?module=bank">暂不加入</a>')
         f=''
-    return '<article class="student-practice" id="practice"><h2>%s</h2>%s%s%s<button type="button" class="secondary" data-student-solution="%s" data-id="%s">查看答案与解析</button><div class="solution-output" role="status"></div><a class="practice-next" href="%s" hidden>下一题</a></article>'%(number,stem,f,result,solution,esc(sid),esc(next_url))
+    # Load all active-exercise figures, including options, without a viewport gate.
+    return ('<article class="student-practice" id="practice"><h2>%s</h2>%s%s%s<button type="button" class="secondary" data-student-solution="%s" data-id="%s">查看答案与解析</button><div class="solution-output" role="status"></div><a class="practice-next" href="%s" hidden>下一题</a></article>'%(number,stem,f,result,solution,esc(sid),esc(next_url))).replace('loading="lazy"', 'loading="eager"')
 
 
 def graph(repo,user):
