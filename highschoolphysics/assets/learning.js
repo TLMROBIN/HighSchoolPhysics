@@ -8,10 +8,30 @@
  const openExamQuestion=hash=>{
   if(!/^#exam-question-\d+$/.test(hash))return;
   const target=document.getElementById(hash.slice(1));if(!target)return;
+  const studentNav=document.querySelector('.student-exam-nav');
+  if(studentNav){
+   const group=target.closest('.assessment-question-group');
+   document.querySelectorAll('[id^="student-exam-group-"]').forEach(article=>{article.hidden=article!==group;});
+   document.querySelector('.student-exam-empty').hidden=true;
+   studentNav.querySelectorAll('[data-exam-question]').forEach(link=>link.setAttribute('aria-expanded',String(link.hash===hash)));
+   const selected=studentNav.querySelector(`a[href="${hash}"]`),box=studentNav.querySelector('.student-exam-nav-scroll');
+   if(selected){const cell=selected.closest('th');box.scrollLeft=Math.max(0,cell.offsetLeft-box.clientWidth/2+cell.offsetWidth/2);}
+  }
   target.closest('.assessment-question-details').open=true;
   document.querySelectorAll('[data-exam-question]').forEach(link=>{if(link.hash===hash)link.setAttribute('aria-current','location');else link.removeAttribute('aria-current');});
   target.scrollIntoView({block:'start'});target.focus({preventScroll:true});
  };
+ const studentExamNav=document.querySelector('.student-exam-nav');
+ if(studentExamNav){
+  const updateExamNav=()=>{
+   const top=document.querySelector('.topbar')?.getBoundingClientRect().height||0;
+   studentExamNav.style.top=top+'px';
+   document.querySelector('.learning').style.setProperty('--student-exam-scroll-offset',(top+studentExamNav.getBoundingClientRect().height+16)+'px');
+  };
+  new ResizeObserver(updateExamNav).observe(studentExamNav);
+  const topbar=document.querySelector('.topbar');if(topbar)new ResizeObserver(updateExamNav).observe(topbar);
+  updateExamNav();
+ }
  document.querySelectorAll('[data-exam-question]').forEach(link=>link.addEventListener('click',event=>{event.preventDefault();history.replaceState(null,'',link.hash);openExamQuestion(link.hash);}));
  window.addEventListener('hashchange',()=>openExamQuestion(location.hash));
  openExamQuestion(location.hash);

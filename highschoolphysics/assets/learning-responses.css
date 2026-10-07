@@ -134,3 +134,20 @@
 .tag-chart-scroll-controls input[type=range]::-moz-range-track { height:10px; background:#dbe2ea; border-radius:6px; }
 .tag-chart-scroll-controls input[type=range]::-moz-range-thumb { width:36px; height:20px; border-radius:6px; border:2px solid #fff; background:#08766f; }
 .tag-chart-scroll-controls input:disabled { opacity:.45; cursor:default; }
+
+/* Student exam results remain available while switching question details. */
+.learning .student-exam-nav { position:sticky; top:56px; z-index:3; margin:20px 0; padding:12px; border:1px solid var(--line,#d8dee8); border-radius:10px; background:var(--surface,#fff); box-shadow:0 4px 12px #17212f12; }
+.student-exam-nav p { margin:0 0 8px; font-size:14px; color:var(--text-quiet,#41556f); }
+.student-exam-nav-scroll { overflow-x:auto; }
+.learning .student-exam-nav table { display:table; width:max-content; min-width:100%; max-width:none; table-layout:auto; margin:0; }
+.student-exam-nav :is(th,td) { min-width:88px; text-align:center; white-space:nowrap; padding:6px 10px; }
+.student-exam-nav th[scope="row"] { position:sticky; left:0; z-index:1; min-width:44px; background:var(--surface,#fff); }
+.student-exam-nav a { display:flex; align-items:center; justify-content:center; min-height:44px; padding:0 8px; border-radius:6px; text-decoration:none; color:var(--ink,#17212f); }
+.student-exam-nav a:hover, .student-exam-nav a[aria-current] { background:var(--teal-soft,#dff3ef); color:var(--teal,#08766f); }
+.student-exam-nav a:focus-visible { outline:3px solid var(--teal,#08766f); outline-offset:2px; }
+.student-exam-nav td[data-outcome="correct"] { color:var(--teal,#08766f); font-weight:600; }
+.student-exam-nav td[data-outcome="wrong"] { color:#b42318; font-weight:600; }
+.student-exam-nav td:is([data-outcome="pending"],[data-outcome="missing"]) { color:#8a5a00; }
+.learning [id^="student-exam-group-"][hidden], .student-exam-empty[hidden] { display:none; }
+.learning [id^="student-exam-group-"] .assessment-subquestion { scroll-margin-top:var(--student-exam-scroll-offset,210px); }
+@media (max-width:600px) { .learning .student-exam-nav { padding:8px; } .student-exam-nav :is(th,td) { min-width:76px; padding:4px 6px; } }

@@ -87,3 +87,32 @@ class ExamStatisticsTests(unittest.TestCase):
         self.assertNotIn('赵同学', html)
         self.assertNotIn('exam-results-sidebar', html)
         self.assertIn(self.student['display_name'], html)
+
+    def test_student_results_default_to_table_with_collapsed_questions(self):
+        aid = self.make_exam()
+        self.c.execute("update assessment_sessions set grading_status='published' where id=?", (aid,))
+        self.c.commit()
+        html = learning_views.exams(self.repo, self.student, aid)
+        nav = html.split('<nav class="student-exam-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('data-outcome="correct">正确', nav)
+        self.assertIn('aria-expanded="false"', nav)
+        self.assertIn('aria-controls="student-exam-group-1"', nav)
+        self.assertIn('id="student-exam-group-1" hidden', html)
+        self.assertFalse(re.search(r'<details class="assessment-question-details"[^>]*\bopen\b', html))
+        self.assertNotIn('李华', nav)
+
+    def test_student_results_distinguish_imported_score_pending_and_missing(self):
+        aid = self.make_exam()
+        self.c.execute("update assessment_sessions set grading_status='published' where id=?", (aid,))
+        self.c.execute('update question_version_snapshots set grading_rule_json=? where assessment_id=?', (json.dumps({'type':'fill'}), aid))
+        response = self.c.execute("select id from student_responses where assessment_id=? and student_id=?", (aid, self.student['id'])).fetchone()[0]
+        self.c.execute("insert into response_evidence(id,response_id,extraction_method,created_at,imported_score,imported_max_score) values('score-nav',?,'manual','2026-10-07',1.5,4)", (response,))
+        self.c.execute("update student_responses set outcome='pending' where id=?", (response,))
+        self.c.commit()
+        html = learning_views.exams(self.repo, self.student, aid)
+        nav = html.split('<nav class="student-exam-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('1.5 / 4 分 · 待确认', nav)
+        missing = dict(self.c.execute("select * from users where id='stu-1003'").fetchone())
+        nav = learning_views.exams(self.repo, missing, aid).split('<nav class="student-exam-nav"', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('缺失记录', nav)
+        self.assertNotIn('0 / 4', nav)

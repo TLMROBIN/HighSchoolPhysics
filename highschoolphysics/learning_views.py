@@ -453,7 +453,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-chart-scroll-v4"><script src="assets/learning.js?v=20261007-question-difficulty-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-exam-nav-v1"><script src="assets/learning.js?v=20261007-student-exam-nav-v1" defer></script>'
 def base(user,title="错题与学习记录"):
     if user['role']=='student':
         return '<section class="panel learning"><h1>历史考试与作答</h1><nav><a href="app">学生首页</a> · <a href="app?module=history">历史测试</a></nav><p>这里保留考试首次作答与导入得分，后续练习不会覆盖这些记录。</p>'
@@ -883,6 +883,36 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                 value='%.1f%%' % rate if confirmed else '—'
                 body.append('<a href="#exam-question-%s" data-exam-question><span>%s <small>作答序号 %s</small></span><strong>%s</strong><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><small>正确 %s / 已确认 %s · 待确认 %s · 缺失 %s</small></a>' % (q['position'],esc(label),q['position'],value,rate,correct,len(confirmed),pending,len(present)-len(question_rows)))
         body.append('</nav></aside><div class="exam-results-main">')
+    if not staff:
+        response_by_snapshot={r['snapshot_id']:r for r in rs}
+        headings=[];results=[]
+        for question_group in question_groups:
+            first=question_group[0]
+            content=snapshot_content(c,first['id'],user['school_id'])
+            number=(content['document'] if content else {}).get('number') or first['original_question_number'] or first['position']
+            for q in question_group:
+                content=snapshot_content(c,q['id'],user['school_id'])
+                child=content.get('child_label','') if content else ''
+                label='第%s题%s' % (number,(' · '+child) if child else '')
+                r=response_by_snapshot.get(q['id'])
+                state=r['outcome'] if r else 'missing'
+                if not r:
+                    result='缺失记录'
+                elif loads(q['grading_rule_json'],{}).get('type') in ('single_choice','multiple_choice'):
+                    result={'correct':'正确','wrong':'错误','blank':'空白','pending':'待确认'}.get(r['outcome'],LABELS[r['outcome']])
+                    evidence=c.execute('select imported_score from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
+                    score=evidence['imported_score'] if evidence and evidence['imported_score'] is not None else r['score']
+                    if r['outcome']=='wrong' and score is not None and score>0:
+                        result='部分正确'
+                else:
+                    evidence=c.execute('select imported_score,imported_max_score from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
+                    score=evidence['imported_score'] if evidence and evidence['imported_score'] is not None else r['score']
+                    maximum=evidence['imported_max_score'] if evidence and evidence['imported_score'] is not None else r['max_score']
+                    result=('%g%s 分' % (score,(' / %g' % maximum) if maximum is not None else '')) if score is not None else '未导入得分'
+                    if r['outcome']=='pending': result+=' · 待确认'
+                headings.append('<th scope="col"><a href="#exam-question-%s" data-exam-question aria-controls="student-exam-group-%s" aria-expanded="false">%s</a></th>' % (q['position'],first['position'],esc(label)))
+                results.append('<td data-outcome="%s">%s</td>' % (esc(state),esc(result)))
+        body.append('<nav class="student-exam-nav" aria-label="本次考试题号与结果"><p>本次考试结果 · 点击题号查看题目与首次作答</p><div class="student-exam-nav-scroll"><table><thead><tr><th scope="row">题号</th>%s</tr></thead><tbody><tr><th scope="row">结果</th>%s</tr></tbody></table></div></nav><p class="student-exam-empty" role="status">请选择上方题号查看详情。</p>' % (''.join(headings),''.join(results)))
     included={p['student_id'] for p in present}
     for group_index, question_group in enumerate(question_groups):
         first=question_group[0]
@@ -890,8 +920,10 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         document=first_content['document'] if first_content else {}
         question_number=(document or {}).get('number') or first['original_question_number'] or first['position']
         group_preview=question_fragment(c,first,user,base_path,whole_group=True)
-        body.append('<article class="assessment-question-group"><details class="assessment-question-details"%s><summary><h3>测评题目 %02d · 原卷题号 第%s题 · %s个小问</h3><span>展开题干与作答分布</span></summary>%s'%(
-            " open" if group_index == 0 else "", group_index + 1, esc(question_number), len(question_group), group_preview
+        body.append('<article class="assessment-question-group"%s><details class="assessment-question-details"%s><summary><h3>测评题目 %02d · 原卷题号 第%s题 · %s个小问</h3><span>%s</span></summary>%s'%(
+            '' if staff else ' id="student-exam-group-%s" hidden' % first['position'],
+            " open" if staff and group_index == 0 else "", group_index + 1, esc(question_number), len(question_group),
+            '展开题干与作答分布' if staff else '题目与首次作答', group_preview
         ))
         for q in question_group:
             content=snapshot_content(c,q['id'],user['school_id'])
