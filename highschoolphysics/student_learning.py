@@ -1,5 +1,7 @@
 """Student workspace and personal review evidence, separate from imported exam answers."""
 import json
+import hashlib
+import re
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -10,7 +12,7 @@ from .repository import loads, dumps
 from . import learning, question_bank
 from .question_difficulty import statistics, badge
 from .question_rendering import render_question, render_markdown
-from .question_content import render_snapshot_solution
+from .question_content import render_snapshot_solution, snapshot_content
 from .exam_views import esc
 
 TYPES = {'single_choice': '单选题', 'multiple_choice': '多选题', 'fill': '填空题',
@@ -91,10 +93,10 @@ def frozen_question(repo, user, qid):
                 tags_json=dumps(repo.tags_for_question(qid)), question_type=unit.get('kind', q['question_type']))
 
 
-def trial_render(trial, base_path='', solution=False, options=True):
+def trial_render(trial, base_path='', solution=False, options=True, whole_group=False):
     url = lambda aid: base_path + '/api/student-question-assets/' + quote(aid) + '?trial_id=' + quote(trial['id'])
     return render_question(loads(trial['document_json'], {}), asset_url=url, include_solution=solution,
-                           child_key=trial['child_key'] or None, include_options=options, compact_layout=True)
+                           child_key=None if whole_group else trial['child_key'] or None, include_options=options, compact_layout=True)
 
 
 def trial_outcome(t, answer):
@@ -132,6 +134,49 @@ def api(repo, user, action, p, base_path=''):
 def _api(repo, user, action, p, base_path=''):
     require_student(user)
     c, uid = repo.conn, user['id']
+    if action in ('group-solution','group-submit'):
+        g=group_for(repo,user,p.get('wrong_id',''))
+        members=review_members(g)
+        if action=='group-solution':
+            if not members:raise StateConflict('当前没有可提交的小问')
+            fragments=[];available=True
+            for w in members:
+                result=_api(repo,user,'personal-solution',dict(wrong_id=w['id']),base_path) if w['personal'] else learning.api(repo,user,'solution',dict(wrong_id=w['id']),base_path)
+                content=result.get('solution_html') or render_markdown('参考答案：'+str(result.get('answer') or '尚未导入'))+render_markdown(result.get('analysis') or '')
+                fragments.append('<section><h4>%s</h4>%s</section>'%(esc(w['part_label']),content))
+                available=available and bool(result.get('can_self_report',result.get('solution_available',result.get('answer') or result.get('solution_html'))))
+            return {'solution_html':''.join(fragments),'can_self_report':available}
+        key=str(p.get('request_key',''))
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,60}',key):raise InvalidRequest('缺少有效提交标识')
+        prefix='group:'+key+':'
+        previous=[dict(r) for r in c.execute("select wrong_question_id wrong_id,answer,outcome from redo_attempts where student_id=? and substr(request_key,1,?)=? union all select wrong_id,answer,outcome from student_personal_redos where student_id=? and substr(request_key,1,?)=?",(uid,len(prefix),prefix,uid,len(prefix),prefix))]
+        if previous:
+            old={r['wrong_id']:r for r in previous}
+            if not set(old).issubset({w['id'] for w in g['members']}):raise StateConflict('重复请求内容不一致')
+            saved=[w for w in g['members'] if w['id'] in old];results=[]
+            for i,w in enumerate(saved):
+                answer=p.get('answer_%s'%i,'');answer=','.join(sorted(set(answer))) if isinstance(answer,list) else str(answer)
+                if old[w['id']]['answer']!=answer or (w['kind'] not in CHOICE and p.get('result_%s'%i)!=old[w['id']]['outcome']):raise StateConflict('重复请求内容不一致')
+                results.append(dict(label=w['part_label'],outcome=old[w['id']]['outcome']))
+            return group_result(results)
+        if not members:raise StateConflict('当前没有可提交的小问')
+        if loads(p.get('member_ids','[]'),[])!=[w['id'] for w in members]:raise StateConflict('需要复习的小问已变化，请刷新页面')
+        # Validate every result before saving any member.
+        payloads=[]
+        for i,w in enumerate(members):
+            item=dict(wrong_id=w['id'],unified='1',request_key='group:'+key+':'+hashlib.sha256(w['id'].encode()).hexdigest()[:12],_group_transaction=True)
+            if w['kind'] in CHOICE:
+                item['answer']=p.get('answer_%s'%i,'')
+                if not item['answer']:raise InvalidRequest('请完成%s的选项'%w['part_label'])
+            else:
+                item['self_outcome']=p.get('result_%s'%i)
+                if item['self_outcome'] not in ('correct','wrong'):raise InvalidRequest('请标注%s的对错'%w['part_label'])
+            payloads.append((w,item))
+        results=[]
+        for w,item in payloads:
+            result=_api(repo,user,'personal-submit',item,base_path) if w['personal'] else learning.submit(repo,uid,item,_transaction=False)
+            results.append(dict(label=w['part_label'],outcome=result['outcome']))
+        return group_result(results)
     if action == 'student-preferences':
         def selected(key, allowed):
             value = p.get(key, [])
@@ -221,9 +266,14 @@ def _api(repo, user, action, p, base_path=''):
         rid='personal-redo-'+uuid.uuid4().hex
         c.execute('insert into student_personal_redos values(?,?,?,?,?,?,?,?)',
                   (rid,uid,w['id'],answer,result,int(t['question_type'] not in CHOICE),learning.now(),key))
-        c.commit()
+        if not p.get('_group_transaction'):c.commit()
         return {'outcome':result}
     raise InvalidRequest('未知学生操作')
+
+
+def group_result(results):
+    outcome='pending' if any(r['outcome']=='pending' for r in results) else 'wrong' if any(r['outcome'] in ('wrong','blank') for r in results) else 'correct'
+    return {'outcome':outcome,'parts':results}
 
 
 def personal_progress(c, w):
@@ -266,6 +316,103 @@ def wrongs(repo,user):
     return list(unique.values())
 
 
+def group_wrongs(repo,user):
+    """Merge display/review by the frozen parent revision, never by a paper number."""
+    groups={}
+    for w in wrongs(repo,user):
+        content=None if w['personal'] else snapshot_content(repo.conn,w['snapshot']['id'],user['school_id'])
+        revision=w.get('revision_id') if w['personal'] else (content or {}).get('revision_id')
+        document=loads(w['document_json'],{}) if w['personal'] else (content or {}).get('document',{})
+        child=w.get('child_key','') if w['personal'] else (content or {}).get('child_key','')
+        key=('revision:'+revision) if revision and document.get('children') else 'question:'+w['question_id']
+        g=groups.setdefault(key,dict(id=w['id'],key=key,members=[],document=document,revision_id=revision))
+        w['child_key']=child
+        labels={part['key']:part.get('label',part['key']) for part in document.get('children',[])}
+        w['part_label']=labels.get(child,'本题')
+        g['members'].append(w)
+    for g in groups.values():
+        order={part['key']:i for i,part in enumerate(g['document'].get('children',[]))}
+        g['members'].sort(key=lambda w:order.get(w['child_key'],0))
+        g['anchor']=g['members'][0]
+        g['number']=g['document'].get('number') or ''
+    return list(groups.values())
+
+
+def review_members(g):
+    return [w for w in g['members'] if w['progress']['count']<3 and not w['progress']['pending']]
+
+
+def group_for(repo,user,wid):
+    g=next((g for g in group_wrongs(repo,user) if any(w['id']==wid for w in g['members'])),None)
+    if not g:raise PermissionDenied('错题不存在或尚未发布')
+    return g
+
+
+def group_first_record(c,g,user):
+    if not g['document'].get('children'):
+        return first_record(c,g['anchor'])
+    needed={w['question_id'] for w in review_members(g)}
+    by_question={w['question_id']:w for w in g['members']}
+    records=[]
+    anchor=g['anchor']
+    labels={part['key']:part.get('label',part['key']) for part in g['document']['children']}
+    if not anchor['personal']:
+        rows=c.execute("""select s.id snapshot_id,s.question_id,
+            coalesce(correction.child_key,b.child_key,'') child_key,r.id response_id
+            from question_version_snapshots s
+            left join snapshot_content_bindings b on b.snapshot_id=s.id
+            left join historical_content_corrections correction on correction.snapshot_id=s.id and correction.state='active'
+            left join student_responses r on r.snapshot_id=s.id and r.student_id=?
+            where s.assessment_id=? and coalesce(correction.revision_id,b.revision_id)=? order by s.position""",
+            (user['id'],anchor['assessment_id'],g['revision_id'])).fetchall()
+        for r in rows:
+            e=c.execute('select imported_score,imported_max_score from response_evidence where response_id=? and imported_score is not null order by rowid limit 1',((by_question.get(r['question_id']) or {}).get('response_id',r['response_id']),)).fetchone()
+            score=('%s%s'%(e[0],(' / '+str(e[1])) if e[1] is not None else '')) if e else '未导入得分'
+            records.append((r['question_id'],labels.get(r['child_key'],'本题'),score))
+    if not records:
+        records=[(w['question_id'],w['part_label'],'题库试做 · '+learning.LABELS[w['outcome']] if w['personal'] else '未导入得分') for w in g['members']]
+    return '<section class="first-score"><h4>首次作答得分情况</h4><table><thead><tr><th>小问</th><th>首次得分</th><th>复习提示</th></tr></thead><tbody>'+''.join(
+        '<tr><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(label),esc(score),'需要复习' if qid in needed else '等待教师确认' if (by_question.get(qid) or {}).get('progress',{}).get('pending') else '无需复习') for qid,label,score in records)+'</tbody></table></section>'
+
+
+def group_attempt_count(c,user,g):
+    ids=[w['id'] for w in g['members']];placeholders=','.join('?' for _ in ids)
+    rows=c.execute('select id,request_key from redo_attempts where student_id=? and wrong_question_id in ('+placeholders+')',(user['id'],*ids)).fetchall()
+    rows+=c.execute('select id,request_key from student_personal_redos where student_id=? and wrong_id in ('+placeholders+')',(user['id'],*ids)).fetchall()
+    return len({r['request_key'].split(':')[1] if (r['request_key'] or '').startswith('group:') else r['id'] for r in rows})
+
+
+def group_practice(repo,user,g,base_path,next_url):
+    from .learning_views import hidden
+    c=repo.conn;members=review_members(g)
+    # Preserve the ordinary choice workflow for a stand-alone question.
+    if not g['document'].get('children'):
+        return practice(repo,user,g['anchor'],base_path,next_url)
+    body=wrong_render(c,g['anchor'],user,base_path)+group_first_record(c,g,user)
+    fields=[]
+    for i,w in enumerate(members):
+        label=esc(w['part_label'])
+        if w['kind'] in CHOICE:
+            from .question_content import render_snapshot_options
+            options=render_snapshot_options(c,w['snapshot']['id'],user['school_id'],base_path) if not w['personal'] else None
+            if options is None:
+                unit=next(part for part in g['document']['children'] if part['key']==w['child_key'])
+                options=[dict(key=o['key'],html=render_markdown(o['markdown'])) for o in unit.get('options',[])]
+            fields.append('<section class="group-choice"><h4>%s</h4>%s</section>'%(label,controls(options,w['kind']).replace('name="answer"','name="answer_%s"'%i)))
+        else:
+            fields.append('<label class="group-self-label">%s<select name="result_%s" required><option value="">请选择本次结果</option><option value="correct">我做对了</option><option value="wrong">我做错了</option></select></label>'%(label,i))
+    form=''
+    if members:
+        form='<form class="student-practice-form" data-action="group-submit" data-next="%s">%s<fieldset data-group-controls hidden><legend>标注需要复习的小问</legend>%s<button type="submit">提交本题复习结果</button></fieldset><div role="status"></div></form>'%(esc(next_url),hidden('wrong_id',g['id'])+hidden('member_ids',dumps([w['id'] for w in members])),''.join(fields))
+    else:
+        body+='<p>当前没有可提交的小问，待确认的小问需等待教师处理。</p>'
+    return '<article class="student-practice" id="practice"><h2>第 %s 次重做</h2>%s%s<button type="button" class="secondary" data-student-solution="group-solution" data-id="%s">查看答案与解析</button><div class="solution-output" role="status"></div><a class="practice-next" href="%s" hidden>下一题</a></article>'%(group_attempt_count(c,user,g)+1,body,form,esc(g['id']),esc(next_url))
+
+
+def library_layout(sidebar,body):
+    return '<div class="student-library-layout">%s<div class="student-library-content">%s</div></div>'%(sidebar,body)
+
+
 def tag_filters(repo,user,params):
     catalog=question_bank.taxonomy(repo,user);result={}
     for kind in KINDS:
@@ -295,10 +442,10 @@ def filters(repo,user,module,params,bank=False):
     def picker(key,label,items):
         return '<label>%s<select name="%s"><option value="">全部</option>%s</select></label>'%(label,key,''.join(
             '<option value="%s"%s>%s</option>'%(esc(k),' selected' if selected(key)==k else '',esc(v)) for k,v in items))
-    return '<form method="get" class="student-filters">'+hidden('module',module)+'<label>搜索题目<input type="search" name="search" value="'+esc(selected('search'))+'"></label>'+''.join(
+    return '<aside class="student-filter-sidebar"><details class="student-filter-drawer" data-filter-scope="'+module+'" open><summary>筛选条件</summary><form method="get" class="student-filters">'+hidden('module',module)+'<label>搜索题目<input type="search" name="search" value="'+esc(selected('search'))+'"></label>'+''.join(
         picker(k,label,[(t['id'],t['path_text']) for t in catalog[k]]) for k,label in KINDS.items())+picker('type','题型',list(TYPES.items()))+picker('level','难度',[(l,l) for l in LEVELS])+(
         picker('batch','导入批次',[(r['id'],r['source_file_name']) for r in repo.conn.execute('select id,source_file_name from question_import_batches where school_id=? order by created_at desc',(user['school_id'],))])+
-        picker('paper','试卷',[(r['id'],r['title']) for r in question_bank.list_papers(repo,user)]) if bank else '')+'<button>筛选</button><a href="app?module='+module+'">重置筛选</a></form>'
+        picker('paper','试卷',[(r['id'],r['title']) for r in question_bank.list_papers(repo,user)]) if bank else '')+'<button>筛选</button><a href="app?module='+module+'">重置筛选</a></form></details></aside>'
 
 
 def first_record(c,w):
@@ -320,8 +467,8 @@ def wrong_render(c,w,user,base_path):
     from .learning_views import question_fragment,question_part_context
     if w['personal']:
         t=dict(w,id=w['trial_id'])
-        return trial_render(t,base_path)
-    return question_part_context(c,w['snapshot'],user['school_id'])+question_fragment(c,w['snapshot'],user,base_path,whole_group=True)
+        return trial_render(t,base_path,whole_group=True)
+    return question_fragment(c,w['snapshot'],user,base_path,whole_group=True)
 
 
 def controls(rows,kind):
@@ -436,7 +583,7 @@ def bank(repo,user,params,base_path):
         if match(w,params,tag_sets):matching.append(qid)
     try:page=max(1,int(value('page') or '1'))
     except ValueError:raise InvalidRequest('页码无效')
-    visible=set(matching[(page-1)*10:page*10]);out=[filters(repo,user,'bank',params,bank=True),'<p>匹配 %s 个作答单元</p>'%len(matching)]
+    visible=set(matching[(page-1)*10:page*10]);sidebar=filters(repo,user,'bank',params,bank=True);out=['<p>匹配 %s 个作答单元</p>'%len(matching)]
     from .learning_views import form,hidden
     rendered=set()
     for qid in matching:
@@ -462,13 +609,13 @@ def bank(repo,user,params,base_path):
     for p,label in ((page-1,'上一页'),(page+1,'下一页')):
         if p>=1 and (p-1)*10<len(matching):
             query={k:v[0] for k,v in params.items()};query.update(module='bank',page=str(p));out.append('<a href="app?%s">%s</a>'%(esc(urlencode(query)),label))
-    out.append('</nav>');return ''.join(out)
+    out.append('</nav>');return library_layout(sidebar,''.join(out))
 
 
 def page(repo,user,params,base_path=''):
     require_student(user);c=repo.conn;uid=user['id']
-    all_wrongs=wrongs(repo,user);types,levels=preferences(c,uid)
-    due=[w for w in all_wrongs if w['progress']['available'] and (not types or w.get('filter_kind',w['kind']) in types) and (not levels or w['level'] in levels)]
+    all_wrongs=group_wrongs(repo,user);types,levels=preferences(c,uid)
+    due=[g for g in all_wrongs if any(w['progress']['available'] and (not types or w.get('filter_kind',w['kind']) in types) and (not levels or w['level'] in levels) for w in g['members'])]
     value=lambda k:(params.get(k) or [''])[0]
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
@@ -484,27 +631,29 @@ def page(repo,user,params,base_path=''):
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
     elif wid:
-        w=next((w for w in all_wrongs if w['id']==wid),None)
+        w=next((g for g in all_wrongs if any(member['id']==wid for member in g['members'])),None)
         if not w:raise PermissionDenied('错题不存在或尚未发布')
         # Carry the remaining queue through sequential requests; after saving only the next question appears.
         remaining=(params.get('queue') or [''])[0].split(',') if value('queue') else [item['id'] for item in due]
-        remaining=[rid for rid in remaining if rid and rid!=wid and any(item['id']==rid for item in due)]
+        remaining=[rid for rid in remaining if rid and rid!=w['id'] and any(item['id']==rid for item in due)]
         next_url='app?practice='+quote(remaining[0])+'&queue='+quote(','.join(remaining[1:])) if remaining else 'app?module=history&completed=1'
-        out.append(practice(repo,user,w,base_path,next_url))
+        out.append(group_practice(repo,user,w,base_path,next_url))
     elif module=='wrong':
-        out.append('<h2>错题本</h2>'+filters(repo,user,'wrong',params))
+        out.append('<h2>错题本</h2>')
         tag_sets=tag_filters(repo,user,params)
-        matched=[w for w in all_wrongs if match(w,params,tag_sets)]
-        out.append('<p>共 %s 道错题</p>'%len(matched))
-        for w in matched:
-            out.append('<details class="student-wrong"><summary>%s · %s · %s</summary>%s%s<a href="app?practice=%s">重做这道题</a></details>'%(esc(w['stem'][:75]),esc(w['level']),w['progress']['status'],wrong_render(c,w,user,base_path),first_record(c,w),quote(w['id'])))
-        if not matched:out.append('<p>没有匹配的错题，请调整筛选条件。</p>')
+        matched=[g for g in all_wrongs if any(match(w,params,tag_sets) for w in g['members'])]
+        cards=['<p>共 %s 道错题</p>'%len(matched)]
+        for i,g in enumerate(matched,1):
+            w=g['anchor'];title=('第 %s 题'%g['number']) if g['number'] else ('错题 %s'%i)
+            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">重做这道题</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
+        if not matched:cards.append('<p>没有匹配的错题，请调整筛选条件。</p>')
+        out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
         out.append('<h2>历史测试</h2>'+('<p role="status">本轮复习已完成。</p>' if value('completed') else '')+history(repo,user))
     elif module=='graph':out.append('<h2>知识图谱</h2>'+graph(repo,user))
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
-    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-v1"><script src="assets/student-learning.js?v=20261007-student-v1" defer></script>')
+    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-group-v2"><script src="assets/student-learning.js?v=20261007-student-group-v2" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

@@ -116,3 +116,70 @@ class StudentLearningTests(unittest.TestCase):
                 self.assertEqual(403,code)
                 code,_,_=server.request('GET','/question-bank',headers={'Cookie':cookie})
                 self.assertEqual(403,code)
+
+    def grouped_fixture(self):
+        from highschoolphysics.document_models import canonical_sha256
+        teacher=dict(self.c.execute("select * from users where id='user-teacher-li'").fetchone())
+        ids=[]
+        for n in range(1,4):
+            q=self.repo.create_question(teacher['id'],'实验小问%s'%n,{}, {'answer':'2'},'小问解析','experiment','分组测试','高三','','medium')
+            self.repo.confirm_question_tags(teacher['id'],q['id'],knowledge_node_ids=['kn-pep2019-r1-c04-s03'],ability_tag_ids=['ab-model-construction'],literacy_tag_ids=[self.repo.literacy_tags()[0]['id']])
+            ids.append(q['id'])
+        doc=dict(schema_version=1,number='13',kind='experiment',stem_md='同一道完整实验题的公共条件 $R_1=2\\,\\Omega$。',options=[],answer_md='',analysis_md='',answer_state='verified',grading_rule=None,source_spans=[],asset_refs=[],issues=[],children=[dict(key='part-%s'%n,label='(%s)'%n,kind='experiment',stem_md='第%s小问的完整问题。'%n,options=[],answer_md='参考答案：2',analysis_md='按电路规律分析。',answer_state='verified',source_spans=[]) for n in range(1,4)])
+        self.c.execute('insert into question_content_groups(id,school_id,current_revision_id,created_by) values(?,?,NULL,?)',('student-group-fixture',teacher['school_id'],teacher['id']))
+        self.c.execute('insert into question_content_revisions(id,group_id,revision_no,schema_version,document_json,content_sha256,review_state,answer_state,created_by,change_reason) values(?,?,1,1,?,?,?,?,?,?)',('student-group-revision','student-group-fixture',json.dumps(doc),canonical_sha256(doc),'verified','verified',teacher['id'],'fixture'))
+        self.c.execute('update question_content_groups set current_revision_id=? where id=?',('student-group-revision','student-group-fixture'))
+        for n,qid in enumerate(ids,1):self.c.execute('insert into question_content_bindings(question_id,group_id,child_key) values(?,?,?)',(qid,'student-group-fixture','part-%s'%n))
+        self.c.commit()
+        aid=learning.api(self.repo,teacher,'assessment',dict(title='整题合并复习',class_id='class-physics-1',questions=ids))['url'].split('=')[1]
+        students=self.c.execute('select u.username from users u join assessment_participants p on p.student_id=u.id where p.assessment_id=?',(aid,)).fetchall()
+        records=[dict(student=u[0],number=str(n),score=0 if n==1 else 1 if n==2 else 2,max_score=2) for u in students for n in range(1,4)]
+        payload=dict(assessment_id=aid,records=records,request_key='group-import')
+        preview=learning.api(self.repo,teacher,'answers',payload)
+        learning.api(self.repo,teacher,'answers',dict(payload,confirm=True,preview_token=preview['preview_token']))
+        learning.api(self.repo,teacher,'publish',dict(assessment_id=aid))
+        self.c.execute("update student_responses set effective_from='2026-01-01T00:00:00+00:00' where assessment_id=?",(aid,));self.c.commit()
+        g=next(g for g in student_learning.group_wrongs(self.repo,self.user) if g['revision_id']=='student-group-revision')
+        return g
+
+    def test_grouped_parent_shown_once_with_child_scores_and_sidebars(self):
+        g=self.grouped_fixture();self.assertEqual(2,len(g['members']))
+        page=learning_views.student(self.repo,self.user,{'module':['wrong']})
+        self.assertEqual(1,page.count('同一道完整实验题的公共条件'))
+        self.assertIn('<article class="student-wrong">',page)
+        self.assertNotIn('<details class="student-wrong">',page)
+        self.assertIn('student-filter-sidebar',page);self.assertIn('data-filter-scope="wrong"',page)
+        scores=student_learning.group_first_record(self.c,g,self.user)
+        self.assertEqual(2,scores.count('需要复习'));self.assertEqual(1,scores.count('无需复习'))
+        for score in ('0.0 / 2.0','1.0 / 2.0','2.0 / 2.0'):self.assertIn(score,scores)
+        practice=learning_views.student(self.repo,self.user,{'practice':[g['members'][1]['id']]})
+        self.assertEqual(1,practice.count('同一道完整实验题的公共条件'))
+        self.assertEqual(1,practice.count('data-action="group-submit"'))
+        self.assertIn('name="member_ids"',practice)
+
+    def test_group_submit_atomic_and_idempotent_after_mastery(self):
+        g=self.grouped_fixture();members=student_learning.review_members(g)
+        first_answers=[tuple(r) for r in self.c.execute('select id,initial_answer,outcome from student_responses')]
+        payload=dict(wrong_id=g['id'],member_ids=json.dumps([w['id'] for w in members]),result_0='correct',result_1='wrong',request_key='group-redo-fixture')
+        learning.api(self.repo,self.user,'solution',dict(wrong_id=members[0]['id']))
+        with self.assertRaises(InvalidRequest):student_learning.api(self.repo,self.user,'group-submit',payload)
+        self.assertEqual(0,self.c.execute('select count(*) from redo_attempts').fetchone()[0])
+        student_learning.api(self.repo,self.user,'group-solution',dict(wrong_id=g['id']))
+        result=student_learning.api(self.repo,self.user,'group-submit',payload)
+        self.assertEqual(['correct','wrong'],[p['outcome'] for p in result['parts']])
+        self.assertEqual(result,student_learning.api(self.repo,self.user,'group-submit',payload))
+        self.assertEqual(2,self.c.execute('select count(*) from redo_attempts').fetchone()[0])
+        self.assertEqual(1,student_learning.group_attempt_count(self.c,self.user,g))
+        self.assertEqual(first_answers,[tuple(r) for r in self.c.execute('select id,initial_answer,outcome from student_responses')])
+        with self.assertRaises(StateConflict):student_learning.api(self.repo,self.user,'group-submit',dict(payload,result_1='correct'))
+        # An acknowledged group batch can be retried after all members leave review.
+        for w in members:
+            self.c.execute('delete from redo_attempts where wrong_question_id=?',(w['id'],))
+            for n,date in enumerate(('2026-01-02','2026-01-05')):
+                self.c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,outcome,purpose,submitted_at) values(?,?,?,?,?,?,?)',('pre-%s-%s'%(w['id'],n),self.user['school_id'],w['id'],self.user['id'],'correct','verify',date+'T00:00:00+00:00'))
+        self.c.commit()
+        done=dict(payload,request_key='group-mastered',result_1='correct')
+        result=student_learning.api(self.repo,self.user,'group-submit',done)
+        self.assertEqual('correct',result['outcome'])
+        self.assertEqual([],student_learning.review_members(student_learning.group_for(self.repo,self.user,g['id'])))
+        self.assertEqual(result,student_learning.api(self.repo,self.user,'group-submit',done))

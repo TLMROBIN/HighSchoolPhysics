@@ -137,7 +137,7 @@ def snapshot(conn, wrong):
     result['question_type']=loads(result['grading_rule_json'],{}).get('type','fill')
     return result
 
-def submit(repo, actor, payload):
+def submit(repo, actor, payload, _transaction=True):
     wrong=repo._require_wrong_question_student(actor,payload['wrong_id'])
     if repo.conn.execute('select grading_status from assessment_sessions where id=?',(wrong['assessment_id'],)).fetchone()[0]!='published': raise PermissionDenied('尚未发布')
     if not c_active(repo.conn,wrong['id']): raise StateConflict('该错误来源已撤销，请刷新错题本')
@@ -148,12 +148,13 @@ def submit(repo, actor, payload):
     key=str(payload.get('request_key',''))
     if not key or len(key)>100: raise InvalidRequest('缺少提交标识，请刷新后重试')
     c=repo.conn
-    c.execute('begin immediate')
+    if _transaction:c.execute('begin immediate')
     try:
         old=c.execute('select * from redo_attempts where student_id=? and request_key=?',(actor,key)).fetchone()
         if old:
             if old['answer']!=answer or old['wrong_question_id']!=wrong['id'] or (payload.get('self_outcome') and old['outcome']!=payload['self_outcome']): raise StateConflict('重复请求内容不一致')
-            c.rollback();return dict(old)
+            if _transaction:c.rollback()
+            return dict(old)
         if c.execute("select 1 from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id where a.student_id=? and w.question_id=? and w.is_active=1 and a.outcome='pending'",(actor,wrong['question_id'])).fetchone(): raise StateConflict('这道题有一次作答待教师确认，请勿重复提交')
         p=progress(c,wrong)
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
@@ -171,9 +172,11 @@ def submit(repo, actor, payload):
         c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,answer,status,outcome,purpose,request_key,submitted_at) values(?,?,?,?,?,?,?,?,?,?)',(aid,wrong['school_id'],wrong['id'],actor,answer,'submitted' if outcome=='pending' else 'reviewed',outcome,purpose,key,now()))
         if payload.get('self_outcome'):
             c.execute('update redo_attempts set self_reported=1 where id=?',(aid,))
-        c.commit()
+        if _transaction:c.commit()
         return dict(c.execute('select * from redo_attempts where id=?',(aid,)).fetchone())
-    except Exception: c.rollback();raise
+    except Exception:
+        if _transaction:c.rollback()
+        raise
 
 def staff_assessment(repo,user,aid):
     if user['role'] not in ('admin','teacher'): raise PermissionDenied('需要教师身份')
@@ -245,7 +248,7 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
-    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit'):
+    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit'):
         from .student_learning import api as student_api
         return student_api(repo,user,action,p,base_path)
     if action=='answers':

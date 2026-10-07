@@ -171,7 +171,7 @@ def render_markdown(markdown, asset_url=None):
 def render_question(document, asset_url=None, include_solution=False, child_key=None, include_options=True, compact_layout=False):
     """Render one full question or a child with shared parent conditions."""
     title = html.escape(str(document.get("number", "")))
-    parts = ['<article class="question-content" data-question-number="%s">' % title]
+    parts = ['<article class="question-content%s" data-question-number="%s">' % (' question-structured' if document.get('children') or document.get('kind') in ('experiment','fill','structured','short_answer') else '', title)]
     stem_html = render_markdown(document.get("stem_md", ""), asset_url)
     figures = []
     if compact_layout or (document.get("options") and include_options):

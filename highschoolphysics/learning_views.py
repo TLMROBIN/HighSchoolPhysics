@@ -307,7 +307,7 @@ def question_fragment(c, snapshot_row, user, base_path="", include_solution=Fals
         return difficulty + rendered
     options=loads(snapshot_row['options_json'],{})
     if isinstance(options,list): options={chr(65+i):v for i,v in enumerate(options)}
-    document=dict(number='',stem_md=snapshot_row['stem'],children=[],options=[dict(key=k,markdown=v) for k,v in options.items()])
+    document=dict(number='',kind=snapshot_row['question_type'] if 'question_type' in snapshot_row.keys() else 'fill',stem_md=snapshot_row['stem'],children=[],options=[dict(key=k,markdown=v) for k,v in options.items()])
     old = render_question(document,include_options=include_options,compact_layout=True) + '<div class="legacy-question-images">'+images(c,snapshot_row['question_id'])+'</div>'
     return difficulty + old
 
