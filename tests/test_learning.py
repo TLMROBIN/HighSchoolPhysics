@@ -173,8 +173,13 @@ class LearningTests(unittest.TestCase):
   self.c.commit()
   evidence=learning_views._teacher_learning_evidence(self.repo,self.repo.assessment_overview(self.admin['id']))
   self.assertIn('知识点掌握依据',evidence)
-  self.assertIn('0 / 0',evidence)
-  self.assertNotIn('1 / 1',evidence)
+  import re
+  records=json.loads(re.search(r'data-review-data>(.*?)</script>',evidence,re.S).group(1))
+  self.assertTrue(records)
+  self.assertTrue(all(t['verify']==0 for student in records for t in student['topics']))
+  self.assertTrue(all(sum(student['stages'])==student['wrong'] for student in records))
+  self.assertIn('data-review-search',evidence)
+  self.assertIn('data-review-page',evidence)
   self.c.execute("update assessment_sessions set grading_status='draft'")
   evidence=learning_views._teacher_learning_evidence(self.repo,self.repo.assessment_overview(self.admin['id']))
   self.assertNotIn('张三',evidence)
@@ -185,6 +190,28 @@ class LearningTests(unittest.TestCase):
   progress_html=learning_views.teacher(self.repo,teacher,{'module':['progress']})
   self.assertNotIn('张三',progress_html)
   self.assertIn('暂无已发布考试',progress_html)
+ def test_teacher_progress_stages_pending_and_safe_payload(self):
+  import re
+  self.c.execute("update student_responses set created_at='2026-01-01T00:00:00+00:00'")
+  self.c.execute("update users set display_name=? where id=?",('</script><script>alert(1)</script>',self.w['student_id']))
+  self.c.execute('update question_version_snapshots set tag_snapshot_json=? where id=(select snapshot_id from student_responses where id=?)',(json.dumps([dict(tag_type='knowledge',tag_id='test-progress-tag',name='测试知识点')]),self.w['response_id']))
+  for attempt_id,day in [('stage-one','2026-01-02'),('stage-two','2026-01-05'),('stage-three','2026-01-12')]:
+   self.c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,outcome,purpose,submitted_at) values(?,?,?,?,?,?,?)',(attempt_id,self.w['school_id'],self.w['id'],self.w['student_id'],'correct','verify',day+'T00:00:00+00:00'))
+  self.c.commit()
+  evidence=learning_views._teacher_learning_evidence(self.repo,self.repo.assessment_overview(self.admin['id']))
+  self.assertNotIn('<script>alert',evidence)
+  records=json.loads(re.search(r'data-review-data>(.*?)</script>',evidence,re.S).group(1))
+  student=next(s for s in records if s['id']==self.w['student_id'])
+  self.assertEqual(student['stages'][3],1)
+  self.assertEqual(student['consolidated'],1)
+  self.assertTrue(any(t['verify']==3 and t['verified']==3 for t in student['topics']))
+  self.c.execute('insert into redo_attempts(id,school_id,wrong_question_id,student_id,outcome,purpose,submitted_at) values(?,?,?,?,?,?,?)',('needs-review',self.w['school_id'],self.w['id'],self.w['student_id'],'pending','verify','2026-01-20T00:00:00+00:00'))
+  self.c.commit()
+  evidence=learning_views._teacher_learning_evidence(self.repo,self.repo.assessment_overview(self.admin['id']))
+  records=json.loads(re.search(r'data-review-data>(.*?)</script>',evidence,re.S).group(1))
+  student=next(s for s in records if s['id']==self.w['student_id'])
+  self.assertEqual(student['pending'],1)
+  self.assertTrue(all(t['verify']==3 for t in student['topics'] if t['pending']))
  def test_http_active_mode_blocks_grades_and_serves_outcomes(self):
   import tempfile,sqlite3
   from pathlib import Path

@@ -516,7 +516,7 @@ def _teacher_learning_evidence(repo, assessments):
     for assessment in assessments:
         if assessment['grading_status'] != 'published':
             continue
-        rows=c.execute("""select r.*,u.display_name,student_class.name student_class_name,s.tag_snapshot_json from student_responses r
+        rows=c.execute("""select r.*,u.display_name,u.student_no,student_class.name student_class_name,s.tag_snapshot_json from student_responses r
             join users u on u.id=r.student_id
             join class_groups student_class on student_class.id=u.class_id
             join question_version_snapshots s on s.id=r.snapshot_id
@@ -528,11 +528,12 @@ def _teacher_learning_evidence(repo, assessments):
             attempts_by_wrong[attempt['wrong_question_id']].append(attempt)
         for row in rows:
             student=students.setdefault((row['student_class_name'],row['student_id']),
-                dict(name=row['display_name'],wrong=0,due=0,pending=0,consolidated=0))
+                dict(name=row['display_name'],student_no=row['student_no'] or '',wrong=0,due=0,pending=0,consolidated=0,stages=[0,0,0,0]))
             wrong=wrongs.get(row['id'])
             state=progress(c,dict(wrong)) if wrong else None
             if state:
                 student['wrong']+=1
+                student['stages'][min(3,state['count'])]+=1
                 student['due']+=int(state['available'])
                 student['pending']+=int(state['pending'])
                 student['consolidated']+=int(state['count']>=3)
@@ -555,16 +556,8 @@ def _teacher_learning_evidence(repo, assessments):
                 evidence['pending']+=sum(a['outcome']=='pending' for a in attempts)
                 if state and state['count']>=3:
                     evidence['consolidated'].add(row['question_id'])
-    body=['<h2>学生复习情况</h2><div class="teacher-evidence-table"><table><tr><th>班级</th><th>学生</th><th>错题记录</th><th>到期题</th><th>重做待确认</th><th>三次已巩固</th></tr>']
-    for (class_name,_), item in sorted(students.items(),key=lambda pair:(pair[0][0],pair[1]['name'],pair[0][1])):
-        body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(class_name),esc(item['name']),item['wrong'],item['due'],item['pending'],item['consolidated']))
-    body.append('</table></div>' if students else '</table><p>暂无已发布考试的学生复习记录。</p></div>')
-    body.append('<h2>知识点掌握依据</h2><p>按学生与知识点查看首次作答、独立复习验证和已巩固题目。看过解析后的学习练习不计入验证；正确率与三次已巩固题数提供掌握依据，不能凭一道题判断整个知识点已掌握。未标注知识点的题目不参与下表。</p><div class="teacher-evidence-table"><table><tr><th>班级 / 学生</th><th>知识点</th><th>不同题数</th><th>首次作答正确率</th><th>独立验证答对 / 次数</th><th>待确认记录</th><th>三次已巩固题数</th></tr>')
-    for (class_name,_,_), item in sorted(knowledge.items(),key=lambda pair:(pair[0][0],pair[1]['name'],pair[1]['tag'],pair[0][1])):
-        rate='%.1f%% (%s/%s)' % (100*item['correct']/item['initial'],item['correct'],item['initial']) if item['initial'] else '待确认'
-        body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s / %s</td><td>%s</td><td>%s</td></tr>' % (esc(class_name),esc(item['name']),esc(item['tag']),len(item['questions']),rate,item['verified'],item['verify'],item['pending'],len(item['consolidated'])))
-    body.append('</table></div>' if knowledge else '</table><p>暂无带知识点标签的已发布作答记录。</p></div>')
-    return ''.join(body)
+    from .teacher_progress import workspace
+    return workspace(students, knowledge)
 
 def teacher(repo,user,params,document_import_enabled=False):
     c=repo.conn
@@ -641,20 +634,22 @@ def teacher(repo,user,params,document_import_enabled=False):
 
     if module != "progress":
         return ''.join(body)+'</section>'+footer()
-    body.append('<details class="teacher-settings-details"><summary>每日练习设置</summary>')
-    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>')+'</details>')
+    body.append(_teacher_learning_evidence(repo, assessments))
     allowed={a['id'] for a in assessments}
     pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where w.is_active=1 and a.outcome='pending' order by a.submitted_at").fetchall()
-    body.append('<h2 id="review">待确认的重做</h2>')
+    scoped_pending=[a for a in pending if a['assessment_id'] in allowed]
+    body.append('<details class="review-secondary" id="review"><summary>待确认的重做 · %s 条</summary>' % len(scoped_pending))
+    if not scoped_pending: body.append('<p>当前没有待确认的重做。</p>')
     for a in pending:
         if a['assessment_id'] not in allowed: continue
         body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),esc(a['stem']),esc(a['answer']),esc(reference_answer(loads(a['grading_rule_json'],{}))),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
-    body.append('<h2 id="progress">复习进度</h2><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
+    body.append('</details><details class="review-secondary"><summary>按考试查看复习进度</summary><div class="teacher-evidence-table"><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
     for a in assessments:
         ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
         body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(scope_label(a)),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
-    body.append('</table>')
-    body.append(_teacher_learning_evidence(repo, assessments))
+    body.append('</table></div></details>')
+    body.append('<details class="teacher-settings-details"><summary>每日练习设置</summary>')
+    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>')+'</details>')
     return ''.join(body)+'</section>'+footer()
 
 def _exam_missing_records(c, assessment_id, participants, responses, questions):
