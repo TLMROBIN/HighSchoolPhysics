@@ -3185,8 +3185,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     aid = (parse_qs(parsed.query).get("id") or [None])[0]
                     try:
                         if learning.enabled(conn):
-                            body = learning_views.exams(repo, user, aid, self._base_path(),
-                                                        class_ids=parse_qs(parsed.query).get('classes'))
+                            body = learning_views.exams(repo, user, aid, self._base_path())
                             self._send_html(render_layout("考试与作答", user, body, "exams", question_math=True))
                         else:
                             self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams", question_math=True))
