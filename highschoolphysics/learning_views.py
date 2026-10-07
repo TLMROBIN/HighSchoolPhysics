@@ -437,7 +437,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-missing-records-v1"><script src="assets/learning.js?v=20261007-missing-records-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-review-charts-v2"><script src="assets/learning.js?v=20261007-review-charts-v2" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -702,24 +702,47 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
     pending = [r for r in responses if r['outcome'] == 'pending' and r['student_id'] in students]
     body.append('<section id="exam-pending-reviews" class="exam-pending-reviews"><h4>待确认作答（%s项）</h4>' % len(pending))
     if pending:
-        body.append('<p>查看原始答题卡，核对答案并选择结果，填写依据后确认复核。全部确认后才可发布。</p>'
-                    '<table><tr><th>班级 / 学生</th><th>题目</th><th>待确认作答</th><th>答题卡 / 复核</th></tr>')
+        body.append('<p>在下方原卡中拖动查看细节，用缩放按钮或滚轮放大；核对后填写答案、结果和依据。</p>')
         for r in pending:
             p = students[r['student_id']]
             q = question_map[r['snapshot_id']]
             content = snapshot_content(c, q['id'], r['school_id']) or {}
             number = (content.get('document') or {}).get('number') or q['original_question_number'] or q['position']
             label = '第%s题 %s' % (number, content.get('child_label', ''))
-            body.append('<tr><td>%s · %s</td><td>%s<br><small>作答序号 %s</small></td><td>%s</td><td>'
-                        '<a href="#student-card-%s" data-show-student-card="%s">查看答题卡</a>%s</td></tr>' % (
-                            esc(p['class_name']), esc(p['display_name']), esc(label), q['position'],
+            body.append('<article class="exam-review-item"><div class="exam-review-evidence"><h5>%s · %s · %s</h5>'
+                        '<p>%s</p>%s</div><div class="exam-review-controls">%s</div></article>' % (
+                            esc(p['class_name']), esc(p['display_name']), esc(label),
                             esc(r['final_answer'] or r['initial_answer'] or '未识别到答案'),
-                            esc(r['student_id']), esc(r['student_id']), response_controls(r, False)))
-        body.append('</table>')
+                            _review_card_viewer(c, assessment_id, r, q), response_controls(r, False, expanded=True)))
     else:
         body.append('<p>当前没有等待复核的作答。</p>')
     body.append('</section></section>')
     return ''.join(body)
+
+
+def _review_card_viewer(c, assessment_id, response, question):
+    cards = c.execute("select id,source_file,front_page,back_page from unmatched_answer_cards where assessment_id=? and assigned_student_id=? and status='assigned' order by rowid", (assessment_id, response['student_id'])).fetchall()
+    sources = []
+    preferred = 'back' if question['position'] >= 19 else 'front'
+    for card in cards:
+        for side, label in (('front', '正面'), ('back', '背面')):
+            sources.append(('exam-unmatched-card-media?id=%s&side=%s' % (quote(card['id']), side),
+                            '%s · %s第%s页' % (card['source_file'], label, card[side + '_page']), side == preferred))
+    if not sources:
+        evidence = c.execute('select source_asset_id from response_evidence where response_id=? and source_asset_id is not null order by rowid desc limit 1', (response['id'],)).fetchone()
+        if evidence and evidence['source_asset_id']:
+            sources.append(('exam-media?id=' + quote(evidence['source_asset_id']), '原始答题卡', True))
+    if not sources:
+        return '<p>这条作答尚未关联答题卡图片。</p>'
+    initial = next((url for url, label, chosen in sources if chosen), sources[0][0])
+    return ('<div class="review-card-viewer" data-card-viewer><div class="review-card-toolbar">'
+            '<label>答题卡页面<select data-viewer-page>%s</select></label>'
+            '<button type="button" data-viewer-zoom="out" aria-label="缩小答题卡">−</button>'
+            '<output data-viewer-scale>100%%</output><button type="button" data-viewer-zoom="in" aria-label="放大答题卡">＋</button>'
+            '<button type="button" data-viewer-reset>适合窗口</button></div>'
+            '<div class="review-card-viewport" tabindex="0" aria-label="可拖动和缩放的答题卡，方向键移动，加减键缩放">'
+            '<img src="%s" alt="原始答题卡" draggable="false"></div></div>') % (
+                ''.join('<option value="%s"%s>%s</option>' % (esc(url), ' selected' if url == initial else '', esc(label)) for url, label, chosen in sources), esc(initial))
 
 
 def _exam_answer_category(question, response):
@@ -764,24 +787,36 @@ def _exam_response_distribution(question, rows, participants, rendered_rows):
 
 
 def _exam_tag_charts(groups):
-    out = ['<section class="exam-tag-statistics"><h2>标签统计（首次作答）</h2><p>错误率＝非空错误 / 已确认非空作答；空白率＝空白 / 已确认作答；受影响学生＝至少一次错误或空白 / 该标签已有确认作答的学生。缺失和待确认不进入分母。</p>']
+    out = ['<section class="exam-tag-statistics" id="exam-tag-statistics"><h2>标签统计（首次作答）</h2><p>按错误率从高到低排列。错误率＝非空错误 / 已确认非空作答；空白率＝空白 / 已确认作答；受影响学生＝至少一次错误或空白 / 该标签已有确认作答的学生。缺失和待确认不进入分母。</p>']
+    colors = ['#b7791f', '#64748b', '#08766f']
+    metrics = ['错误率', '空白率', '受影响学生']
     for kind, title in (('knowledge', '知识点'), ('ability', '能力'), ('literacy', '素养')):
-        out.append('<section class="exam-tag-category"><h3>%s</h3>' % title)
-        entries = [(key, g) for key, g in groups.items() if key[0] == kind]
+        out.append('<section class="exam-tag-category" id="exam-tags-%s" data-tag-panel="%s"%s><h3>%s</h3>' % (kind,kind,'' if kind == 'knowledge' else ' hidden',title))
+        entries = [g for key, g in groups.items() if key[0] == kind]
+        entries.sort(key=lambda g: (-g['wrong'] / (g['total'] - g['blank']) if g['total'] != g['blank'] else 1, g['name']))
         if not entries:
-            out.append('<p class="teacher-empty-note">当前范围暂无%s的已确认作答。</p>' % title)
-        for key, g in sorted(entries, key=lambda item: (-len(item[1]['affected']) / len(item[1]['students']), item[1]['name'])):
-            out.append('<div class="exam-tag-chart"><h4>%s</h4>' % esc(g['name']))
-            for label, numerator, denominator, css in (
-                ('错误率', g['wrong'], g['total'] - g['blank'], 'wrong'),
-                ('空白率', g['blank'], g['total'], 'blank'),
-                ('受影响学生', len(g['affected']), len(g['students']), 'affected'),
-            ):
-                percent = 100 * numerator / denominator if denominator else 0
-                value = '%.1f%% · %s / %s' % (percent, numerator, denominator) if denominator else '— · 暂无非空作答'
-                out.append('<div class="exam-tag-bar %s"><span>%s</span><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><span>%s</span></div>' % (css, label, percent, value))
-            out.append('</div>')
-        out.append('</section>')
+            out.append('<p class="teacher-empty-note">当前范围暂无%s的已确认作答。</p></section>' % title)
+            continue
+        width = max(640, 60 + len(entries)*112)
+        out.append('<div class="tag-chart-legend">%s</div><div class="tag-chart-scroll" tabindex="0" aria-label="%s统计柱状图，可横向滚动">'
+                   '<svg width="%s" height="460" viewBox="0 0 %s 460" role="img" aria-label="%s各标签百分比，按错误率降序">' % (
+                       ''.join('<span><i style="background:%s"></i>%s</span>' % (color, metric) for color, metric in zip(colors,metrics)),title,width,width,title))
+        for value in range(0,101,20):
+            y = 310 - value*2.6
+            out.append('<line x1="52" y1="%s" x2="%s" y2="%s" stroke="#dbe2ea"/><text x="44" y="%s" text-anchor="end">%s%%</text>' % (y,width-12,y,y+4,value))
+        out.append('<text x="8" y="24">百分比</text>')
+        slot = (width-64)/len(entries)
+        for index, g in enumerate(entries):
+            center = 52 + slot*(index+0.5)
+            counts = [(g['wrong'],g['total']-g['blank']), (g['blank'],g['total']), (len(g['affected']),len(g['students']))]
+            for j, (numerator, denominator) in enumerate(counts):
+                percent = 100*numerator/denominator if denominator else 0
+                x = center-33+j*22
+                value = '%.1f%%（%s / %s）' % (percent,numerator,denominator) if denominator else '暂无非空作答'
+                out.append('<g><title>%s · %s：%s</title><rect x="%.2f" y="%.2f" width="18" height="%.2f" fill="%s"/><text x="%.2f" y="%.2f" text-anchor="middle" class="tag-chart-value">%s</text></g>' % (
+                    esc(g['name']),metrics[j],esc(value),x,310-percent*2.6,percent*2.6,colors[j],x+9,max(42,304-percent*2.6),'%.0f' % percent if denominator else '—'))
+            out.append('<text transform="translate(%.2f 332) rotate(40)" class="tag-chart-label">%s</text>' % (center-25,esc(g['name'])))
+        out.append('</svg></div></section>')
     return ''.join(out) + '</section>'
 
 
@@ -842,11 +877,13 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         classes=[r for r in c.execute('select id,name from class_groups where school_id=? order by name',(user['school_id'],)) if r['id'] in scope_ids]
         selected={r['id'] for r in classes} if class_ids is None else set(class_ids) & {r['id'] for r in classes}
         present=[p for p in present if p['class_id'] in selected]
-        body.append('<div class="exam-results-layout"><aside class="exam-results-sidebar" aria-label="题目正确率"><h3>题目正确率</h3><form method="get" action="exams" class="exam-stat-filter">'+hidden('id',aid)+hidden('classes','__none__')+'<fieldset><legend>统计班级（可多选）</legend><div class="exam-class-picker">')
+        tag_nav = '<nav class="exam-tag-tabs" aria-label="标签统计模块"><h3>标签统计</h3>'+''.join('<button type="button" data-tag-tab="%s" aria-controls="exam-tags-%s" aria-pressed="%s">%s</button>' % (kind,kind,'true' if kind=='knowledge' else 'false',title) for kind,title in (('knowledge','知识点'),('ability','能力'),('literacy','素养')))+'</nav>'
+        body.append('<div class="exam-results-layout"><aside class="exam-results-sidebar" aria-label="题目正确率">'+tag_nav+'<h3>题目正确率</h3><form method="get" action="exams" class="exam-stat-filter">'+hidden('id',aid)+hidden('classes','__none__')+'<fieldset><legend>统计班级（可多选）</legend><div class="exam-class-picker">')
         for cls in classes:
             body.append('<label><input type="checkbox" name="classes" value="%s"%s>%s</label>' % (esc(cls['id']),' checked' if cls['id'] in selected else '',esc(cls['name'])))
         body.append('</div></fieldset><div class="exam-filter-actions"><button type="button" data-exam-select-all>全选班级</button><button type="submit">更新统计</button></div></form><p>当前实到 %s 人。正确率＝正确 / 已确认作答（含空白）；缺失、待确认不计入。</p><nav class="exam-question-nav" aria-label="按题目查看作答">' % len(present))
         included={p['student_id'] for p in present}
+
         for question_group in question_groups:
             first=question_group[0]
             first_content=snapshot_content(c,first['id'],user['school_id'])
@@ -935,7 +972,7 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     return ''.join(out)+'</section>'
 
 
-def response_controls(r, published):
+def response_controls(r, published, expanded=False):
     if not published and r['outcome']!='pending':
         return ''
     action='response-correct' if published else 'response-review'
@@ -949,4 +986,4 @@ def response_controls(r, published):
     body+='<button>%s</button><div class="response-preview"></div>' % ('预览更正影响' if published else '确认复核')
     if published:
         body+='<button type="button" class="confirm-answers" hidden>确认更正并更新统计</button>'
-    return '<details><summary>%s</summary>%s</details>' % (label,form(action,body))
+    return '<details%s><summary>%s</summary>%s</details>' % (' open' if expanded else '',label,form(action,body))
