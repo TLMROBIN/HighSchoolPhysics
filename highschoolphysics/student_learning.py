@@ -675,8 +675,7 @@ def page(repo,user,params,base_path=''):
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
     out.append(form('student-preferences',settings)+'</details></header>')
     out.append('<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>'%len(due))
-    # Temporarily hide the graph entry while keeping its page and data for restoration.
-    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
+    modules=(('wrong','错题本'),('history','历史测试'),('graph','知识图谱'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
@@ -701,7 +700,9 @@ def page(repo,user,params,base_path=''):
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
         out.append('<h2>历史测试</h2>'+('<p role="status">本轮复习已完成。</p>' if value('completed') else '')+history(repo,user))
-    elif module=='graph':out.append('<h2>知识图谱</h2>'+graph(repo,user))
+    elif module=='graph':
+        from .learning_graph import student_page
+        out.append('<h2>知识图谱</h2>'+student_page(repo,user))
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')

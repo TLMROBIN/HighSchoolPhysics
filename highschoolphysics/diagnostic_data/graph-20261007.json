@@ -1,0 +1,876 @@
+[
+  {
+    "question_id": "q-930123136a094370",
+    "fingerprint": "d8409b64d39997ed9f14ac73bcf0477ec25e8d29544106550005cd8c13af5285",
+    "steps": [
+      {
+        "name": "识别 α 粒子的组成",
+        "knowledge_id": "kn-pep2019-e3-c05-s02",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能识别 α 粒子的组成。",
+        "source_prompt": "α 粒子是什么？"
+      },
+      {
+        "name": "核反应中分别检查质量数和电荷数守恒",
+        "knowledge_id": "kn-pep2019-e3-c05-s02",
+        "ability_id": "ab-conservation-thinking",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能核反应中分别检查质量数和电荷数守恒。",
+        "source_prompt": "写核反应方程时应检查什么？"
+      },
+      {
+        "name": "由质量数和电荷数求中子数",
+        "knowledge_id": "kn-pep2019-e3-c05-s01",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能由质量数和电荷数求中子数。",
+        "source_prompt": "已知子核质量数 A 和电荷数 Z，怎样求中子数？"
+      },
+      {
+        "name": "辨别半衰期的核内性质",
+        "knowledge_id": "kn-pep2019-e3-c05-s02",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能辨别半衰期的核内性质。",
+        "source_prompt": "加热放射性物质，能据此认为半衰期变短吗？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-f9deee276f294f98",
+    "fingerprint": "2f373e3ce5f33d4a57c1ccd8e9e60fce21e90125fd93d3f93dffbeb1400000ed",
+    "steps": [
+      {
+        "name": "选取单位时间水流作为研究对象",
+        "knowledge_id": "kn-pep2019-e1-c01-s02",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能选取单位时间水流作为研究对象。",
+        "source_prompt": "题目给出每秒流过的水的质量，分析一秒过程应取哪个对象？"
+      },
+      {
+        "name": "用动量变化计算水流作用力",
+        "knowledge_id": "kn-pep2019-e1-c01-s02",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用动量变化计算水流作用力。",
+        "source_prompt": "求水流给叶片的平均力，优先用什么？"
+      },
+      {
+        "name": "区分相互作用力的对象",
+        "knowledge_id": "kn-pep2019-r1-c03-s03",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能区分相互作用力的对象。",
+        "source_prompt": "由叶片对水的力，怎样得到水对叶片的力？"
+      },
+      {
+        "name": "根据力与位移方向判断功的正负",
+        "knowledge_id": "kn-pep2019-r2-c08-s01",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能根据力与位移方向判断功的正负。",
+        "source_prompt": "水的动能减少，应如何描述叶片对水做功？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-6a2c547de5284a48",
+    "fingerprint": "081e36109888eea2f065ef87d619b907a6504b88b45ac00b297202be28bb1f89",
+    "steps": [
+      {
+        "name": "静止时判断合力为零",
+        "knowledge_id": "kn-pep2019-r1-c03-s05",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能静止时判断合力为零。",
+        "source_prompt": "木板静止能推出哪一项？"
+      },
+      {
+        "name": "沿对称轴分解绳的拉力",
+        "knowledge_id": "kn-pep2019-r1-c03-s04",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能沿对称轴分解绳的拉力。",
+        "source_prompt": "两根对称绳与竖直夹角为 θ，怎样写竖直平衡？"
+      },
+      {
+        "name": "比较绳夹角变化引起的拉力变化",
+        "knowledge_id": "kn-pep2019-r1-c03-s05",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能比较绳夹角变化引起的拉力变化。",
+        "source_prompt": "比较单根绳的拉力时，需要先跟踪哪个变化？"
+      },
+      {
+        "name": "区分摆动最低点与静止平衡",
+        "knowledge_id": "kn-pep2019-r2-c06-s02",
+        "ability_id": "ab-critical-conditions",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能区分摆动最低点与静止平衡。",
+        "source_prompt": "分析秋千摆动时最低点的绳力，能直接套静止平衡吗？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-7053068280d14bda",
+    "fingerprint": "37c6bf7cea06ecbef05034e5bafcbf82eba8aba3eac379aca45d4c75ba64b614",
+    "steps": [
+      {
+        "name": "区分匀速运动与机械能守恒条件",
+        "knowledge_id": "kn-pep2019-r2-c08-s04",
+        "ability_id": "ab-conservation-thinking",
+        "literacy_id": "lit-concept-energy",
+        "definition": "能区分匀速运动与机械能守恒条件。",
+        "source_prompt": "乙匀速上升，能直接推出什么？"
+      },
+      {
+        "name": "根据绳长约束分解关联速度",
+        "knowledge_id": "kn-pep2019-r2-c05-s02",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能根据绳长约束分解关联速度。",
+        "source_prompt": "绳长不变，比较两端速度应怎样做？"
+      },
+      {
+        "name": "分别分析人与地面的相互作用",
+        "knowledge_id": "kn-pep2019-r1-c03-s03",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能分别分析人与地面的相互作用。",
+        "source_prompt": "求甲受到地面支持力，先分析哪个对象？"
+      },
+      {
+        "name": "按方向分别建立动力学方程",
+        "knowledge_id": "kn-pep2019-r1-c04-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能按方向分别建立动力学方程。",
+        "source_prompt": "甲匀速或减速运动，是否都能说竖直方向不平衡？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-398e93c66b8f42e1",
+    "fingerprint": "f552f076fdc39468bc356d72a7517e9e0e33de2f1ba7df787bf69533554fa71b",
+    "steps": [
+      {
+        "name": "区分波形图的位置轴与振动图的时间轴",
+        "knowledge_id": "kn-pep2019-e1-c03-s02",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能区分波形图的位置轴与振动图的时间轴。",
+        "source_prompt": "波形图的横轴 x 表示什么？"
+      },
+      {
+        "name": "联立波速波长和频率",
+        "knowledge_id": "kn-pep2019-e1-c03-s02",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能联立波速波长和频率。",
+        "source_prompt": "已知波长 λ 和频率 f，波速怎样求？"
+      },
+      {
+        "name": "由波传播方向判断质点运动方向",
+        "knowledge_id": "kn-pep2019-e1-c03-s01",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由波传播方向判断质点运动方向。",
+        "source_prompt": "判断某质点接下来向哪边运动，可以怎样做？"
+      },
+      {
+        "name": "区分质点振动与波形平移",
+        "knowledge_id": "kn-pep2019-e1-c03-s01",
+        "ability_id": "ab-model-construction",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能区分质点振动与波形平移。",
+        "source_prompt": "经过一个周期，某质点的位置怎样？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-ac6102975e57454e",
+    "fingerprint": "2ca02dff07e70a441d7928d2db1425a0d3114ae23087fcba83a00b083e95b589",
+    "steps": [
+      {
+        "name": "判断悬停与匀速下降的加速度",
+        "knowledge_id": "kn-pep2019-r1-c01-s04",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能判断悬停与匀速下降的加速度。",
+        "source_prompt": "悬停和匀速下降的共同条件是什么？"
+      },
+      {
+        "name": "由万有引力求天体表面重力加速度",
+        "knowledge_id": "kn-pep2019-r2-c07-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由万有引力求天体表面重力加速度。",
+        "source_prompt": "比较两星球表面 g，应使用哪种关系？"
+      },
+      {
+        "name": "根据悬停平衡求推力",
+        "knowledge_id": "kn-pep2019-r1-c03-s05",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能根据悬停平衡求推力。",
+        "source_prompt": "求悬停推力，应先求哪个量？"
+      },
+      {
+        "name": "判断下降中重力做功的正负",
+        "knowledge_id": "kn-pep2019-r2-c08-s01",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能判断下降中重力做功的正负。",
+        "source_prompt": "匀速下降时月球引力是否做功？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-b745fbd3f85c4adf",
+    "fingerprint": "176b4e199d8785750fb90bce8608402e7bf903b65813ad2263b1c43a54c8c179",
+    "steps": [
+      {
+        "name": "将带电粒子偏转分解为两个方向",
+        "knowledge_id": "kn-pep2019-r3-c10-s05",
+        "ability_id": "ab-model-construction",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能将带电粒子偏转分解为两个方向。",
+        "source_prompt": "忽略重力的墨滴进入匀强电场后，哪个方向可以匀速？"
+      },
+      {
+        "name": "由电场强度和受力求加速度",
+        "knowledge_id": "kn-pep2019-r3-c10-s05",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由电场强度和受力求加速度。",
+        "source_prompt": "板间距 d、电压 U，电场力加速度大小怎样求？"
+      },
+      {
+        "name": "用匀速方向求电场作用时间",
+        "knowledge_id": "kn-pep2019-r2-c05-s02",
+        "ability_id": "ab-process-segmentation",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能用匀速方向求电场作用时间。",
+        "source_prompt": "墨滴在长度 L 的极板间运动多久？"
+      },
+      {
+        "name": "判断偏转位移与电压的比例关系",
+        "knowledge_id": "kn-pep2019-r3-c10-s05",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能判断偏转位移与电压的比例关系。",
+        "source_prompt": "其他量不变，偏转位移对电压有何关系？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-33503264e99d487a",
+    "fingerprint": "9912ca222f0acdef2d23f639904ab17d5fd4e14bf6e3ae180c6ffb93af875e9d",
+    "steps": [
+      {
+        "name": "区分交变电流有效值和峰值",
+        "knowledge_id": "kn-pep2019-e2-c03-s02",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能区分交变电流有效值和峰值。",
+        "source_prompt": "正弦交流电表达式中的最大电压能直接用于功率计算吗？"
+      },
+      {
+        "name": "使用理想变压器电流与匝数关系",
+        "knowledge_id": "kn-pep2019-e2-c03-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能使用理想变压器电流与匝数关系。",
+        "source_prompt": "理想变压器的电流比与匝数比是什么关系？"
+      },
+      {
+        "name": "用线路电流计算电阻损耗",
+        "knowledge_id": "kn-pep2019-e2-c03-s04",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用线路电流计算电阻损耗。",
+        "source_prompt": "求输电线损耗，应该使用哪个电流？"
+      },
+      {
+        "name": "区分送电电压与受端电压",
+        "knowledge_id": "kn-pep2019-e2-c03-s04",
+        "ability_id": "ab-process-segmentation",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能区分送电电压与受端电压。",
+        "source_prompt": "升压后的电压能直接作为降压变压器输入电压吗？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-30d19ce365bb4102",
+    "fingerprint": "f3437e0db4d76bc5372b5f625ca30fca241a89ec3531b34156e9a71e7c65ec34",
+    "steps": [
+      {
+        "name": "区分速度符号与图像斜率符号",
+        "knowledge_id": "kn-pep2019-r1-c02-s02",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能区分速度符号与图像斜率符号。",
+        "source_prompt": "v–t 图中速度为正、斜率为负，运动状态是什么？"
+      },
+      {
+        "name": "由速度时间图像斜率求加速度",
+        "knowledge_id": "kn-pep2019-r1-c02-s02",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由速度时间图像斜率求加速度。",
+        "source_prompt": "从 v–t 图像求加速度，用哪个量？"
+      },
+      {
+        "name": "根据运动方向判断阻力方向",
+        "knowledge_id": "kn-pep2019-r1-c04-s05",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能根据运动方向判断阻力方向。",
+        "source_prompt": "飞行器向下运动时，阻力方向怎样？"
+      },
+      {
+        "name": "用有向面积计算位移",
+        "knowledge_id": "kn-pep2019-r1-c02-s03",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用有向面积计算位移。",
+        "source_prompt": "用图像判断回到出发位置，应检查什么？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-fcc4eb8eb9bd4377",
+    "fingerprint": "e37aa71e674f46625bd0caaa26c8a0c5684ccfa38e096d144a2090a45e411edc",
+    "steps": [
+      {
+        "name": "判断相对运动是否改变磁通量",
+        "knowledge_id": "kn-pep2019-e2-c02-s02",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能判断相对运动是否改变磁通量。",
+        "source_prompt": "装置运动中线圈与磁场同步整体下落，会仅因下落就产生感应电流吗？"
+      },
+      {
+        "name": "使用相对速度计算感应电动势",
+        "knowledge_id": "kn-pep2019-e2-c02-s02",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能使用相对速度计算感应电动势。",
+        "source_prompt": "发生相对切割时，感应电动势与什么速度有关？"
+      },
+      {
+        "name": "由磁通量变化计算通过电荷量",
+        "knowledge_id": "kn-pep2019-e2-c02-s02",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由磁通量变化计算通过电荷量。",
+        "source_prompt": "求整个过程通过线圈的电量，优先使用什么？"
+      },
+      {
+        "name": "区分机械能变化和电阻发热",
+        "knowledge_id": "kn-pep2019-r2-c08-s04",
+        "ability_id": "ab-conservation-thinking",
+        "literacy_id": "lit-concept-energy",
+        "definition": "能区分机械能变化和电阻发热。",
+        "source_prompt": "最终弹簧仍有形变，重力势能减少能全部算作焦耳热吗？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-e15e28013a304c24",
+    "fingerprint": "29bd3c601c5c5f46443163e122ee2edc387c707d952d311e2412509a91d21143",
+    "steps": [
+      {
+        "name": "按游标零刻线定位主尺读数",
+        "knowledge_id": "kn-pep2019-r1-c02-s01",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能按游标零刻线定位主尺读数。",
+        "source_prompt": "读主尺时应以哪条线为基准？"
+      },
+      {
+        "name": "结合分度值与对齐刻线完成读数",
+        "knowledge_id": "kn-pep2019-r1-c02-s01",
+        "ability_id": "ab-data-processing",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能结合分度值与对齐刻线完成读数。",
+        "source_prompt": "游标读数的基本表达式是什么？"
+      },
+      {
+        "name": "对不清晰刻线保留待确认判断",
+        "knowledge_id": "kn-pep2019-r1-c02-s01",
+        "ability_id": "ab-error-analysis",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能对不清晰刻线保留待确认判断。",
+        "source_prompt": "原图尚未看清时，能只凭常见球直径填读数吗？"
+      },
+      {
+        "name": "按仪器精度和单位记录结果",
+        "knowledge_id": "kn-pep2019-r1-c04-s04",
+        "ability_id": "ab-data-processing",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能按仪器精度和单位记录结果。",
+        "source_prompt": "题目要求 cm，而读到 mm，如何转换？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-f8e2a9af8ca94056",
+    "fingerprint": "4efd53295ba0afe23f7dfabe81d405195cf7a6765fbfb3dc229da05c154a7058",
+    "steps": [
+      {
+        "name": "辨明遮光距离与运动距离",
+        "knowledge_id": "kn-pep2019-r1-c02-s01",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能辨明遮光距离与运动距离。",
+        "source_prompt": "光电门记录的遮光时间对应哪个距离？"
+      },
+      {
+        "name": "用遮光长度和时间近似求瞬时速度",
+        "knowledge_id": "kn-pep2019-r1-c01-s03",
+        "ability_id": "ab-model-construction",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能用遮光长度和时间近似求瞬时速度。",
+        "source_prompt": "用很短遮光时间近似通过 C 的速度，应取什么？"
+      },
+      {
+        "name": "配对同一次实验的测量数据",
+        "knowledge_id": "kn-pep2019-r1-c02-s01",
+        "ability_id": "ab-data-processing",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能配对同一次实验的测量数据。",
+        "source_prompt": "作 v–T 图时，每一个数据点应来自哪里？"
+      },
+      {
+        "name": "由速度时间直线斜率求加速度",
+        "knowledge_id": "kn-pep2019-r1-c02-s02",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由速度时间直线斜率求加速度。",
+        "source_prompt": "v–T 图为一条斜直线能说明什么？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-3407caa5f90c4b3c",
+    "fingerprint": "cd5370f429a21df20c3565e4f34ecf45ca0a3f96def6124f6993248efc8a3251",
+    "steps": [
+      {
+        "name": "确定电表改装后的被测物理量",
+        "knowledge_id": "kn-pep2019-r3-c11-s05",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能确定电表改装后的被测物理量。",
+        "source_prompt": "改装后要测哪一种物理量？"
+      },
+      {
+        "name": "识别扩大量程的串联电阻接法",
+        "knowledge_id": "kn-pep2019-r3-c11-s04",
+        "ability_id": "ab-experiment-design",
+        "literacy_id": "lit-inquiry-question",
+        "definition": "能识别扩大量程的串联电阻接法。",
+        "source_prompt": "电流计改装为电压表，附加电阻怎样接？"
+      },
+      {
+        "name": "由满偏电流建立量程方程",
+        "knowledge_id": "kn-pep2019-r3-c11-s05",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由满偏电流建立量程方程。",
+        "source_prompt": "求附加电阻，应先建立什么关系？"
+      },
+      {
+        "name": "从总电阻中扣除电表内阻",
+        "knowledge_id": "kn-pep2019-r3-c11-s05",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能从总电阻中扣除电表内阻。",
+        "source_prompt": "算出总电阻 U量程/Ig 后就得到附加电阻了吗？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-569fc6ec273340a5",
+    "fingerprint": "9c4c6a14e6853d6825e69f9754970c94c9eaed1240e4708180b4e63bda58130f",
+    "steps": [
+      {
+        "name": "识别电压表的并联测量范围",
+        "knowledge_id": "kn-pep2019-r3-c12-s03",
+        "ability_id": "ab-experiment-design",
+        "literacy_id": "lit-inquiry-question",
+        "definition": "能识别电压表的并联测量范围。",
+        "source_prompt": "改装电压表应怎样接到被测电阻两端？"
+      },
+      {
+        "name": "将保护电阻纳入回路分析",
+        "knowledge_id": "kn-pep2019-r3-c12-s02",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能将保护电阻纳入回路分析。",
+        "source_prompt": "电阻 R₁ 与电源串联，在测量中应怎样看待？"
+      },
+      {
+        "name": "区分总电流与各支路电流",
+        "knowledge_id": "kn-pep2019-r3-c11-s04",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能区分总电流与各支路电流。",
+        "source_prompt": "读数是电流计支路电流时，能直接当总电流吗？"
+      },
+      {
+        "name": "核对电表量程极性及操作安全",
+        "knowledge_id": "kn-pep2019-r3-c12-s03",
+        "ability_id": "ab-experiment-design",
+        "literacy_id": "lit-inquiry-question",
+        "definition": "能核对电表量程极性及操作安全。",
+        "source_prompt": "搭完测量电路，闭合前先检查什么？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-6be81e4a0c5244fc",
+    "fingerprint": "ec4289a46171673ae056aa8b4f2f1788572722e586b54315379323e6bb90bf45",
+    "steps": [
+      {
+        "name": "说明忽略电表支路电流的近似条件",
+        "knowledge_id": "kn-pep2019-r3-c12-s03",
+        "ability_id": "ab-error-analysis",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能说明忽略电表支路电流的近似条件。",
+        "source_prompt": "题目说电源电流远大于表头电流，意味着什么？"
+      },
+      {
+        "name": "将闭合电路方程变换成线性关系",
+        "knowledge_id": "kn-pep2019-r3-c12-s02",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能将闭合电路方程变换成线性关系。",
+        "source_prompt": "由 1/I 对 1/R 作直线，下一步是什么？"
+      },
+      {
+        "name": "利用斜率截距消去公共参数",
+        "knowledge_id": "kn-pep2019-r3-c12-s03",
+        "ability_id": "ab-data-processing",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能利用斜率截距消去公共参数。",
+        "source_prompt": "斜率 k 和截距 b 中都含相同因子，怎样消去？"
+      },
+      {
+        "name": "由等效电阻分离电源内阻",
+        "knowledge_id": "kn-pep2019-r3-c12-s03",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由等效电阻分离电源内阻。",
+        "source_prompt": "得到 k/b 后，如何求电源内阻？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-c31fa8b15b2b4534",
+    "fingerprint": "a8c13968d3e7c9343c815a9806c8f32813f6ec81416c10a77c107131546e6eb2",
+    "steps": [
+      {
+        "name": "区分并联灯泡总电流和单灯电流",
+        "knowledge_id": "kn-pep2019-r3-c11-s04",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能区分并联灯泡总电流和单灯电流。",
+        "source_prompt": "两只相同灯泡并联，每只电流为 I，总电流是什么？"
+      },
+      {
+        "name": "辨别非线性灯泡伏安特性",
+        "knowledge_id": "kn-pep2019-r3-c11-s02",
+        "ability_id": "ab-model-construction",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能辨别非线性灯泡伏安特性。",
+        "source_prompt": "灯泡 U–I 曲线弯曲，能把电阻当恒定来算工作点吗？"
+      },
+      {
+        "name": "用图线交点确定实际工作状态",
+        "knowledge_id": "kn-pep2019-r3-c12-s02",
+        "ability_id": "ab-graph-transformation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用图线交点确定实际工作状态。",
+        "source_prompt": "如何找到实际工作的电压、电流？"
+      },
+      {
+        "name": "按单灯工作电压电流计算功率",
+        "knowledge_id": "kn-pep2019-r3-c12-s01",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能按单灯工作电压电流计算功率。",
+        "source_prompt": "交点的 I 是每只灯泡电流时，每只功率怎样求？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-9f45c714c10a4aba",
+    "fingerprint": "7b72090029429d0aa447128d91eccb6bd06d086b0414ad68e62ee1201519530d",
+    "steps": [
+      {
+        "name": "区分定量气体状态变化与充气过程",
+        "knowledge_id": "kn-pep2019-e3-c02-s02",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能区分定量气体状态变化与充气过程。",
+        "source_prompt": "持续充气过程中，气囊内气体物质的量恒定吗？"
+      },
+      {
+        "name": "将不同状态体积换算到同一状态",
+        "knowledge_id": "kn-pep2019-e3-c02-s02",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能将不同状态体积换算到同一状态。",
+        "source_prompt": "比较泵入的气体与气囊中的增加量，可以使用什么？"
+      },
+      {
+        "name": "依据题意判断初始气体是否可忽略",
+        "knowledge_id": "kn-pep2019-e3-c02-s02",
+        "ability_id": "ab-info-extraction",
+        "literacy_id": "lit-inquiry-evidence",
+        "definition": "能依据题意判断初始气体是否可忽略。",
+        "source_prompt": "题目说明充气前气囊内气体可忽略，这对计算有什么作用？"
+      },
+      {
+        "name": "统一体积和流量状态后计算充气时间",
+        "knowledge_id": "kn-pep2019-e3-c02-s02",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能统一体积和流量状态后计算充气时间。",
+        "source_prompt": "已换算为泵入口状态下的气体体积，怎样求充气时间？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-f53caabfa59b41b0",
+    "fingerprint": "8e776e8986319a49ec192857125b77fbf1192e724e405d8c22b0888e4ab3d436",
+    "steps": [
+      {
+        "name": "识别密闭定容过程的约束",
+        "knowledge_id": "kn-pep2019-e3-c02-s03",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能识别密闭定容过程的约束。",
+        "source_prompt": "充气结束且密闭后，温度变化时哪些量保持不变？"
+      },
+      {
+        "name": "用绝对温度建立压强温度关系",
+        "knowledge_id": "kn-pep2019-e3-c02-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用绝对温度建立压强温度关系。",
+        "source_prompt": "定量气体等容变化，应使用哪种关系？"
+      },
+      {
+        "name": "比较计算压强与触发阈值",
+        "knowledge_id": "kn-pep2019-e3-c02-s03",
+        "ability_id": "ab-critical-conditions",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能比较计算压强与触发阈值。",
+        "source_prompt": "要判断降温后能否防洪，怎样组织步骤？"
+      },
+      {
+        "name": "推断降温导致的压强变化",
+        "knowledge_id": "kn-pep2019-e3-c02-s03",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能推断降温导致的压强变化。",
+        "source_prompt": "温度下降而体积、气体量不变，压强应怎样变化？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-7c70d2e38b96446f",
+    "fingerprint": "1ef3fd84b75ee183ba551e911fdd0225d64bc0fdd4b5bc08a22b650d4f62194e",
+    "steps": [
+      {
+        "name": "识别磁场力不改变动能",
+        "knowledge_id": "kn-pep2019-e2-c01-s02",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能识别磁场力不改变动能。",
+        "source_prompt": "电子经电压 U 加速，磁场偏转时速率是否继续增大？"
+      },
+      {
+        "name": "用电场加速求粒子入射速度",
+        "knowledge_id": "kn-pep2019-r3-c10-s05",
+        "ability_id": "ab-conservation-thinking",
+        "literacy_id": "lit-concept-energy",
+        "definition": "能用电场加速求粒子入射速度。",
+        "source_prompt": "静止电子经加速电压 U 后，动能关系是什么？"
+      },
+      {
+        "name": "联立电场加速与磁场圆周运动方程",
+        "knowledge_id": "kn-pep2019-e2-c01-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能联立电场加速与磁场圆周运动方程。",
+        "source_prompt": "怎样把加速区与偏转区的关系连接起来？"
+      },
+      {
+        "name": "匹配磁场电流与粒子轨迹",
+        "knowledge_id": "kn-pep2019-e2-c01-s03",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能匹配磁场电流与粒子轨迹。",
+        "source_prompt": "利用 B=kI 求比荷，哪些量需要与轨迹对应？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-352a61eea75d4154",
+    "fingerprint": "e1580aac95f88a8bb88edb726d75a5ea7371fe55e51af804218f19962cfbbb0a",
+    "steps": [
+      {
+        "name": "判断粒子在磁场中的速率是否改变",
+        "knowledge_id": "kn-pep2019-e2-c01-s02",
+        "ability_id": "ab-reasoning-argumentation",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能判断粒子在磁场中的速率是否改变。",
+        "source_prompt": "仅调磁场电流，电子经相同电压加速，速率如何变化？"
+      },
+      {
+        "name": "推导轨道半径与励磁电流关系",
+        "knowledge_id": "kn-pep2019-e2-c01-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能推导轨道半径与励磁电流关系。",
+        "source_prompt": "速率不变时，轨道半径与磁场电流是什么关系？"
+      },
+      {
+        "name": "区分轨迹圆与磁场边界圆",
+        "knowledge_id": "kn-pep2019-e2-c01-s03",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能区分轨迹圆与磁场边界圆。",
+        "source_prompt": "求命中位置需要的新半径，先做什么？"
+      },
+      {
+        "name": "由圆心角与角速度计算飞行时间",
+        "knowledge_id": "kn-pep2019-e2-c01-s03",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由圆心角与角速度计算飞行时间。",
+        "source_prompt": "电子在磁场中只走一段弧，时间怎样求？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-5d9a972adb7f49dd",
+    "fingerprint": "f11a54b18d8f04b26a867eaba0d9baed862dd9853784e6e3c723c3c1fd849aad",
+    "steps": [
+      {
+        "name": "确定整体研究对象及总质量",
+        "knowledge_id": "kn-pep2019-r1-c04-s03",
+        "ability_id": "ab-context-modeling",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能确定整体研究对象及总质量。",
+        "source_prompt": "分离前研究整体时，总质量怎样取？"
+      },
+      {
+        "name": "由速度变化和时间计算加速度",
+        "knowledge_id": "kn-pep2019-r1-c01-s04",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能由速度变化和时间计算加速度。",
+        "source_prompt": "从静止经历时间 T 到速度 v₀，匀加速度怎样求？"
+      },
+      {
+        "name": "结合重力和推力建立整体运动方程",
+        "knowledge_id": "kn-pep2019-r1-c04-s03",
+        "ability_id": "ab-equation-building",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能结合重力和推力建立整体运动方程。",
+        "source_prompt": "竖直向上加速时怎样写整体受力关系？"
+      },
+      {
+        "name": "区分推力与合力的大小",
+        "knowledge_id": "kn-pep2019-r1-c04-s03",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能区分推力与合力的大小。",
+        "source_prompt": "整体向上加速，计算出的升力应满足什么？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-5a5d64a5424c47f2",
+    "fingerprint": "f492da4df7e3ca11924866dd1a0916050c3f53ccaf897ed50e97c5b59e805a23",
+    "steps": [
+      {
+        "name": "判断分离瞬间能否近似动量守恒",
+        "knowledge_id": "kn-pep2019-e1-c01-s03",
+        "ability_id": "ab-critical-conditions",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能判断分离瞬间能否近似动量守恒。",
+        "source_prompt": "瞬时分离阶段和随后运动阶段能使用同一个守恒条件吗？"
+      },
+      {
+        "name": "按方向建立分离前后的动量方程",
+        "knowledge_id": "kn-pep2019-e1-c01-s03",
+        "ability_id": "ab-conservation-thinking",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能按方向建立分离前后的动量方程。",
+        "source_prompt": "分离后求母机初速度，用哪种关系？"
+      },
+      {
+        "name": "确定分离后运动的初位置初速度",
+        "knowledge_id": "kn-pep2019-r1-c02-s03",
+        "ability_id": "ab-process-segmentation",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能确定分离后运动的初位置初速度。",
+        "source_prompt": "求落地时间前，必须保留哪些分离时状态？"
+      },
+      {
+        "name": "用有向位移方程筛选物理时间解",
+        "knowledge_id": "kn-pep2019-r1-c02-s03",
+        "ability_id": "ab-calculation",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能用有向位移方程筛选物理时间解。",
+        "source_prompt": "取向下为正，母机分离瞬间仍向上，初速度符号是什么？"
+      }
+    ]
+  },
+  {
+    "question_id": "q-7ed58356ca0144c8",
+    "fingerprint": "8e5b563b101d993ca0178a155d0fd5d7540e85cf7b9d49b6ed3fea535766d72f",
+    "steps": [
+      {
+        "name": "分解运动并独立确定竖直飞行时间",
+        "knowledge_id": "kn-pep2019-r2-c05-s02",
+        "ability_id": "ab-model-construction",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能分解运动并独立确定竖直飞行时间。",
+        "source_prompt": "水平风力会改变题中已求出的竖直落地时间吗？"
+      },
+      {
+        "name": "辨别风停后水平方向运动规律",
+        "knowledge_id": "kn-pep2019-r1-c04-s01",
+        "ability_id": "ab-force-analysis",
+        "literacy_id": "lit-thinking-reasoning",
+        "definition": "能辨别风停后水平方向运动规律。",
+        "source_prompt": "风停后，忽略其他水平阻力，母机怎样运动？"
+      },
+      {
+        "name": "按落地时间划分风持续时间的情形",
+        "knowledge_id": "kn-pep2019-r2-c05-s02",
+        "ability_id": "ab-critical-conditions",
+        "literacy_id": "lit-thinking-argument",
+        "definition": "能按落地时间划分风持续时间的情形。",
+        "source_prompt": "求位移前，为什么需要比较风的持续时间 k 与落地时间？"
+      },
+      {
+        "name": "通过交界条件检验分段位移连续性",
+        "knowledge_id": "kn-pep2019-r2-c05-s02",
+        "ability_id": "ab-process-segmentation",
+        "literacy_id": "lit-thinking-model",
+        "definition": "能通过交界条件检验分段位移连续性。",
+        "source_prompt": "分段位移公式在 k 等于落地时间处应满足什么？"
+      }
+    ]
+  }
+]

@@ -58,6 +58,7 @@ BACKUP_TABLES = [
     "identity_audit_logs",
     "diagnostic_cards",
     "diagnostic_jobs",
+    "learning_graph_releases",
     "diagnostic_sessions",
     "diagnostic_events",
 ]

@@ -100,7 +100,11 @@ def store_card(repo,qid,data,card,source):
     c.execute('insert or ignore into diagnostic_cards values(?,?,?,?,?,?,?,?)',
               ('dc-'+uuid.uuid4().hex,q['school_id'],qid,fp,dumps(data),dumps(card),source,now()))
     c.execute("update diagnostic_jobs set status='completed',error_code='',updated_at=? where school_id=? and question_id=? and fingerprint=?",(now(),q['school_id'],qid,fp))
-    return c.execute('select id from diagnostic_cards where school_id=? and question_id=? and fingerprint=?',(q['school_id'],qid,fp)).fetchone()[0]
+    card_id=c.execute('select id from diagnostic_cards where school_id=? and question_id=? and fingerprint=?',(q['school_id'],qid,fp)).fetchone()[0]
+    if source.startswith('model:'):
+        from .learning_graph import prepare_candidate
+        prepare_candidate(repo,card_id)
+    return card_id
 
 def enqueue(repo,qid,data):
     q=repo.get_question(qid);fp=fingerprint(data);c=repo.conn
@@ -135,7 +139,8 @@ def owned_target(repo,user,p):
     return g,w,data
 
 def state(c,s):
-    card=json.loads(c.execute('select card_json from diagnostic_cards where id=?',(s['card_id'],)).fetchone()[0])
+    from .learning_graph import session_card
+    card=session_card(c,s)
     indices=json.loads(s['steps_json']);cursor=s['cursor'];events=c.execute('select action,step,payload_json,result_json from diagnostic_events where session_id=? order by created_at,id',(s['id'],)).fetchall()
     context=next((json.loads(e['payload_json']).get('note','') for e in events if e['action']=='context'),'')
     confirmation=next((json.loads(e['result_json']).get('confirmation','') for e in reversed(events) if e['action']=='finish'),'')
@@ -143,7 +148,9 @@ def state(c,s):
     for e in events:
         if e['action']=='answer':
             r=json.loads(e['result_json']);st=card['steps'][e['step']]
-            findings.append({'stage':STAGES[st['stage']], 'passed':r['passed'], 'assisted':r['assisted'], 'explanation':st['explanation']})
+            maps=json.loads(s['graph_mapping_json'] or '[]')
+            target=maps[e['step']]['node_id'] if e['step']<len(maps) else ''
+            findings.append({'stage':STAGES[st['stage']], 'passed':r['passed'], 'assisted':r['assisted'], 'explanation':st['explanation'], 'graph_node_id':target})
     result={'session_id':s['id'],'mode':s['mode'],'status':s['status'],'self_report':s['self_report'], 'note':context,'confirmation':confirmation, 'cursor':cursor,'total':len(indices),'findings':findings,'assisted':bool(s['assisted_at']),
             'message':'这是本题思维检查的线索，不能代表整个知识点的掌握程度。'}
     if s['status']=='active' and cursor<len(indices):
@@ -172,13 +179,16 @@ def api(repo,user,action,p):
         if s: return {'available':True,'state':state(c,s)}
         note=p.get('note','')
         if not isinstance(note,str) or len(note)>300:raise InvalidRequest('思路记录请控制在 300 字内')
-        steps=json.loads(card['card_json'])['steps'];indices=list(range(len(steps)))
+        from .learning_graph import effective
+        effective_card,mappings,release_id=effective(c,card)
+        mappings=[m for m in mappings if m.get('status')!='draft']
+        steps=effective_card['steps'];indices=list(range(len(steps)))
         if mode=='quick':
             start=next((i for i,x in enumerate(steps) if x['stage']==report),0)
             indices=indices[start:start+2] or [start]
         try:
-            c.execute('insert into diagnostic_sessions(id,school_id,student_id,wrong_id,question_id,fingerprint,card_id,mode,self_report,steps_json,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?)',
-                ('ds-'+uuid.uuid4().hex,user['school_id'],user['id'],g['id'],w['question_id'],fp,card['id'],mode,report,dumps(indices),now(),now()))
+            c.execute('insert into diagnostic_sessions(id,school_id,student_id,wrong_id,question_id,fingerprint,card_id,mode,self_report,steps_json,created_at,updated_at,effective_card_json,graph_mapping_json,graph_release_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ('ds-'+uuid.uuid4().hex,user['school_id'],user['id'],g['id'],w['question_id'],fp,card['id'],mode,report,dumps(indices),now(),now(),dumps(effective_card),dumps(mappings),release_id))
             c.commit()
         except Exception:
             c.rollback();raise
@@ -200,7 +210,8 @@ def api(repo,user,action,p):
             if old['payload_json']!=dumps(value): raise StateConflict('重复请求内容不一致')
             c.rollback();return {'available':True,'state':state(c,s)}
         if s['cursor']!=p.get('cursor'): raise StateConflict('检查步骤已更新，请刷新诊断')
-        steps=json.loads(card['card_json'])['steps'];indices=json.loads(s['steps_json']);index=indices[min(s['cursor'],len(indices)-1)]
+        from .learning_graph import session_card
+        steps=session_card(c,s)['steps'];indices=json.loads(s['steps_json']);index=indices[min(s['cursor'],len(indices)-1)]
         result={}
         answered=c.execute("select 1 from diagnostic_events where session_id=? and step=? and action='answer'",(s['id'],index)).fetchone()
         if event=='deepen':

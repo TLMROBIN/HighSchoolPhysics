@@ -5,6 +5,7 @@ MODULES = (
     ('intake', '/teacher?module=intake', '题目入库', '导入题目与答案文件，对照原件复核并匹配入库。'),
     ('bank', '/question-bank', '题库管理', '编辑题目、设置知识点等标签，选题并保存试卷。'),
     ('exams', '/teacher?module=exams', '考试管理', '用试卷创建考试，录入学生作答，核对并查看统计。'),
+    ('graph', '/teacher?module=graph', '诊断与知识图谱', '审核诊断卡、具体学习目标和知识关联，保留教学依据。'),
     ('progress', '/teacher?module=progress', '学生复习进度', '查看学生复习情况、重做待确认与知识点掌握依据。'),
 )
 

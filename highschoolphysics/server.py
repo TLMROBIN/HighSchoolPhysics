@@ -3413,7 +3413,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 raise PasswordChangeRequired(
                     "You must change your temporary password before continuing"
                 )
-            if path.startswith('/api/learning/diagnosis-') or (path.startswith('/api/learning/') and self.headers.get('Origin')):
+            if path.startswith(('/api/learning/diagnosis-', '/api/learning/graph-')) or (path.startswith('/api/learning/') and self.headers.get('Origin')):
                 self._require_same_origin()
             payload = self._read_payload(max_bytes=30 * 1024 * 1024 if path in ('/api/learning/scan-upload', '/api/learning/answers-file') else 2 * 1024 * 1024)
             auth = AuthService(conn)

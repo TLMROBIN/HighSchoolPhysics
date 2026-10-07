@@ -252,6 +252,9 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
+    if action.startswith('graph-'):
+        from .learning_graph import api as graph_api
+        return graph_api(repo,user,action,p)
     if action.startswith('diagnosis-'):
         from .diagnosis import api as diagnosis_api
         return diagnosis_api(repo,user,action,p)

@@ -270,6 +270,8 @@ def initialize_database(conn):
 
     from .diagnosis import migrate as migrate_diagnosis
     migrate_diagnosis(conn)
+    from .learning_graph import migrate as migrate_graph
+    migrate_graph(conn)
 
 
 def _initialize_legacy_schema(conn):
