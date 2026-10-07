@@ -252,7 +252,7 @@ def student_data(repo,user):
                 evidence.append(dict(node_id=m['node_id'],label=(('第 '+str(g['number'])+' 题 · ') if g.get('number') else '')+w.get('part_label','本题')+f' · 检查点 {i+1}',status=observations.get(i,'尚未观察'),url='app?practice='+quote(g['id']),version=rid,reason=m['reason'],objective_name=m.get('objective_name',''),objective_definition=m.get('objective_definition','')))
     return dict(nodes=nodes,edges=edges,evidence=evidence,version=release['version'] if release else 0,relations=RELATIONS,kinds=KINDS,statuses=STATUS)
 
-def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261007-v1"><script src="assets/learning-graph.js?v=20261007-v1" defer></script>'
+def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261007-v2"><script src="assets/learning-graph.js?v=20261007-v2" defer></script>'
 
 def student_page(repo,user):
     data=student_data(repo,user)
@@ -300,10 +300,10 @@ def teacher_page(repo,user,params):
             for key,kind in (('knowledge_id','knowledge'),('ability_id','ability'),('literacy_id','literacy')):out.append('<label>'+KINDS[kind]+'<select name="'+key+'" required><option value="">请选择</option>'+select_nodes(nodes,kind,m.get(key,''))+'</select></label>')
             out.append('</fieldset>')
         out.append('<button>确认诊断卡与目标并发布</button></form>')
-    out.append('<h2>关联关系</h2><p>必要前置用于真正不可缺少的知识条件；辅助理解、相关和混淆应分别标注，不把共同出现视为因果。</p><form data-graph-edges data-version="%s"><div class="graph-review-actions"><button name="status" value="approved">确认所选关系</button><button class="secondary" name="status" value="rejected">排除所选关系</button></div>'%version)
+    out.append('<h2>关联关系</h2><p>必要前置用于真正不可缺少的知识条件；辅助理解、相关和混淆应分别标注，不把共同出现视为因果。</p><form data-graph-edges data-version="%s"><div class="graph-controls"><label>查找相连内容<input type="search" data-graph-edge-search placeholder="输入目标、依据或来源"></label><label>审核状态<select data-graph-edge-status><option value="">全部</option><option value="curated">待教师确认</option><option value="approved">教师已确认</option><option value="rejected">已排除</option></select></label><label><span><input type="checkbox" data-graph-semantic-only checked> 仅看目标之间的语义关系</span></label></div><p data-graph-filter-count></p><div class="graph-review-actions"><button name="status" value="approved">确认所选关系</button><button class="secondary" name="status" value="rejected">排除所选关系</button></div>'%version)
     for e in graph['edges']:
         if e['source'] not in byid or e['target'] not in byid:continue
-        out.append('<details><summary><input type="checkbox" name="ids" value="%s" aria-label="选择关系"> %s → %s · %s · %s</summary><p>%s</p><p>适用条件：%s</p><p>来源：%s</p><a href="teacher?module=graph&amp;edge=%s">编辑此关系</a></details>'%(esc(e['id']),esc(byid[e['source']]['name']),esc(byid[e['target']]['name']),RELATIONS[e['kind']],STATUS[e['status']],esc(e['reason']),esc(e.get('conditions') or '见来源任务'),esc(e['locator']),quote(e['id'])))
+        out.append('<details data-graph-edge-row data-kind="%s" data-status="%s"><summary><input type="checkbox" name="ids" value="%s" aria-label="选择关系"> %s → %s · %s · %s</summary><p>%s</p><p>适用条件：%s</p><p>来源：%s</p><a href="teacher?module=graph&amp;edge=%s">编辑此关系</a></details>'%(esc(e['kind']),esc(e['status']),esc(e['id']),esc(byid[e['source']]['name']),esc(byid[e['target']]['name']),RELATIONS[e['kind']],STATUS[e['status']],esc(e['reason']),esc(e.get('conditions') or '见来源任务'),esc(e['locator']),quote(e['id'])))
     out.append('</form><h3>新增或修订关系</h3>')
     e=next((e for e in graph['edges'] if e['id']==value('edge')), {})
     out.append(f'<form data-graph-edge data-version="{version}"><input type="hidden" name="id" value="{esc(e.get("id",""))}">')

@@ -16,7 +16,7 @@
     function showNode(id){
       const n=nodes.get(id);if(!n)return;
       const own=observations(id),parent=nodes.get(n.parent),relations=data.edges.filter(e=>e.source===id||e.target===id);
-      detail.innerHTML=`<h3>${esc(n.name)}</h3><p class="graph-kind">${esc(data.kinds[n.kind])}</p><p>${esc(n.definition)}</p>${parent?`<p>所属内容：<button type="button" data-node="${esc(parent.id)}">${esc(parent.name)}</button></p>`:''}<h4>我的诊断观察</h4>${own.length?own.map(e=>`<p><strong>${esc(e.status)}</strong><br>${esc(e.label)}<br>${e.objective_name?`诊断时目标：${esc(e.objective_name)}<br>`:''}<a href="${esc(e.url)}">回到本题诊断与重做</a></p>`).join(''):'<p>尚未观察。相关错题并不意味着这个节点整体薄弱。</p>'}<h4>相连的内容</h4>${relations.length?relations.map(e=>{const other=nodes.get(e.source===id?e.target:e.source);return `<details><summary>${esc(data.relations[e.kind])} · ${esc(other.name)}</summary><p>${esc(e.reason)}</p>${e.conditions?`<p>适用条件：${esc(e.conditions)}</p>`:''}<p>${esc(data.statuses[e.status])}<br>依据：${esc(e.locator)}</p><button type="button" data-node="${esc(other.id)}">以此为中心展开</button></details>`;}).join(''):'<p>暂无已整理的语义关系，可通过所属目录继续查找。</p>'}`;
+      detail.innerHTML=`<h3>${esc(n.name)}</h3><p class="graph-kind">${esc(data.kinds[n.kind])}</p><p>${esc(n.definition)}</p>${parent?`<p>所属内容：<button type="button" data-node="${esc(parent.id)}">${esc(parent.name)}</button></p>`:''}<h4>我的诊断观察</h4>${own.length?own.map(e=>`<p><strong>${esc(e.status)}</strong><br>${esc(e.label)}<br>${e.objective_name?`${e.status==='尚未观察'?'关联目标':'诊断时目标'}：${esc(e.objective_name)}<br>`:''}<a href="${esc(e.url)}">回到本题诊断与重做</a></p>`).join(''):'<p>尚未观察。相关错题并不意味着这个节点整体薄弱。</p>'}<h4>相连的内容</h4>${relations.length?relations.map(e=>{const other=nodes.get(e.source===id?e.target:e.source);return `<details><summary>${esc(data.relations[e.kind])} · ${esc(other.name)}</summary><p>${esc(e.reason)}</p>${e.conditions?`<p>适用条件：${esc(e.conditions)}</p>`:''}<p>${esc(data.statuses[e.status])}<br>依据：${esc(e.locator)}</p><button type="button" data-node="${esc(other.id)}">以此为中心展开</button></details>`;}).join(''):'<p>暂无已整理的语义关系，可通过所属目录继续查找。</p>'}`;
     }
     function showEdge(id){
       const e=data.edges.find(e=>e.id===id);if(!e)return;
@@ -42,13 +42,19 @@
       canvas.innerHTML=`<svg viewBox="0 0 900 620" aria-label="局部知识关联星图"><defs><marker id="graph-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#41556f"/></marker><marker id="graph-arrow-back" markerWidth="8" markerHeight="8" refX="1" refY="4" orient="auto"><path d="M8 0L0 4L8 8" fill="#41556f"/></marker></defs>${svgLines}${svgNodes}</svg>`;
       list.innerHTML=`<h3>${esc(nodes.get(focus).name)}的相邻内容</h3><ul>${neighbors.map(id=>`<li><button type="button" data-node="${esc(id)}">${esc(data.kinds[nodes.get(id).kind])} · ${esc(nodes.get(id).name)}</button><p>${esc(nodes.get(id).definition)}</p></li>`).join('')}</ul>`;
       canvas.hidden=listMode;list.hidden=!listMode;mode.textContent=listMode?'切换到星图':'切换到列表';mode.setAttribute('aria-pressed',String(listMode));
-      count.textContent=`当前展开 ${visible.length} 个节点；相邻内容共 ${new Set(neighborEdges.map(e=>e.source===focus?e.target:e.source)).size} 个。全部 ${data.nodes.length} 个节点可通过查找访问。图谱第 ${data.version} 版。`;
+      count.textContent=`当前展开 ${visible.length} 个节点；相邻内容共 ${new Set(neighborEdges.map(e=>e.source===focus?e.target:e.source)).size} 个。全部 ${data.nodes.length} 个节点可通过查找访问。图谱第 ${data.version} 版。${canvas.scrollWidth>canvas.clientWidth&&!listMode?'可横向滑动查看，也可切换到列表。':''}`;
+      if(!listMode)canvas.scrollLeft=Math.max(0,(canvas.scrollWidth-canvas.clientWidth)/2);
       showNode(focus);
     }
-    function navigate(id){focus=id;search.value='';kind.value='';options();const u=new URL(location.href);u.searchParams.set('focus',id);history.replaceState(null,'',u);}
+    function navigate(id){focus=id;search.value='';kind.value='';options();const u=new URL(location.href);u.searchParams.set('focus',id);history.replaceState(null,'',u);root.querySelector(`.graph-node[data-node="${CSS.escape(id)}"]`)?.focus({preventScroll:true});}
     root.addEventListener('click',e=>{const n=e.target.closest('[data-node]'),edge=e.target.closest('[data-edge]');if(n)navigate(n.dataset.node);else if(edge)showEdge(edge.dataset.edge);});
     root.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('svg [role="button"]')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
     select.addEventListener('change',()=>navigate(select.value));search.addEventListener('input',options);kind.addEventListener('change',options);mode.addEventListener('click',()=>{listMode=!listMode;render();});options();
+  });
+  document.querySelectorAll('[data-graph-edges]').forEach(form=>{
+    const search=form.querySelector('[data-graph-edge-search]'),status=form.querySelector('[data-graph-edge-status]'),semantic=form.querySelector('[data-graph-semantic-only]'),rows=[...form.querySelectorAll('[data-graph-edge-row]')];
+    function filter(){let visible=0;rows.forEach(row=>{const matches=(!search.value.trim()||row.textContent.includes(search.value.trim()))&&(!status.value||row.dataset.status===status.value)&&(!semantic.checked||!['contains','uses_ability','supports_literacy'].includes(row.dataset.kind));row.hidden=!matches;if(matches)visible++;else row.querySelector('[name=ids]').checked=false;});form.querySelector('[data-graph-filter-count]').textContent='当前显示 '+visible+' 条关系；目标归属、能力和素养联系也可在诊断卡中逐项确认。';}
+    search.addEventListener('input',filter);status.addEventListener('change',filter);semantic.addEventListener('change',filter);filter();
   });
   const message=document.querySelector('[data-graph-review-message]');
   document.querySelectorAll('[data-graph-card],[data-graph-edge],[data-graph-edges]').forEach(form=>form.addEventListener('submit',async e=>{
