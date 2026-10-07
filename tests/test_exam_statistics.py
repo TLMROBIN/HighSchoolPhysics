@@ -66,10 +66,10 @@ class ExamStatisticsTests(unittest.TestCase):
         self.c.commit()
         html = self.result_area(aid)
         self.assertIn('正确 1 / 已确认 2 · 待确认 1', html)
-        self.assertEqual(html.count('<h4>同名标签</h4>'), 3)
-        charts = html.split('<section class="exam-tag-statistics">')[1]
-        self.assertEqual(charts.count('50.0% · 1 / 2'), 6)  # blank and affected in each category
-        self.assertEqual(charts.count('0.0% · 0 / 1'), 3)
+        charts = html.split('id="exam-tag-statistics"', 1)[1]
+        self.assertEqual(charts.count('class="tag-chart-label">同名标签</text>'), 3)
+        self.assertEqual(charts.count('50.0%（1 / 2）'), 6)  # blank and affected in each category
+        self.assertEqual(charts.count('0.0%（0 / 1）'), 3)
 
     def test_choice_combination_and_score_only_categories(self):
         question = dict(grading_rule_json='{"type":"multiple_choice"}')

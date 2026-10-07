@@ -45,6 +45,7 @@
   const tagForm = (unit) => {
     const section=node('section',undefined,'bank-tag-unit');
     section.append(node('h3',unit.label+' · 标签'));
+    const difficulty=node('p');difficulty.innerHTML=unit.difficulty_html || '';section.append(difficulty);
     const note=node('p',unit.tags.length?'当前正式标签：'+unit.tags.map(t=>t.name).join('、'):'尚未标注'); section.append(note);
     const inputs={};
     for (const [kind,title] of [['knowledge','知识点'],['ability','能力'],['literacy','核心素养']]) {

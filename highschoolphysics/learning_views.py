@@ -10,6 +10,7 @@ from .exam_views import esc, image_html
 from .learning import LABELS, progress, snapshot
 from .question_content import render_snapshot_content, render_snapshot_options, render_snapshot_solution, snapshot_content
 from .question_rendering import render_question
+from .question_difficulty import statistics, badge, badges
 from .fill_rules import UNITS, instructions, reference_answer
 from .teacher_workspace import navigation, overview
 from .exam_workflow import classes as exam_classes, scope_label
@@ -146,6 +147,7 @@ def _teacher_question_groups(repo, user):
         ).strip()
 
     source_number_counts = Counter(source_number(rows) for rows in grouped.values())
+    difficulty = statistics(c, [row['id'] for row in rows])
     cards = []
     for group_index, (group_key, group_rows) in enumerate(grouped.items(), start=1):
         raw_document = group_rows[0].get("document_json")
@@ -198,6 +200,8 @@ def _teacher_question_groups(repo, user):
             )
         else:
             preview = "".join(_legacy_question_preview(c, row, user["school_id"]) for row in group_rows)
+
+        difficulty_html = '<div class="question-difficulty-list">' + ''.join(badge(difficulty[row['id']], row.get('child_label', '')) for row in group_rows) + '</div>'
 
         if not complete:
             disabled_reason = "这道大题仍有小问未完整入库，暂不能加入试卷。"
@@ -256,8 +260,8 @@ def _teacher_question_groups(repo, user):
                 esc(type_text or "未分类"),
                 child_count,
                 stable_id,
-                warning_html,
-                preview,
+                warning_html + difficulty_html,
+                difficulty_html + preview,
                 labels,
                 "" if selectable else ' id="pick-note-%s"' % esc(group_key),
                 esc(disabled_reason),
@@ -286,10 +290,23 @@ def question_fragment(c, snapshot_row, user, base_path="", include_solution=Fals
         include_options,
         whole_group,
     )
+    units = [(snapshot_row['question_id'], '')]
+    if whole_group:
+        binding = snapshot_content(c, snapshot_row['id'], user['school_id'])
+        if binding:
+            related = c.execute("""select s.question_id,coalesce(correction.child_key,b.child_key,'') child_key
+                from question_version_snapshots s
+                left join snapshot_content_bindings b on b.snapshot_id=s.id
+                left join historical_content_corrections correction on correction.snapshot_id=s.id and correction.state='active'
+                where coalesce(correction.revision_id,b.revision_id)=? and s.assessment_id=? order by s.position""",
+                (binding['revision_id'], snapshot_row['assessment_id'])).fetchall()
+            labels = {child['key']: child.get('label', child['key']) for child in binding['document'].get('children', [])}
+            units = [(r['question_id'], labels.get(r['child_key'], '')) for r in related] or units
+    difficulty = badges(c, units)
     if rendered is not None:
-        return rendered
+        return difficulty + rendered
     old = '<div class="legacy-question-content"><p>%s</p>%s</div>' % (esc(snapshot_row["stem"]), images(c, snapshot_row["question_id"]))
-    return old
+    return difficulty + old
 
 
 def _unmatched_answer_cards(c, assessment_id):
@@ -433,7 +450,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-chart-scroll-v4"><script src="assets/learning.js?v=20261007-chart-scroll-v4" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-chart-scroll-v4"><script src="assets/learning.js?v=20261007-question-difficulty-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -455,7 +472,7 @@ def student(repo,user,params,base_path=""):
     limit_row=c.execute('select daily_limit from learning_settings where class_id=?',(user['class_id'],)).fetchone()
     limit=limit_row[0] if limit_row else 5
     body.append('<h2>今天到期 · %s 题</h2><p>每组最多 %s 题。先独立回想，再查看解析；同一道题按间隔答对三次，才显示本题已巩固。</p>'%(len(due),limit))
-    for w in due[:limit]: body.append('<p><a href="app?practice=%s">开始第 %s 次验证</a></p>'%(quote(w['id']),progress(c,w)['count']+1))
+    for w in due[:limit]: body.append('<p><a href="app?practice=%s">开始第 %s 次验证</a></p>'%(quote(w['id']),progress(c,w)['count']+1)+badge(statistics(c,[w['question_id']])[w['question_id']]))
     if not due: body.append('<p>今天暂无到期题。可以查看错题，或进行不计验证次数的学习练习。</p>')
     wid=(params.get('practice') or [''])[0]
     if wid:
@@ -474,11 +491,11 @@ def student(repo,user,params,base_path=""):
         tag=(params.get('tag') or [''])[0]
         if tag and not any(t['name']==tag for t in loads(s['tag_snapshot_json'],[])):continue
         r=c.execute('select initial_answer from student_responses where id=?',(w['response_id'],)).fetchone()
-        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),first_answer_label(c,w['response_id'],r[0]),p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
+        body.append('<details><summary>%s · %s · %s/3</summary>%s%s%s%s<aside><strong>首次作答记录</strong><p>%s</p><small>保留本次周测最初提交的答案；后续重做不会覆盖这里。</small></aside><p>上次结果：%s · 下次验证：%s</p><a href="app?practice=%s">%s</a></details>'%(esc(s['stem'][:65])+badge(statistics(c,[s['question_id']])[s['question_id']]),p['status'],p['count'],question_part_context(c,s,user['school_id']),question_fragment(c,s,user,base_path,whole_group=True),fill_question_context(s),tags(s),first_answer_label(c,w['response_id'],r[0]),p['last'],p['due'],quote(w['id']),'开始验证' if p['available'] else '学习练习'))
         body[-1] = body[-1].rsplit('</details>',1)[0] + practice_history(c,user,w) + '</details>'
     body.append('<h2>最近的练习记录</h2><p>已复核仅表示结果已确认；本题是否巩固仍以三次间隔验证为准。</p><table><tr><th>题目</th><th>提交时间</th><th>作答</th><th>用途</th><th>结果 / 教师反馈</th></tr>')
-    for a in c.execute('select a.*,s.stem from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? order by a.submitted_at desc limit 20',(uid,)):
-        body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s %s</td></tr>'%(esc(a['stem'][:65]),esc(a['submitted_at']),esc(a['answer']) or '空白','独立验证' if a['purpose']=='verify' else '学习练习' if a['purpose']=='learn' else '历史记录',LABELS[a['outcome']],esc(a['feedback'])))
+    for a in c.execute('select a.*,s.stem,s.question_id from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? order by a.submitted_at desc limit 20',(uid,)):
+        body.append('<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s %s</td></tr>'%(esc(a['stem'][:65])+badge(statistics(c,[a['question_id']])[a['question_id']]),esc(a['submitted_at']),esc(a['answer']) or '空白','独立验证' if a['purpose']=='verify' else '学习练习' if a['purpose']=='learn' else '历史记录',LABELS[a['outcome']],esc(a['feedback'])))
     body.append('</table>')
     body.append('<h2>知识点与能力关联导航</h2><p>点击标签查看关联的错题；标签表示题目关联，不作细分诊断。</p>'+metrics(repo,uid))
     return ''.join(body)+'</section>'+footer()
@@ -636,13 +653,13 @@ def teacher(repo,user,params,document_import_enabled=False):
         return ''.join(body)+'</section>'+footer()
     body.append(_teacher_learning_evidence(repo, assessments))
     allowed={a['id'] for a in assessments}
-    pending=c.execute("select a.*,w.assessment_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where w.is_active=1 and a.outcome='pending' order by a.submitted_at").fetchall()
+    pending=c.execute("select a.*,w.assessment_id,w.question_id,u.display_name,r.initial_answer,s.stem,s.grading_rule_json from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join users u on u.id=a.student_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where w.is_active=1 and a.outcome='pending' order by a.submitted_at").fetchall()
     scoped_pending=[a for a in pending if a['assessment_id'] in allowed]
     body.append('<details class="review-secondary" id="review"><summary>待确认的重做 · %s 条</summary>' % len(scoped_pending))
     if not scoped_pending: body.append('<p>当前没有待确认的重做。</p>')
     for a in pending:
         if a['assessment_id'] not in allowed: continue
-        body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),esc(a['stem']),esc(a['answer']),esc(reference_answer(loads(a['grading_rule_json'],{}))),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
+        body.append('<article><h3>%s</h3><p>%s</p><p>实际作答：%s</p><p>标准答案：%s</p>%s</article>'%(esc(a['display_name']),badge(statistics(c,[a['question_id']])[a['question_id']])+esc(a['stem']),esc(a['answer']),esc(reference_answer(loads(a['grading_rule_json'],{}))),form('review',hidden('attempt_id',a['id'])+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'<label>反馈（可选）<input name="feedback"></label><button>确认结果</button>')))
     body.append('</details><details class="review-secondary"><summary>按考试查看复习进度</summary><div class="teacher-evidence-table"><table><tr><th>班级 / 周测</th><th>到期题</th><th>待确认</th><th>三次已巩固</th></tr>')
     for a in assessments:
         ps=[progress(c,dict(w)) for w in c.execute('select * from wrong_questions where is_active=1 and assessment_id=?',(a['id'],))]
@@ -907,7 +924,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
             part_title=('小问 '+child_label) if child_label else ('整题作答' if len(question_group)==1 else '作答单元 '+str(q['position']))
             rows=[r for r in rs if r['snapshot_id']==q['id'] and r['student_id'] in included]
             body.append('<section class="assessment-subquestion" id="exam-question-%s" tabindex="-1"><h4>%s · 作答序号 %s</h4>%s%s%s'%(
-                q['position'],esc(part_title),q['position'],fill_question_context(q),tags(q),
+                q['position'],esc(part_title),q['position'],badge(statistics(c, [q['question_id']])[q['question_id']])+fill_question_context(q),tags(q),
                 '<details><summary>本小问标准答案与解析</summary>%s</details>' % (
                     render_snapshot_solution(c,q['id'],user['school_id'],base_path)
                     or '<p>标准答案：%s</p>' % esc(reference_answer(loads(q['grading_rule_json'],{})) or '尚未导入，暂不能自动核对')

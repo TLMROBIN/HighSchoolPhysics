@@ -4,6 +4,7 @@ import json
 from urllib.parse import quote
 from .repository import loads
 from .errors import PermissionDenied
+from .question_difficulty import statistics, badge
 
 
 def esc(v):
@@ -53,6 +54,7 @@ def render_exams(repo, user, assessment_id=None):
             body.append('</tbody></table></details>')
         else:
             body.append('<p>我的得分：<strong>%s / %s</strong> · <a href="app#wrong">去错题本</a></p>' % (sum(r['score'] or 0 for r in responses),a['full_score']))
+        difficulty = statistics(repo.conn, [q['question_id'] for q in questions])
         for q in questions:
             rule=loads(q['grading_rule_json'],{})
             tags=loads(q['tag_snapshot_json'],[])
@@ -61,6 +63,7 @@ def render_exams(repo, user, assessment_id=None):
             rows=[r for r in responses if r['question_id']==q['question_id']]
             wrong=sum((r['score'] or 0)<r['max_score'] for r in rows)
             body.append('<article class="exam-question"><h3>第%s题 · %s分</h3><p>%s</p>' % (esc(q['original_question_number'] or q['position']),q['points'],esc(q['stem'])))
+            body.append(badge(difficulty[q['question_id']]))
             body.append('<div class="tag-row">'+''.join('<span class="pill">%s：%s</span>' % ('知识点' if t['tag_type']=='knowledge' else '能力',esc(t['name'])) for t in tags if t['tag_type'] in ('knowledge','ability'))+'</div>')
             for im in repo.conn.execute('select id from exam_assets where question_id=? order by rowid',(q['question_id'],)):
                 body.append(image_html(im['id']))

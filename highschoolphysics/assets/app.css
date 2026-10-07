@@ -3290,3 +3290,13 @@ select {
 .teacher-module-card:focus-visible { outline: 3px solid var(--teal, #146b65); outline-offset: 3px; }
 .teacher-evidence-table { overflow-x: auto; margin-bottom: 24px; }
 @media (max-width: 640px) { .teacher-module-grid { grid-template-columns: 1fr; } .teacher-module-card { padding: 18px; } }
+
+/* Difficulty is derived from published exam evidence, shared by every question view. */
+.question-difficulty-list { display:flex; flex-wrap:wrap; gap:.5rem; margin:.6rem 0; }
+.question-difficulty { display:inline-block; font-size:.9rem; font-weight:600; line-height:1.6; padding:.2rem .65rem; border:1px solid currentColor; border-radius:.6rem; color:#475569; background:#f1f5f9; }
+.question-difficulty small { font-size:.8rem; font-weight:400; margin-left:.4rem; }
+.difficulty-challenge { color:#9f1239; background:#fff1f2; }
+.difficulty-advanced { color:#9a3412; background:#fff7ed; }
+.difficulty-consolidate { color:#854d0e; background:#fefce8; }
+.difficulty-basic { color:#1d4ed8; background:#eff6ff; }
+.difficulty-easy { color:#166534; background:#f0fdf4; }

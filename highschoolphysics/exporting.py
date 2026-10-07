@@ -1,6 +1,7 @@
 import html
 
 from .assessment import default_export_options
+from .question_difficulty import badge
 
 
 def _answer_text(value):
@@ -83,6 +84,7 @@ def build_wrong_book_html(
         )
         for index, wrong in enumerate(group["items"], start=1):
             parts.append("<article class='question'>")
+            parts.append(badge(wrong["difficulty_stats"]))
             parts.append("<h2>%s. %s</h2>" % (index, html.escape(wrong["stem"])))
             if wrong["options"]:
                 option_text = "　".join(

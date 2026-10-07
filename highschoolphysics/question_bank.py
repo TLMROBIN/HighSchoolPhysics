@@ -12,6 +12,7 @@ from .errors import InvalidRequest, PermissionDenied, ResourceNotFound, StateCon
 from .repository import loads, dumps
 from .document_models import canonical_sha256, validate_question_document
 from .question_rendering import render_question, render_markdown
+from .question_difficulty import statistics, badge
 from .question_types import BANK_TYPES, bank_type as infer_bank_type
 
 
@@ -148,6 +149,7 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size
                and (not question_type or g['bank_type'] == question_type)
                and (not tag_ids or any(t['tag_type'] == tag_family and t['tag_id'] in tag_ids for t in g['tags']))]
     visible = matches[offset:offset+page_size]
+    difficulty = statistics(c, [qid for g in visible for qid in g["question_ids"]])
     for group in visible:
         qid = group['question_ids'][0]
         binding = content(c, qid, user['school_id'])
@@ -163,6 +165,11 @@ def library(repo, user, batch_id='', paper_id='', search='', offset=0, page_size
             group['html'] = render_question(document, compact_layout=True)
             answer = q['answer'].get('answer', '') if isinstance(q['answer'], dict) else q['answer']
             group['solution_html'] = render_markdown('参考答案：'+str(answer or '待确认')) + render_markdown(q['analysis'])
+        children = {child['key']: child.get('label', child['key']) for child in (binding['document'].get('children', []) if binding else [])}
+        units = [dict(r) for r in c.execute('select question_id,child_key from question_content_bindings where group_id=?', (group['id'],))]
+        labels = {r['question_id']: children.get(r['child_key'], '') for r in units}
+        group['difficulty_units'] = [{'id': qid, 'label': labels.get(qid, ''), 'difficulty_stats': difficulty[qid]} for qid in group['question_ids']]
+        group['html'] = '<div class="question-difficulty-list">' + ''.join(badge(unit['difficulty_stats'], unit['label']) for unit in group['difficulty_units']) + '</div>' + group['html']
         group['type_label'] = BANK_TYPES[group['bank_type']]
         group.pop('search_text', None)
     return {'batches': batches, 'papers': list_papers(repo, user), 'groups': visible,
@@ -195,7 +202,10 @@ def detail(repo, user, qid, base_path=''):
         rendered += render_markdown('参考答案：'+str(q['answer'])) + render_markdown(q['analysis'])
         units = [{'id': qid, 'label': '本题', 'tag_revision': tag_revision(repo.conn, qid), 'question_version': q['version'], 'tags': repo.tags_for_question(qid)}]
         document = None
+    difficulty = statistics(repo.conn, [unit['id'] for unit in units])
     for unit in units:
+        unit['difficulty_stats'] = difficulty[unit['id']]
+        unit['difficulty_html'] = badge(unit['difficulty_stats'])
         job = repo.conn.execute("select result_json,candidate_id from question_tag_jobs where question_id=? and source like 'bank:%' and status='completed' order by created_at desc,rowid desc limit 1", (unit['id'],)).fetchone()
         if job and job['candidate_id']:
             result = loads(job['result_json'],{})

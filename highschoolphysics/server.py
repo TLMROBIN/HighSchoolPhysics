@@ -10,6 +10,7 @@ import html
 import os
 from http.cookies import SimpleCookie
 
+from .question_difficulty import badge
 from .auth import AuthService, validate_password
 from .db import (
     DEFAULT_DB_PATH,
@@ -43,7 +44,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261007-student-cards-v2"
+ASSET_VERSION = "20261007-question-difficulty-v1"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
@@ -116,7 +117,7 @@ def render_layout(title, user, body, active="", question_math=False):
         user_text=user_text,
         body=body,
         bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-answers-v4">' if 'data-question-bank' in body else '',
-        bank_scripts='<script defer src="/assets/question-bank.js?v=20261006-answers-v4"></script>' if 'data-question-bank' in body else '',
+        bank_scripts='<script defer src="/assets/question-bank.js?v=20261007-question-difficulty-v1"></script>' if 'data-question-bank' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(
@@ -196,14 +197,14 @@ def _ability_link_pills(items):
 
 def _related_question_link(question, target_question_ids):
     if question["id"] not in target_question_ids:
-        return "<span>%s（未进入错题本）</span>" % escape(question["stem"])
+        return "<span>%s（未进入错题本）</span>%s" % (escape(question["stem"]), badge(question.get("difficulty_stats", {"label":"未分级", "response_count":0})))
     target_id = "wrong-question-%s" % question["id"]
     return (
         '<a href="#{target_id}" data-action="open-question" '
         'data-target-tab="wrong" data-target-id="{target_id}">{stem}</a>'
     ).format(
         target_id=escape(target_id),
-        stem=escape(question["stem"]),
+        stem=escape(question["stem"])+badge(question.get("difficulty_stats", {"label":"未分级", "response_count":0})),
     )
 
 
@@ -630,7 +631,7 @@ def _render_tag_navigation_questions(module):
                 stem=escape(question["stem"]),
                 grade=escape(question.get("grade", "")),
                 chapter=escape(question.get("chapter", "")),
-                difficulty=escape(question.get("difficulty", "")),
+                difficulty=badge(question.get("difficulty_stats", {"label":"未分级", "response_count":0})),
                 wrong_link=wrong_link,
                 redo_link=redo_link,
             )
@@ -928,6 +929,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
         <article class="wrong-card" id="{card_id}" data-knowledge-ids="{knowledge_ids}">
           <div class="card-head"><span>{assessment}</span>{header_score}</div>
           <h2>{stem}</h2>
+          {difficulty}
           {media_content}
           {options}
           {answer_review}
@@ -946,6 +948,7 @@ def _render_wrong_cards(wrongs, id_prefix, student_id=""):
                 assessment=escape(wrong["assessment_title"]),
                 header_score=header_score,
                 stem=escape(wrong["stem"]),
+                difficulty=badge(wrong.get("difficulty_stats", {"label":"未分级", "response_count":0})),
                 media_content=media_content,
                 options=options,
                 answer_review=answer_review,
@@ -1890,7 +1893,7 @@ def render_teacher_app(user, dashboard):
                 number=escape(question.get("original_question_number") or "—"),
                 grade=escape(question.get("grade", "")),
                 chapter=escape(question.get("chapter", "")),
-                difficulty=escape(question.get("difficulty", "")),
+                difficulty=badge(question.get("difficulty_stats", {"label":"未分级", "response_count":0})),
                 status=escape(question.get("review_status") or question.get("quality_status", "")),
                 quality_status=escape(question.get("quality_status", "")),
                 review_status=escape(question.get("review_status", "")),

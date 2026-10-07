@@ -152,6 +152,7 @@
     [['up','上移',index===0],['down','下移',index===order.length-1],['remove','移除',false]].forEach(([action,label,disabled])=>{
      const button=document.createElement('button');button.type='button';button.dataset.basketAction=action;button.dataset.groupKey=key;button.textContent=label;button.disabled=disabled;controls.append(button);
     });
+    const difficulty=card.querySelector('.question-difficulty-list');if(difficulty)item.append(difficulty.cloneNode(true));
     item.append(controls);basket.append(item);
     const section=document.createElement('section');section.className='paper-preview-question';
     const heading=document.createElement('h4');heading.textContent=`试卷第 ${index+1} 题 · ${card.dataset.title}`;section.append(heading);

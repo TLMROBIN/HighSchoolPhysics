@@ -187,6 +187,13 @@ class PhysicsRepository:
             ).fetchall()
         )
 
+    def _attach_question_difficulty(self, items, key="id"):
+        from .question_difficulty import statistics
+        stats = statistics(self.conn, [item[key] for item in items])
+        for item in items:
+            item["difficulty_stats"] = stats[item[key]]
+        return items
+
     def _question_payload(self, row):
         question = row_to_dict(row)
         if question:
@@ -205,7 +212,10 @@ class PhysicsRepository:
             """,
             (question_id,),
         ).fetchone()
-        return self._question_payload(row)
+        question = self._question_payload(row)
+        if question:
+            self._attach_question_difficulty([question])
+        return question
 
     def create_question(
         self,
@@ -861,7 +871,7 @@ class PhysicsRepository:
             % " and ".join(clauses),
             params,
         ).fetchall()
-        questions = [self._question_payload(row) for row in rows]
+        questions = self._attach_question_difficulty([self._question_payload(row) for row in rows])
         for question in questions:
             tags = self.tags_for_question(question["id"])
             question["tags"] = tags
@@ -1436,7 +1446,7 @@ class PhysicsRepository:
             % placeholders,
             node_ids,
         ).fetchall()
-        return rows_to_dicts(rows)
+        return self._attach_question_difficulty(rows_to_dicts(rows))
 
     def _related_questions_for_tag(self, tag_type, tag_id):
         rows = self.conn.execute(
@@ -1458,7 +1468,7 @@ class PhysicsRepository:
             """,
             (tag_type, tag_id),
         ).fetchall()
-        return rows_to_dicts(rows)
+        return self._attach_question_difficulty(rows_to_dicts(rows))
 
     def related_questions_for_ability(self, ability_tag_id):
         return self._related_questions_for_tag("ability", ability_tag_id)
@@ -3494,7 +3504,11 @@ class PhysicsRepository:
         task["generated_file_id"] = file_id
         return task
 
-    def _enrich_wrong_question_item(self, item):
+    def _enrich_wrong_question_item(self, item, difficulty_stats=None):
+        if difficulty_stats is None:
+            self._attach_question_difficulty([item], key="question_id")
+        else:
+            item["difficulty_stats"] = difficulty_stats[item["question_id"]]
         item["options"] = loads(item.pop("options_json"), {})
         item["correct_answer"] = loads(item.pop("correct_answer_json"), None)
         item["error_reason_tag_ids"] = loads(
@@ -3591,10 +3605,12 @@ class PhysicsRepository:
             """ % knowledge_filter,
             params,
         ).fetchall()
+        from .question_difficulty import statistics
+        difficulty = statistics(self.conn, [row["question_id"] for row in rows])
         wrongs = []
         for row in rows:
             item = row_to_dict(row)
-            wrongs.append(self._enrich_wrong_question_item(item))
+            wrongs.append(self._enrich_wrong_question_item(item, difficulty))
         return wrongs
 
     def assessment_detail(self, actor_id, assessment_id, operation="view"):
@@ -3650,10 +3666,12 @@ class PhysicsRepository:
             """ % extra_where,
             params,
         ).fetchall()
+        from .question_difficulty import statistics
+        difficulty = statistics(self.conn, [row["question_id"] for row in rows])
         wrongs = []
         for row in rows:
             item = row_to_dict(row)
-            wrongs.append(self._enrich_wrong_question_item(item))
+            wrongs.append(self._enrich_wrong_question_item(item, difficulty))
         return wrongs
 
     def tags_for_question(self, question_id):
