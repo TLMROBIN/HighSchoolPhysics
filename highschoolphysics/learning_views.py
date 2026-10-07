@@ -374,12 +374,8 @@ def _student_answer_cards(c, assessment_id):
             continue
         cards = c.execute("select * from unmatched_answer_cards where assessment_id=? and assigned_student_id=? and status='assigned'",
                           (assessment_id, uid)).fetchall()
-        for card in cards:
-            body.append('<p>原卡：%s，正面第%s页 / 背面第%s页。%s</p><div class="unmatched-card-images">'
-                        '<a href="exam-unmatched-card-media?id=%s&side=front" target="_blank"><img loading="lazy" src="exam-unmatched-card-media?id=%s&side=front" alt="答题卡正面"></a>'
-                        '<a href="exam-unmatched-card-media?id=%s&side=back" target="_blank"><img loading="lazy" src="exam-unmatched-card-media?id=%s&side=back" alt="答题卡背面"></a></div>' %
-                        (esc(card["source_file"]), card["front_page"], card["back_page"], esc(card["identity_note"]),
-                         quote(card["id"]), quote(card["id"]), quote(card["id"]), quote(card["id"])))
+        if cards:
+            body.append(_review_card_viewer(c, assessment_id, rows[0], {'position': 11}))
         if not cards:
             body.append('<p>尚未保存关联的答题卡图片。</p>')
         body.append('<table><tr><th>作答序号</th><th>学生答案</th><th>得分 / 满分</th></tr>')
@@ -741,7 +737,7 @@ def _review_card_viewer(c, assessment_id, response, question):
             '<output data-viewer-scale>100%%</output><button type="button" data-viewer-zoom="in" aria-label="放大答题卡">＋</button>'
             '<button type="button" data-viewer-reset>适合窗口</button></div>'
             '<div class="review-card-viewport" tabindex="0" aria-label="可拖动和缩放的答题卡，方向键移动，加减键缩放">'
-            '<img src="%s" alt="原始答题卡" draggable="false"></div></div>') % (
+            '<img loading="lazy" src="%s" alt="原始答题卡" draggable="false"></div></div>') % (
                 ''.join('<option value="%s"%s>%s</option>' % (esc(url), ' selected' if url == initial else '', esc(label)) for url, label, chosen in sources), esc(initial))
 
 
