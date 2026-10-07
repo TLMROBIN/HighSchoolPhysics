@@ -32,3 +32,9 @@
 .unmatched-answer-card table { width:100%; margin:12px 0; }
 .unmatched-answer-card form { display:flex; align-items:end; flex-wrap:wrap; gap:12px; }
 .unmatched-answer-card form label { min-width:min(100%,360px); }
+
+.student-card-filters { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:16px 0; }
+.student-card-filters label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.student-card-filters input, .student-card-filters select { width:100%; box-sizing:border-box; }
+.student-card-panel[hidden] { display:none; }
+@media (max-width:700px) { .student-card-filters { grid-template-columns:1fr; } }

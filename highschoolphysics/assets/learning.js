@@ -4,6 +4,27 @@
  const fileBase64=file=>new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result.split(',')[1]);reader.onerror=()=>reject(Error('文件读取失败'));reader.readAsDataURL(file);});
  const upload=async(action,p)=>{const text=JSON.stringify(p);if(new TextEncoder().encode(text).length<700000)return request(action,p);let uploadId='';const size=200000,total=Math.ceil(text.length/size);for(let index=0;index<total;index++){const result=await request('response-upload-chunk',{upload_id:uploadId,index,total,text:text.slice(index*size,(index+1)*size)});uploadId=result.upload_id;}return request(action,{upload_id:uploadId});};
  document.querySelectorAll('[data-exam-grade]').forEach(select=>{const form=select.closest('form'),labels=[...form.querySelectorAll('[data-exam-classes] label[data-grade]')];const update=()=>{labels.forEach(label=>{const checkbox=label.querySelector('input');const visible=label.dataset.grade===select.value;label.hidden=!visible;checkbox.disabled=!visible;if(!visible)checkbox.checked=false;});const count=labels.filter(label=>!label.hidden&&label.querySelector('input').checked).length;form.querySelector('[data-exam-scope]').textContent=count?'已选择 '+count+' 个班级，默认这些班级全部学生参加考试。':'未选择班级，默认'+select.value+'全年级全部学生参加考试。';};select.addEventListener('change',update);labels.forEach(label=>label.addEventListener('change',update));update();});
+ document.querySelectorAll('.student-answer-cards').forEach(section=>{
+  const classFilter=section.querySelector('[data-card-class]'),search=section.querySelector('[data-card-search]'),studentSelect=section.querySelector('[data-card-student]'),status=section.querySelector('[data-card-selection-status]');
+  const panels=[...section.querySelectorAll('[data-student-id]')];
+  const showStudent=()=>{
+   panels.forEach(panel=>panel.hidden=panel.dataset.studentId!==studentSelect.value);
+   status.textContent=studentSelect.value?'已显示所选学生的答题卡和作答记录。':(studentSelect.options.length>1?'匹配 '+(studentSelect.options.length-1)+' 位学生，请选择学生查看。':'未找到匹配的学生，请调整班级或姓名。');
+  };
+  const filterStudents=()=>{
+   const current=studentSelect.value,query=search.value.trim().toLocaleLowerCase();
+   const matches=panels.filter(panel=>(!classFilter.value||panel.dataset.className===classFilter.value)&&panel.dataset.studentName.toLocaleLowerCase().includes(query));
+   studentSelect.replaceChildren(new Option(matches.length?'请选择学生':'没有匹配的学生',''));
+   matches.forEach(panel=>studentSelect.add(new Option(panel.dataset.studentName+' · '+panel.dataset.className,panel.dataset.studentId)));
+   if(matches.some(panel=>panel.dataset.studentId===current))studentSelect.value=current;
+   else if(query&&matches.length===1)studentSelect.value=matches[0].dataset.studentId;
+   showStudent();
+  };
+  classFilter.addEventListener('change',filterStudents);search.addEventListener('input',filterStudents);studentSelect.addEventListener('change',showStudent);
+  filterStudents();
+  const linked=panels.find(panel=>'#'+panel.id===location.hash);
+  if(linked){studentSelect.value=linked.dataset.studentId;showStudent();}
+ });
  document.querySelectorAll('.learning-form').forEach(f=>{
  const action=f.dataset.action, status=f.querySelector('[role=status]');
  if(action==='question'){

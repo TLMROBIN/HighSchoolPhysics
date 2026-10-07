@@ -350,16 +350,27 @@ def _student_answer_cards(c, assessment_id):
         join class_groups g on g.id=u.class_id where p.assessment_id=? and p.status='present'
         and u.status='active' order by g.name,u.display_name""", (assessment_id,))]
     body = ['<section class="student-answer-cards"><h3>查看学生答题卡 / 重新指定作答</h3>'
-            '<p>展开学生查看已保存的原卡与作答。重新指定会转移该学生本次考试的全部作答和原卡关联，保留评分与证据。目标学生须为同班且尚无作答；请先核对原卡姓名。</p>']
+            '<p>先选择班级或搜索姓名，再选择学生查看答题卡和作答记录。</p>']
+    class_names = sorted({student["class_name"] for student in students})
+    body.append('<div class="student-card-filters"><label>班级筛选<select data-card-class>'
+                '<option value="">全部班级</option>%s</select></label>' % ''.join(
+                    '<option value="%s">%s</option>' % (esc(name), esc(name)) for name in class_names))
+    body.append('<label>搜索姓名<input type="search" data-card-search placeholder="输入学生姓名" autocomplete="off"></label>'
+                '<label>学生姓名<select data-card-student><option value="">请选择学生</option></select></label></div>'
+                '<p data-card-selection-status role="status">请选择学生查看答题卡。</p>')
     for student in students:
-        if not student["response_count"]:
-            continue
         uid = student["id"]
         rows = c.execute("""select r.*,s.position from student_responses r
             join question_version_snapshots s on s.id=r.snapshot_id
             where r.assessment_id=? and r.student_id=? order by s.position""", (assessment_id, uid)).fetchall()
-        body.append('<details class="unmatched-answer-card" id="student-card-%s"><summary>%s · %s · %s条作答</summary>' %
-                    (esc(uid), esc(student["class_name"]), esc(student["display_name"]), len(rows)))
+        body.append('<article class="unmatched-answer-card student-card-panel" id="student-card-%s" '
+                    'data-student-id="%s" data-student-name="%s" data-class-name="%s" hidden>'
+                    '<h4>%s · %s · %s条作答</h4>' %
+                    (esc(uid), esc(uid), esc(student["display_name"]), esc(student["class_name"]),
+                     esc(student["class_name"]), esc(student["display_name"]), len(rows)))
+        if not rows:
+            body.append('<p>该学生尚无作答记录。</p></article>')
+            continue
         cards = c.execute("select * from unmatched_answer_cards where assessment_id=? and assigned_student_id=? and status='assigned'",
                           (assessment_id, uid)).fetchall()
         for card in cards:
@@ -384,7 +395,7 @@ def _student_answer_cards(c, assessment_id):
                          '<label>重新指定给%s</label>' % select('student_id', targets) +
                          '<label>更正原因<input name="reason" required maxlength="1000" placeholder="核对原卡姓名后填写"></label>' +
                          '<label><input type="checkbox" required>已核对原卡，确认转移以上全部作答</label><button>确认重新指定作答</button>'))
-        body.append('</details>')
+        body.append('</article>')
     body.append('</section>')
     return ''.join(body)
 
@@ -425,7 +436,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-cards-v1"><script src="assets/learning.js?v=20261007-student-cards-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-cards-v2"><script src="assets/learning.js?v=20261007-student-cards-v2" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):

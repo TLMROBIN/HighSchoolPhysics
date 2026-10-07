@@ -43,7 +43,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261007-student-cards-v1"
+ASSET_VERSION = "20261007-student-cards-v2"
 QUESTION_ASSET_VERSION = "20261006-bank-full-rendering-v3"
 DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
 
@@ -3185,7 +3185,8 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     aid = (parse_qs(parsed.query).get("id") or [None])[0]
                     try:
                         if learning.enabled(conn):
-                            body = learning_views.exams(repo, user, aid, self._base_path())
+                            body = learning_views.exams(repo, user, aid, self._base_path(),
+                                                        class_ids=parse_qs(parsed.query).get('classes'))
                             self._send_html(render_layout("考试与作答", user, body, "exams", question_math=True))
                         else:
                             self._send_html(render_layout("考试与作答", user, render_exams(repo, user, aid), "exams", question_math=True))
