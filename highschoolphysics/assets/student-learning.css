@@ -98,7 +98,7 @@
 .student-workspace [data-group-controls][hidden] { display:none; }
 .student-workspace .group-self-label { display:flex; align-items:center; gap:14px; min-height:44px; margin:10px 0; }
 .student-workspace .group-self-label select { width:auto; min-width:180px; min-height:44px; }
-@media(max-width:800px) {
+@media(max-width:820px) {
  .student-workspace .student-library-layout,.student-workspace .student-library-layout:has(.student-filter-drawer:not([open])) { grid-template-columns:minmax(0,1fr); }
  .student-workspace .student-filter-sidebar { position:static; }
  .student-workspace .student-filter-drawer { max-height:none; }

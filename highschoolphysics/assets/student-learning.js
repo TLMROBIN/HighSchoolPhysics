@@ -6,7 +6,7 @@
  const labels={correct:'本次正确',wrong:'本次做错了',blank:'空白',pending:'答案尚待确认'};
  document.querySelectorAll('.student-filter-drawer').forEach(drawer=>{
   const storageKey='hsp-filter-sidebar-'+drawer.dataset.filterScope;
-  try{const saved=localStorage.getItem(storageKey);drawer.open=saved===null?innerWidth>800:saved==='open';}catch{drawer.open=innerWidth>800;}
+  try{const saved=localStorage.getItem(storageKey);drawer.open=saved===null?innerWidth>820:saved==='open';}catch{drawer.open=innerWidth>820;}
   drawer.addEventListener('toggle',()=>{try{localStorage.setItem(storageKey,drawer.open?'open':'closed');}catch{}});
  });
  document.querySelectorAll('.student-workspace .learning-form').forEach(f=>{
