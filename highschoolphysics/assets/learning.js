@@ -41,6 +41,8 @@
   };
   classFilter.addEventListener('change',filterStudents);search.addEventListener('input',filterStudents);studentSelect.addEventListener('change',showStudent);
   filterStudents();
+  const selectLinkedStudent=id=>{const panel=panels.find(p=>p.dataset.studentId===id);if(!panel)return;classFilter.value=panel.dataset.className;search.value='';filterStudents();studentSelect.value=id;showStudent();section.scrollIntoView({block:'start'});};
+  document.querySelectorAll('[data-show-student-card]').forEach(link=>link.addEventListener('click',e=>{e.preventDefault();selectLinkedStudent(link.dataset.showStudentCard);}));
   const linked=panels.find(panel=>'#'+panel.id===location.hash);
   if(linked){studentSelect.value=linked.dataset.studentId;showStudent();}
  });

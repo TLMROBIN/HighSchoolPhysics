@@ -237,6 +237,8 @@ def api(repo,user,action,p,base_path=""):
             from .exam_import import staged_bundle
             p=staged_bundle(repo,actor,p['upload_id'])
         return response_workflow.import_answers(repo,user,p)
+    if action=='missing-student':
+        return response_workflow.confirm_missing_student(repo,user,p)
     if action=='unmatched-cards':
         return response_workflow.unmatched_cards(repo,user,p)
     if action in ('scan-upload','scan-status'):

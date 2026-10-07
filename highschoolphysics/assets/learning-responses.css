@@ -93,3 +93,7 @@
   .answer-category > summary .exam-stat-track { grid-column:1 / -1; grid-row:2; }
   .exam-tag-bar { grid-template-columns:85px minmax(0,1fr); }
 }
+
+.exam-missing-records { margin:24px 0; padding:18px; border:1px solid var(--border,#dbe2ea); border-radius:12px; overflow:auto; }
+.exam-missing-records table { width:100%; }
+.exam-missing-records form { min-width:260px; }

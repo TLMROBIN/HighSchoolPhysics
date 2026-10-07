@@ -717,6 +717,41 @@ def _sync_wrong(conn,r):
                        (identifier("wrong"),r["school_id"],r["assessment_id"],r["student_id"],r["question_id"],r["id"],r["initial_answer"],s[0]))
 
 
+def confirm_missing_student(repo, user, p):
+    conn = repo.conn
+    conn.commit()
+    conn.execute("begin immediate")
+    try:
+        a = assessment(repo, user, p["assessment_id"])
+        if a["grading_status"] == "published":
+            raise StateConflict("已发布的考试不能更改参试状态")
+        student = conn.execute("""select ap.*,u.display_name from assessment_participants ap
+            join users u on u.id=ap.student_id where ap.assessment_id=? and ap.student_id=?
+            and u.school_id=?""", (a["id"], p.get("student_id"), user["school_id"])).fetchone()
+        if not student:
+            raise InvalidRequest("学生不在本次考试名单中")
+        status = p.get("status")
+        if status not in ("absent", "present") or student["status"] not in ("absent", "present"):
+            raise InvalidRequest("无效的缺考确认操作")
+        if conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",
+                        (a["id"], student["student_id"])).fetchone():
+            raise StateConflict("学生已有作答记录，请核对缺失题目，不能按无答卷确认缺考")
+        reason = str(p.get("reason") or "").strip()
+        if status == "absent" and (not reason or len(reason) > 1000):
+            raise InvalidRequest("请填写教师核实的缺考原因（最多1000字）")
+        conn.execute("update assessment_participants set status=? where assessment_id=? and student_id=?",
+                     (status, a["id"], student["student_id"]))
+        _audit(conn, user, "missing_student_confirmed", a["id"], {
+            "student_id": student["student_id"], "previous_status": student["status"],
+            "status": status, "reason": reason})
+        conn.commit()
+        return {"message": "%s%s" % (student["display_name"],
+                "已由教师确认缺考，发布时将跳过" if status == "absent" else "已恢复参试，需补齐作答后发布")}
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def publish(repo,user,p):
     conn=repo.conn
     conn.execute("begin immediate")
@@ -728,6 +763,19 @@ def publish(repo,user,p):
         snapshots=conn.execute("select id from question_version_snapshots where assessment_id=?",(a["id"],)).fetchall()
         if not participants or not snapshots:
             raise InvalidRequest("没有纳入学生或题目")
+        missing_count = conn.execute("""select count(*) from assessment_participants p
+            cross join question_version_snapshots s left join student_responses r
+            on r.assessment_id=p.assessment_id and r.student_id=p.student_id and r.snapshot_id=s.id
+            where p.assessment_id=? and p.status='present' and s.assessment_id=? and r.id is null""",
+            (a["id"], a["id"])).fetchone()[0]
+        pending_count = conn.execute("""select count(*) from student_responses r
+            join assessment_participants p on p.assessment_id=r.assessment_id and p.student_id=r.student_id
+            where r.assessment_id=? and p.status='present' and (r.outcome='pending' or exists
+            (select 1 from response_review_items x where x.response_id=r.id and x.status='open'))""",
+            (a["id"],)).fetchone()[0]
+        if missing_count or pending_count:
+            raise StateConflict("尚缺%s条作答、%s条待复核。请查看考试结果管理中的缺失清单；无答卷学生须由教师确认缺考，其他缺失需补录。" %
+                                (missing_count, pending_count))
         rows=[]
         for u in participants:
             for s in snapshots:

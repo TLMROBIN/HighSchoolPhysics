@@ -437,7 +437,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-exam-stats-v1"><script src="assets/learning.js?v=20261007-exam-stats-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-missing-records-v1"><script src="assets/learning.js?v=20261007-missing-records-v1" defer></script>'
 def base(user,title="错题与学习记录"): return '<section class="panel learning"><h1>%s</h1><nav>'%esc(title)+('<a href="app">学生首页</a>' if user['role']=='student' else '<a href="teacher">教师工作台</a>')+' · <a href="exams">周测与首次作答</a></nav><p>只记录作答与对错，不记录分数。知识点、能力标签用于关联练习，不能凭一道题判断已经掌握。</p>'
 
 def practice_history(c, user, wrong):
@@ -661,6 +661,45 @@ def teacher(repo,user,params,document_import_enabled=False):
     body.append(_teacher_learning_evidence(repo, assessments))
     return ''.join(body)+'</section>'+footer()
 
+def _exam_missing_records(c, assessment_id, participants, responses, questions):
+    recorded = defaultdict(set)
+    for response in responses:
+        recorded[response['student_id']].add(response['snapshot_id'])
+    present = [p for p in participants if p['status'] == 'present']
+    missing = [(p, [q['position'] for q in questions if q['id'] not in recorded[p['student_id']]]) for p in present]
+    no_cards = [p for p, positions in missing if not recorded[p['student_id']]]
+    partial = [(p, positions) for p, positions in missing if positions and recorded[p['student_id']]]
+    absent = [p for p in participants if p['status'] == 'absent']
+    body = ['<section class="exam-missing-records"><h3>考试结果管理 · 缺失作答确认</h3>'
+            '<p>无作答记录不等于缺考。教师核实后确认缺考，发布时才会跳过；已有部分作答的学生需补齐缺失题目。</p>']
+    body.append('<h4>没有作答记录，待教师确认（%s人）</h4>' % len(no_cards))
+    if no_cards:
+        body.append('<table><tr><th>班级 / 学生</th><th>教师确认</th></tr>')
+        for p in no_cards:
+            body.append('<tr><td>%s · %s</td><td>%s</td></tr>' % (esc(p['class_name']), esc(p['display_name']),
+                form('missing-student', hidden('assessment_id', assessment_id) + hidden('student_id', p['student_id']) +
+                     hidden('status', 'absent') + '<label>缺考原因<input name="reason" required maxlength="1000" placeholder="填写教师核实结果"></label>' +
+                     '<label><input type="checkbox" required>已核实该学生缺考</label><button>确认缺考，发布时跳过</button>')))
+        body.append('</table>')
+    else:
+        body.append('<p>当前没有等待缺考确认的学生。</p>')
+    if absent:
+        body.append('<details><summary>已确认缺考（%s人，发布时跳过）</summary><table>' % len(absent))
+        for p in absent:
+            body.append('<tr><td>%s · %s</td><td>%s</td></tr>' % (esc(p['class_name']), esc(p['display_name']),
+                form('missing-student', hidden('assessment_id', assessment_id) + hidden('student_id', p['student_id']) +
+                     hidden('status', 'present') + '<button>撤销缺考，恢复参试</button>')))
+        body.append('</table></details>')
+    body.append('<details><summary>已有答卷但缺少题目记录（%s人，共%s条）</summary>' %
+                (len(partial), sum(len(positions) for p, positions in partial)))
+    body.append('<table><tr><th>班级 / 学生</th><th>缺失作答序号</th><th>查看答卷</th></tr>')
+    for p, positions in partial:
+        body.append('<tr><td>%s · %s</td><td>%s</td><td><a href="#student-card-%s" data-show-student-card="%s">查看答题卡</a></td></tr>' %
+                    (esc(p['class_name']), esc(p['display_name']), ', '.join(map(str, positions)), esc(p['student_id']), esc(p['student_id'])))
+    body.append('</table></details></section>')
+    return ''.join(body)
+
+
 def _exam_answer_category(question, response):
     """Use the effective first-exam answer; redo attempts never enter these statistics."""
     answer = str(response['final_answer'] or '').strip()
@@ -771,6 +810,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         expected=sum(p['status']=='present' for p in participants)*len(qs)
         actual=sum(r['student_id'] in {p['student_id'] for p in participants if p['status']=='present'} for r in rs)
         body.append('<p>应有 %s 条，已录入 %s 条，待确认 %s 条。缺失不能当作空白。</p>'%(expected,actual,sum(r['outcome']=='pending' for r in rs)))
+        body.append(_exam_missing_records(c, aid, participants, rs, qs))
         body.append(form('publish',hidden('assessment_id',aid)+'<button>发布作答结果到错题本</button>'))
     groups=defaultdict(lambda:dict(total=0,wrong=0,blank=0,students=set(),affected=set()))
     present=[p for p in participants if p['status']=='present' and (staff or p['student_id']==user['id'])]
