@@ -56,6 +56,10 @@ BACKUP_TABLES = [
     "export_profiles",
     "audit_events",
     "identity_audit_logs",
+    "diagnostic_cards",
+    "diagnostic_jobs",
+    "diagnostic_sessions",
+    "diagnostic_events",
 ]
 
 

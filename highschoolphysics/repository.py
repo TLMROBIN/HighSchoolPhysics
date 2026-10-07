@@ -4928,7 +4928,7 @@ class PhysicsRepository:
         provider_kind = (provider_kind or "").strip()
         provider_name = (provider_name or "").strip()
         model_name = (model_name or "").strip()
-        if provider_kind not in ("llm", "mineru_api"):
+        if provider_kind not in ("llm", "mineru_api", "diagnosis"):
             raise ValueError("Unsupported provider_kind: %s" % provider_kind)
         if not provider_name:
             raise ValueError("provider_name is required")
@@ -5533,6 +5533,9 @@ class PhysicsRepository:
         dashboard["active_ontology_version"] = self.active_ontology_version()
         dashboard["production_readiness"] = self.production_readiness_dashboard(actor_id)
         dashboard["provider_configs"] = self.provider_configs(actor_id)
+        if actor_id:
+            from .diagnosis import admin_panel
+            dashboard["diagnosis_panel"] = admin_panel(self,self._actor(actor_id))
         dashboard["mastery_analytics"] = (
             self.admin_mastery_analytics(actor_id)
             if actor_id

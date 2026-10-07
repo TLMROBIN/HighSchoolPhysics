@@ -485,7 +485,8 @@ def run_once(db_path=DEFAULT_DB_PATH, document_root=None, converter=None):
         return scan_result
     job = claim_next_tag_job(db_path)
     if job is None:
-        return None
+        from .diagnosis import run_once as run_diagnosis_once
+        return run_diagnosis_once(db_path)
     return process_tag_job(job, db_path=db_path)
 
 

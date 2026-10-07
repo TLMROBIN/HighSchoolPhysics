@@ -2977,6 +2977,7 @@ def render_admin_app(user, dashboard):
             </form>
             <div class="taxonomy-table-scroll"><table><thead><tr><th>Provider</th><th>模型</th><th>状态</th><th>API Key</th><th>每日上限</th><th>检查</th></tr></thead><tbody>{llm_provider_rows}</tbody></table></div>
           </section>
+          {diagnosis_panel}
           <section class="provider-config-section">
             <h3>MinerU 文档解析 API</h3>
             <p class="explain">用于整份 PDF 上传、公式与图像识别。文件将发送到 MinerU 云端；解析走异步任务并返回结构化 ZIP。</p>
@@ -3037,6 +3038,7 @@ def render_admin_app(user, dashboard):
         provider_rows=provider_rows,
         llm_provider_options=llm_provider_options,
         mineru_provider_options=mineru_provider_options,
+        diagnosis_panel=dashboard.get("diagnosis_panel", ""),
         llm_provider_rows=provider_rows_for("llm"),
         mineru_provider_rows=provider_rows_for("mineru_api"),
         provider_usage_rows=provider_usage_rows,
@@ -3411,7 +3413,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 raise PasswordChangeRequired(
                     "You must change your temporary password before continuing"
                 )
-            if path.startswith('/api/learning/') and self.headers.get('Origin'):
+            if path.startswith('/api/learning/diagnosis-') or (path.startswith('/api/learning/') and self.headers.get('Origin')):
                 self._require_same_origin()
             payload = self._read_payload(max_bytes=30 * 1024 * 1024 if path in ('/api/learning/scan-upload', '/api/learning/answers-file') else 2 * 1024 * 1024)
             auth = AuthService(conn)
@@ -3820,6 +3822,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         "checks": checks,
                     }
                 )
+            elif path in ("/api/admin/diagnosis-config", "/api/admin/diagnosis-test"):
+                self._require_same_origin()
+                from . import diagnosis
+                result = diagnosis.save_config(repo, user, payload) if path.endswith('diagnosis-config') else diagnosis.test_config(repo, user)
+                self._send_json({"ok": True, **result})
             elif path in ("/api/admin/llm-provider-config", "/api/admin/mineru-provider-config"):
                 if user["role"] != "admin":
                     raise PermissionDenied("Admin role required")

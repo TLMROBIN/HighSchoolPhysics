@@ -48,6 +48,7 @@ build-backend = "setuptools.build_meta"
 include = ["highschoolphysics*"]
 
 [tool.setuptools.package-data]
+"highschoolphysics" = ["diagnostic_data/*.json"]
 "highschoolphysics.document_adapters._vendor.mtef_py" = ["LICENSE", "NOTICE"]
 
 [tool.highschoolphysics]

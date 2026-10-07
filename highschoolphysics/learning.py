@@ -159,6 +159,8 @@ def submit(repo, actor, payload, _transaction=True):
         p=progress(c,wrong)
         viewed=c.execute('select viewed_at from learning_views where student_id=? and question_id=?',(actor,wrong['question_id'])).fetchone()
         purpose='verify' if payload.get('unified')=='1' or (payload.get('purpose')=='verify' and not (viewed and day(viewed[0])==datetime.now(TZ).date())) else 'learn'
+        from .diagnosis import assisted_today
+        if assisted_today(c,actor,wrong['question_id']): purpose='learn'
         question_snapshot = snapshot(c, wrong)
         if question_snapshot["question_type"] in ("single_choice", "multiple_choice") and not str(answer).strip():
             raise InvalidRequest("请先选择选项，再提交作答")
@@ -248,6 +250,9 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
+    if action.startswith('diagnosis-'):
+        from .diagnosis import api as diagnosis_api
+        return diagnosis_api(repo,user,action,p)
     if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit'):
         from .student_learning import api as student_api
         return student_api(repo,user,action,p,base_path)

@@ -41,6 +41,9 @@ def migrate(c):
         wrong_id text not null references student_personal_wrongs(id),answer text not null,
         outcome text not null,self_reported integer not null default 0,submitted_at text not null,
         request_key text not null,unique(student_id,request_key))''')
+    personal_cols = {r['name'] for r in c.execute('pragma table_info(student_personal_redos)')}
+    if 'purpose' not in personal_cols:
+        c.execute("alter table student_personal_redos add column purpose text not null default 'verify'")
     cols = {r['name'] for r in c.execute('pragma table_info(redo_attempts)')}
     if 'self_reported' not in cols:
         c.execute('alter table redo_attempts add column self_reported integer not null default 0')
@@ -264,8 +267,10 @@ def _api(repo, user, action, p, base_path=''):
         if t['question_type'] in CHOICE and not answer.strip(): raise InvalidRequest('请先选择选项')
         result = result or trial_outcome(t, answer)
         rid='personal-redo-'+uuid.uuid4().hex
-        c.execute('insert into student_personal_redos values(?,?,?,?,?,?,?,?)',
-                  (rid,uid,w['id'],answer,result,int(t['question_type'] not in CHOICE),learning.now(),key))
+        from .diagnosis import assisted_today
+        purpose='learn' if assisted_today(c,uid,t['question_id']) else 'verify'
+        c.execute('insert into student_personal_redos(id,student_id,wrong_id,answer,outcome,self_reported,submitted_at,request_key,purpose) values(?,?,?,?,?,?,?,?,?)',
+                  (rid,uid,w['id'],answer,result,int(t['question_type'] not in CHOICE),learning.now(),key,purpose))
         if not p.get('_group_transaction'):c.commit()
         return {'outcome':result}
     raise InvalidRequest('未知学生操作')
@@ -281,6 +286,7 @@ def personal_progress(c, w):
     due=learning.day(w['submitted_at'])+timedelta(days=1)
     count=0; last='需再练'; pending=False
     for a in c.execute('select * from student_personal_redos where wrong_id=? order by submitted_at,id',(w['id'],)):
+        if a['purpose']=='learn': continue
         if a['outcome']=='pending': pending=True; continue
         d=learning.day(a['submitted_at']);last=learning.LABELS[a['outcome']]
         if a['outcome'] in ('wrong','blank'): count=0; due=d+timedelta(days=1)
@@ -388,7 +394,8 @@ def group_practice(repo,user,g,base_path,next_url):
     # Preserve the ordinary choice workflow for a stand-alone question.
     if not g['document'].get('children'):
         return practice(repo,user,g['anchor'],base_path,next_url)
-    body=wrong_render(c,g['anchor'],user,base_path)+group_first_record(c,g,user)
+    from .diagnosis import panel
+    body=wrong_render(c,g['anchor'],user,base_path)+group_first_record(c,g,user)+panel(g['id'],g['members'])
     fields=[]
     for i,w in enumerate(members):
         label=esc(w['part_label'])
@@ -522,6 +529,9 @@ def practice(repo,user,w,base_path,next_url):
                 raw=loads(s['options_json'],{})
                 if isinstance(raw,list):raw={chr(65+i):v for i,v in enumerate(raw)}
                 options=[dict(key=k,html=render_markdown(v)) for k,v in raw.items()]
+    if not trial:
+        from .diagnosis import panel
+        stem+=panel(w['id'],[w])
     choice=kind in CHOICE
     answer=controls(options,kind)+'<button type="submit">提交作答</button>' if choice else '<p>在纸上完成这道题，查看答案后标注本次结果。</p><div data-self-controls hidden><button type="submit" name="self_outcome" value="correct">我做对了</button><button type="submit" name="self_outcome" value="wrong">我做错了</button></div>'
     f=form(action,identifier+answer)
@@ -663,7 +673,7 @@ def page(repo,user,params,base_path=''):
         cards=['<p>共 %s 道错题</p>'%len(matched)]
         for i,g in enumerate(matched,1):
             w=g['anchor'];title=('第 %s 题'%g['number']) if g['number'] else ('错题 %s'%i)
-            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">重做这道题</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
+            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">查看、诊断与重做</a></article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id'])))
         if not matched:cards.append('<p>没有匹配的错题，请调整筛选条件。</p>')
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
@@ -672,6 +682,7 @@ def page(repo,user,params,base_path=''):
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
+    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261007-v1"><script src="assets/diagnosis.js?v=20261007-v1" defer></script>')
     out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-student-tablet-v3" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

@@ -268,6 +268,9 @@ def initialize_database(conn):
             conn.rollback()
             raise
 
+    from .diagnosis import migrate as migrate_diagnosis
+    migrate_diagnosis(conn)
+
 
 def _initialize_legacy_schema(conn):
     conn.executescript(

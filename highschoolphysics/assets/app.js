@@ -239,6 +239,8 @@ function updateMasterySelection(wrapper, level) {
 }
 
 const ADMIN_FORM_ENDPOINTS = {
+  "diagnosis-config": "api/admin/diagnosis-config",
+  "diagnosis-test": "api/admin/diagnosis-test",
   "knowledge-node": "api/admin/knowledge-node",
   "knowledge-node-update": "api/admin/knowledge-node/update",
   "knowledge-edge": "api/admin/knowledge-edge",
