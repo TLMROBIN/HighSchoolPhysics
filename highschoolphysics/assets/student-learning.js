@@ -4,10 +4,18 @@
  const key=()=>globalThis.crypto?.randomUUID?.()||'request-'+Date.now()+'-'+Math.random().toString(36).slice(2);
  const payload=f=>{const p={};for(const[k,v]of new FormData(f)){if(k in p)p[k]=[].concat(p[k],v);else p[k]=v;}return p;};
  const labels={correct:'本次正确',wrong:'本次做错了',blank:'空白',pending:'答案尚待确认'};
+ const compactFilters=matchMedia('(max-width:1100px)');
+ const viewportHeight=()=>document.documentElement.style.setProperty('--student-viewport-height',Math.min(innerHeight,globalThis.visualViewport?.height||innerHeight)+'px');
+ viewportHeight();addEventListener('resize',viewportHeight);globalThis.visualViewport?.addEventListener('resize',viewportHeight);
  document.querySelectorAll('.student-filter-drawer').forEach(drawer=>{
   const storageKey='hsp-filter-sidebar-'+drawer.dataset.filterScope;
-  try{const saved=localStorage.getItem(storageKey);drawer.open=saved===null?innerWidth>820:saved==='open';}catch{drawer.open=innerWidth>820;}
-  drawer.addEventListener('toggle',()=>{try{localStorage.setItem(storageKey,drawer.open?'open':'closed');}catch{}});
+  const layout=drawer.closest('.student-library-layout'),backdrop=layout.querySelector('.student-filter-backdrop'),summary=drawer.querySelector(':scope>summary');
+  try{const saved=localStorage.getItem(storageKey);drawer.open=!compactFilters.matches&&(saved===null||saved==='open');}catch{drawer.open=!compactFilters.matches;}
+  const sync=()=>{backdrop.hidden=!(drawer.open&&compactFilters.matches);summary.setAttribute('aria-expanded',String(drawer.open));try{localStorage.setItem(storageKey,drawer.open?'open':'closed');}catch{}};
+  const close=()=>{drawer.open=false;sync();summary.focus();};
+  drawer.addEventListener('toggle',sync);backdrop.addEventListener('click',close);
+  drawer.addEventListener('keydown',e=>{if(e.key==='Escape'&&drawer.open){e.preventDefault();close();}if(e.key==='Tab'&&drawer.open&&compactFilters.matches){const nodes=[summary,...drawer.querySelectorAll('input,select,button,a,details>summary')].filter(n=>n.getClientRects().length&&!n.disabled);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+  compactFilters.addEventListener('change',()=>{if(compactFilters.matches)close();else sync();});sync();
  });
  document.querySelectorAll('.student-workspace .learning-form').forEach(f=>{
   const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences'].includes(action))return;

@@ -410,7 +410,7 @@ def group_practice(repo,user,g,base_path,next_url):
 
 
 def library_layout(sidebar,body):
-    return '<div class="student-library-layout">%s<div class="student-library-content">%s</div></div>'%(sidebar,body)
+    return '<div class="student-library-layout"><button type="button" class="student-filter-backdrop" aria-label="关闭筛选条件" hidden></button>%s<div class="student-library-content">%s</div></div>'%(sidebar,body)
 
 
 def tag_filters(repo,user,params):
@@ -435,6 +435,23 @@ def match(w,params,tag_sets=None):
             all(not value(k) or any(t['tag_type']==k and t['tag_id'] in ((tag_sets or {}).get(k) or {value(k)}) for t in w['tag_list']) for k in KINDS))
 
 
+def knowledge_picker(items,selected):
+    """Native disclosure controls keep large taxonomies navigable without JS."""
+    by_id={t['id']:t for t in items};children=defaultdict(list)
+    for t in items:children[t.get('parent_id') if t.get('parent_id') in by_id else None].append(t)
+    ancestors=set();current=selected
+    while current in by_id and current not in ancestors:
+        ancestors.add(current);current=by_id[current].get('parent_id')
+    def choice(value,label):
+        return '<label class="student-knowledge-choice"><input type="radio" name="knowledge" value="%s"%s><span>%s</span></label>'%(esc(value),' checked' if value==selected else '',esc(label))
+    def branch(t,seen):
+        if t['id'] in seen:return ''
+        subs=children[t['id']]
+        if not subs:return choice(t['id'],t['name'])
+        return '<details class="student-knowledge-branch"%s><summary>%s</summary><div>%s%s</div></details>'%(' open' if t['id'] in ancestors else '',esc(t['name']),choice(t['id'],'全部：'+t['name']),''.join(branch(child,seen|{t['id']}) for child in subs))
+    return '<fieldset class="student-knowledge-tree"><legend>知识点</legend>'+choice('','全部知识点')+''.join(branch(t,set()) for t in children[None])+'</fieldset>'
+
+
 def filters(repo,user,module,params,bank=False):
     from .learning_views import hidden
     catalog=question_bank.taxonomy(repo,user)
@@ -442,8 +459,8 @@ def filters(repo,user,module,params,bank=False):
     def picker(key,label,items):
         return '<label>%s<select name="%s"><option value="">全部</option>%s</select></label>'%(label,key,''.join(
             '<option value="%s"%s>%s</option>'%(esc(k),' selected' if selected(key)==k else '',esc(v)) for k,v in items))
-    return '<aside class="student-filter-sidebar"><details class="student-filter-drawer" data-filter-scope="'+module+'" open><summary>筛选条件</summary><form method="get" class="student-filters">'+hidden('module',module)+'<label>搜索题目<input type="search" name="search" value="'+esc(selected('search'))+'"></label>'+''.join(
-        picker(k,label,[(t['id'],t['path_text']) for t in catalog[k]]) for k,label in KINDS.items())+picker('type','题型',list(TYPES.items()))+picker('level','难度',[(l,l) for l in LEVELS])+(
+    return '<aside class="student-filter-sidebar"><details class="student-filter-drawer" data-filter-scope="'+module+'" open><summary aria-label="展开或收起筛选条件" title="筛选条件"><svg class="student-filter-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8Z"/></svg><span class="student-filter-title">筛选条件</span></summary><form method="get" class="student-filters">'+hidden('module',module)+'<label>搜索题目<input type="search" name="search" value="'+esc(selected('search'))+'"></label>'+knowledge_picker(catalog['knowledge'],selected('knowledge'))+''.join(
+        picker(k,label,[(t['id'],t['path_text']) for t in catalog[k]]) for k,label in KINDS.items() if k!='knowledge')+picker('type','题型',list(TYPES.items()))+picker('level','难度',[(l,l) for l in LEVELS])+(
         picker('batch','导入批次',[(r['id'],r['source_file_name']) for r in repo.conn.execute('select id,source_file_name from question_import_batches where school_id=? order by created_at desc',(user['school_id'],))])+
         picker('paper','试卷',[(r['id'],r['title']) for r in question_bank.list_papers(repo,user)]) if bank else '')+'<button>筛选</button><a href="app?module='+module+'">重置筛选</a></form></details></aside>'
 
@@ -654,6 +671,6 @@ def page(repo,user,params,base_path=''):
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
-    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-group-v2"><script src="assets/student-learning.js?v=20261007-student-group-v2" defer></script>')
+    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-student-tablet-v3" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

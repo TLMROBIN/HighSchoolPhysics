@@ -157,6 +157,20 @@ class StudentLearningTests(unittest.TestCase):
         self.assertEqual(1,practice.count('data-action="group-submit"'))
         self.assertIn('name="member_ids"',practice)
 
+    def test_hierarchical_knowledge_opens_selection_and_parent_includes_children(self):
+        items=[dict(id='book',name='教材'),dict(id='chapter',name='章节',parent_id='book'),dict(id='point',name='知识点',parent_id='chapter')]
+        html=student_learning.knowledge_picker(items,'point')
+        self.assertEqual(2,html.count('class="student-knowledge-branch" open'))
+        self.assertIn('value="point" checked',html)
+        self.assertIn('全部：章节',html)
+        self.grouped_fixture()
+        parent='kn-pep2019-r1-c04'
+        params={'module':['wrong'],'knowledge':[parent]}
+        self.assertIn('同一道完整实验题',learning_views.student(self.repo,self.user,params))
+        bank=learning_views.student(self.repo,self.user,dict(params,module=['bank']))
+        self.assertIn('同一道完整实验题',bank)
+        self.assertNotIn('<select name="knowledge"',bank)
+
     def test_group_submit_atomic_and_idempotent_after_mastery(self):
         g=self.grouped_fixture();members=student_learning.review_members(g)
         first_answers=[tuple(r) for r in self.c.execute('select id,initial_answer,outcome from student_responses')]
