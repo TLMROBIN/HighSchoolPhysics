@@ -453,7 +453,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261007-student-exam-nav-v3"><script src="assets/learning.js?v=20261007-student-exam-nav-v3" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261008-batch-confirmation-v1"><script src="assets/learning.js?v=20261008-batch-confirmation-v1" defer></script>'
 def base(user,title="错题与学习记录"):
     if user['role']=='student':
         return '<section class="panel learning"><h1>历史考试与作答</h1><nav><a href="app">学生首页</a> · <a href="app?module=history">历史测试</a></nav><p>这里保留考试首次作答与导入得分，后续练习不会覆盖这些记录。</p>'
