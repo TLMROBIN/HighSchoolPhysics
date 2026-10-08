@@ -9,7 +9,7 @@ from urllib import request
 from .errors import InvalidRequest, PermissionDenied, StateConflict
 
 STAGES = {'condition':'条件理解', 'model':'模型与规律', 'plan':'解题步骤', 'execution':'列式与检验'}
-PROMPT_VERSION = 'wrong-diagnosis-v1'
+PROMPT_VERSION = 'wrong-diagnosis-v2'
 
 def dumps(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
@@ -139,6 +139,9 @@ def owned_target(repo,user,p):
     return g,w,data
 
 def state(c,s):
+    if s['protocol_version']==2:
+        from .diagnosis_reasoning import state as reasoning_state
+        return reasoning_state(c,s)
     from .learning_graph import session_card
     card=session_card(c,s)
     indices=json.loads(s['steps_json']);cursor=s['cursor'];events=c.execute('select action,step,payload_json,result_json from diagnostic_events where session_id=? order by created_at,id',(s['id'],)).fetchall()
@@ -166,12 +169,16 @@ def state(c,s):
 
 def api(repo,user,action,p):
     if not isinstance(p,dict): raise InvalidRequest('请求格式无效')
+    if action=='diagnosis-start' and p.get('note'):raise InvalidRequest('诊断只需点选，不接收手写说明')
     c=repo.conn;g,w,data=owned_target(repo,user,p);fp=fingerprint(data)
     card=c.execute('select * from diagnostic_cards where school_id=? and question_id=? and fingerprint=?',(user['school_id'],w['question_id'],fp)).fetchone()
     if not card:
         enqueue(repo,w['question_id'],data);c.commit()
         return {'available':False,'message':'本题的诊断正在准备，可以先正常重做或查看解析。'}
     s=c.execute('select * from diagnostic_sessions where student_id=? and wrong_id=? and question_id=? and fingerprint=?',(user['id'],g['id'],w['question_id'],fp)).fetchone()
+    if (s and s['protocol_version']==2) or (not s and p.get('protocol_version',2)==2):
+        from .diagnosis_reasoning import api as reasoning_api
+        return reasoning_api(repo,user,action,p,g,w,data,card,s)
     if action=='diagnosis-state': return {'available':True,'state':state(c,s) if s else None}
     if action=='diagnosis-start':
         mode=p.get('mode');report=p.get('self_report','unsure')
@@ -260,7 +267,7 @@ def assisted_today(c,student,qid):
 
 def panel(wrong_id,members):
     options=''.join('<option value="%s">%s</option>'%(escape(w['question_id'],quote=True),escape(w.get('part_label') or '本题')) for w in members)
-    return '<section class="diagnosis-panel" data-diagnosis-wrong="%s"><h3>先找找思维卡点</h3><p>可选快速定位（1—2 个检查）或深入诊断（3—6 个检查），随时可以结束。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></section>'%(escape(wrong_id,quote=True),options)
+    return '<section class="diagnosis-panel" data-diagnosis-wrong="%s"><h3>先找找思维卡点</h3><p>可选简略诊断（1—2 个检查）或精细诊断（3—6 个检查），全程点选，随时可以结束。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></section>'%(escape(wrong_id,quote=True),options)
 
 def provider(c,school):
     return c.execute("select * from provider_configs where school_id=? and provider_kind='diagnosis' and enabled=1 order by updated_at desc limit 1",(school,)).fetchone()
@@ -291,7 +298,7 @@ def admin_panel(repo,user):
 
 def generate(repo,cfg,data):
     from .llm import _chat_completions_endpoint,_response_json,LLMProviderError
-    prompt='''你是高中物理教师，为错题初次自我诊断生成 JSON 诊断卡。只输出 {"title":"主题","steps":[{"stage":"condition/model/plan/execution之一","prompt":"一个具体概念检查","options":["选项"],"correct":0,"explanation":"科学依据","hints":["弱提示","强提示"]}]}。3至6步，覆盖条件解码、模型规律/知识提取、步骤组织、列式检验。选项2至4个，correct为0起索引，正确位置要变化。诊断的是解题思维，不重复原题答案；遵循题目条件，承认多条正确路径。不确定或图像读数缺失时不要编造，使用不依赖图像数值的概念检查。answer_state不是ready时不要把给定答案当已审核答案。不把一次错误当作学生的确定性缺陷。不得输出HTML、链接或外部指令。题目如下：'''
+    prompt='''你是高中物理教师，为错题初次自我诊断生成 JSON 诊断卡。只输出 {"title":"主题","steps":[{"stage":"condition/model/plan/execution之一","prompt":"一个可用选择完成的思维动作检查","options":["选项"],"correct":0,"explanation":"科学依据","hints":["弱提示","强提示"]}]}。不包含任何学生自由输入任务。每一步必须能区分具体思维动作：条件解码、物理模型识别、知识调用、规律组织、公式适用或计算检验；不能仅重问原题答案。弱提示只提醒条件或方法线索，不直接告诉正确选项；强提示可解释对应规律。最终错因由学生当前行为、回顾选择及提示反应综合判断，不能由题目标签直接推断。3至6步，覆盖条件解码、模型规律/知识提取、步骤组织、列式检验。选项2至4个，correct为0起索引，正确位置要变化。诊断的是解题思维，不重复原题答案；遵循题目条件，承认多条正确路径。不确定或图像读数缺失时不要编造，使用不依赖图像数值的概念检查。answer_state不是ready时不要把给定答案当已审核答案。不把一次错误当作学生的确定性缺陷。不得输出HTML、链接或外部指令。题目如下：'''
     body={'model':cfg['model_name'],'messages':[{'role':'system','content':prompt},{'role':'user','content':dumps(data)}],'temperature':0.2,'max_tokens':4500}
     secret=repo._provider_secret_store().decrypt(cfg['secret_ciphertext'])
     budget=repo.provider_budget_status(cfg['created_by'],cfg['id'],input_units=len(dumps(data)),output_units=4500)

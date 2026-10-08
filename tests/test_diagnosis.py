@@ -28,7 +28,7 @@ class DiagnosisTests(unittest.TestCase):
         diagnosis.store_card(self.repo,self.w['question_id'],self.data,card(),'test-reviewed');self.c.commit()
         self.p={'wrong_id':self.w['id'],'question_id':self.w['question_id']}
     def tearDown(self):self.c.close()
-    def api(self,action,**p):return diagnosis.api(self.repo,self.user,'diagnosis-'+action,{**self.p,**p})
+    def api(self,action,**p):return diagnosis.api(self.repo,self.user,'diagnosis-'+action,{**self.p,'protocol_version':1,**p})
     def start(self,mode='quick',report='unsure'):return self.api('start',mode=mode,self_report=report)['state']
     def event(self,s,event,key=None,**p):return self.api('event',session_id=s['session_id'],cursor=s['cursor'],event=event,request_key=key or event+str(s['cursor']),**p)['state']
 

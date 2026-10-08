@@ -22,7 +22,7 @@ class LearningGraphTests(unittest.TestCase):
     def test_teacher_reviews_card_and_sessions_pin_both_versions(self):
         before=[tuple(r) for r in self.c.execute('select * from student_responses')]
         self.save('第一版')
-        s=diagnosis.api(self.repo,self.user,'diagnosis-start',dict(wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))['state']
+        s=diagnosis.api(self.repo,self.user,'diagnosis-start',dict(protocol_version=1,wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))['state']
         pinned=dict(self.c.execute('select * from diagnostic_sessions').fetchone());self.save('第二版')
         self.assertEqual(pinned,dict(self.c.execute('select * from diagnostic_sessions').fetchone()))
         self.assertEqual('第一版',graph.session_card(self.c,pinned)['title'])
@@ -92,14 +92,14 @@ class LearningGraphTests(unittest.TestCase):
         graph.prepare_candidate(self.repo,self.card_id);self.c.commit()
         _,g=graph.latest(self.c,self.user['school_id']);self.assertEqual('draft',g['cards'][self.card_id]['status'])
         data=graph.student_data(self.repo,self.user);self.assertFalse(any(n['kind']=='objective' for n in data['nodes']))
-        s=diagnosis.api(self.repo,self.user,'diagnosis-start',dict(wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))['state']
+        s=diagnosis.api(self.repo,self.user,'diagnosis-start',dict(protocol_version=1,wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))['state']
         row=self.c.execute('select * from diagnostic_sessions where id=?',(s['session_id'],)).fetchone();self.assertEqual('[]',row['graph_mapping_json'])
         self.save();self.assertTrue(any(n['kind']=='objective' for n in graph.student_data(self.repo,self.user)['nodes']))
     def test_publication_and_pinned_mapping_export_restore(self):
         from highschoolphysics.backup import export_tables,restore_backup
         from highschoolphysics.db import connect,initialize_database
         self.save()
-        diagnosis.api(self.repo,self.user,'diagnosis-start',dict(wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))
+        diagnosis.api(self.repo,self.user,'diagnosis-start',dict(protocol_version=1,wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))
         backup=export_tables(self.c);destination=connect(':memory:');initialize_database(destination)
         from highschoolphysics.learning import migrate as migrate_learning
         migrate_learning(destination)
