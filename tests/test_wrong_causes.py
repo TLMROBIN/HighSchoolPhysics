@@ -80,3 +80,18 @@ class WrongCauseTests(unittest.TestCase):
         student_learning.api(self.repo, self.user, 'bank-add-wrong', dict(trial_id=trial['id']))
         self.group = next(g for g in student_learning.group_wrongs(self.repo,self.user) if g['anchor']['personal'])
         self.assertEqual(['formula_application'], self.save(['formula_application'])['causes'])
+
+    def test_filters_latest_multiselect_unmarked_unknown_and_page_scope(self):
+        self.assertTrue(wrong_causes.matches(self.c,self.user,self.group,'unmarked'))
+        self.save(['calculation','knowledge_retrieval'])
+        for cause in ('calculation','knowledge_retrieval'):
+            self.assertTrue(wrong_causes.matches(self.c,self.user,self.group,cause))
+            page=student_learning.page(self.repo,self.user,{'module':['wrong'],'cause':[cause]})
+            self.assertIn('data-wrong-causes="'+self.group['id']+'"',page)
+            self.assertIn('name="cause"',page)
+        self.assertFalse(wrong_causes.matches(self.c,self.other,self.group,'calculation'))
+        self.save(['unsure']);self.assertFalse(wrong_causes.matches(self.c,self.user,self.group,'calculation'));self.assertFalse(wrong_causes.matches(self.c,self.user,self.group,'unmarked'))
+        self.assertTrue(wrong_causes.matches(self.c,self.user,self.group,'unsure'))
+        self.save([]);self.assertTrue(wrong_causes.matches(self.c,self.user,self.group,'unmarked'))
+        self.assertFalse(wrong_causes.matches(self.c,self.user,self.group,'invalid'))
+        self.assertNotIn('name="cause"',student_learning.page(self.repo,self.user,{'module':['bank']}))

@@ -100,3 +100,10 @@ def panel(c, user, group):
         <p>可多选，点选即保存，再点取消。记录你的判断；不清楚时可选“还不确定”。</p>
         <div class="wrong-cause-options">%s</div><p role="status" aria-live="polite">%s</p></section>''' % (
             esc(group['id']), current['scope_key'], current['revision'], buttons, esc(status))
+
+
+def matches(c,user,group,cause):
+    if not cause:return True
+    if cause not in CAUSES and cause!='unmarked':return False
+    causes=state(c,user,group)['causes']
+    return not causes if cause=='unmarked' else cause in causes

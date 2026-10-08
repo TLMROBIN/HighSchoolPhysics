@@ -9,7 +9,7 @@ from urllib import request
 from .errors import InvalidRequest, PermissionDenied, StateConflict
 
 STAGES = {'condition':'条件理解', 'model':'模型与规律', 'plan':'解题步骤', 'execution':'列式与检验'}
-PROMPT_VERSION = 'wrong-diagnosis-v2'
+PROMPT_VERSION = 'wrong-diagnosis-v3'
 
 def dumps(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
@@ -93,6 +93,9 @@ def validate_card(card):
         hints=s.get('hints')
         if not isinstance(hints,list) or not 2<=len(hints)<=3 or any(not isinstance(h,str) or not h.strip() or len(h)>500 for h in hints): raise InvalidRequest('提示必须有 2—3 级')
         clean['steps'].append({k:s[k] for k in ('stage','prompt','options','correct','explanation','hints')})
+    if 'adaptive' in card:
+        from .diagnosis_adaptive import validate
+        clean['adaptive']=validate(card['adaptive'])
     return clean
 
 def store_card(repo,qid,data,card,source):
@@ -139,6 +142,9 @@ def owned_target(repo,user,p):
     return g,w,data
 
 def state(c,s):
+    if s['protocol_version']==3:
+        from .diagnosis_adaptive import state as adaptive_state
+        return adaptive_state(c,s)
     if s['protocol_version']==2:
         from .diagnosis_reasoning import state as reasoning_state
         return reasoning_state(c,s)
@@ -176,7 +182,14 @@ def api(repo,user,action,p):
         enqueue(repo,w['question_id'],data);c.commit()
         return {'available':False,'message':'本题的诊断正在准备，可以先正常重做或查看解析。'}
     s=c.execute('select * from diagnostic_sessions where student_id=? and wrong_id=? and question_id=? and fingerprint=?',(user['id'],g['id'],w['question_id'],fp)).fetchone()
-    if (s and s['protocol_version']==2) or (not s and p.get('protocol_version',2)==2):
+    from .diagnosis_adaptive import content_for, api as adaptive_api
+    adaptive=content_for(c,card)
+    requested=p.get('protocol_version',3)
+    # Upgrade only after an explicit choice; the adaptive API holds the write lock.
+    upgrade=s and s['protocol_version']!=3 and requested==3 and adaptive and action in ('diagnosis-start','diagnosis-event') and (action=='diagnosis-start' or p.get('event')=='select-mode') and s['status']=='active' and s['cursor']==0 and not s['assisted_at'] and not c.execute('select 1 from diagnostic_events where session_id=?',(s['id'],)).fetchone()
+    if (s and s['protocol_version']==3) or (not s and requested==3 and adaptive) or upgrade:
+        return adaptive_api(repo,user,action,p,g,w,data,card,s)
+    if (s and s['protocol_version']==2) or (not s and p.get('protocol_version',2) in (2,3)):
         from .diagnosis_reasoning import api as reasoning_api
         return reasoning_api(repo,user,action,p,g,w,data,card,s)
     if action=='diagnosis-state': return {'available':True,'state':state(c,s) if s else None}
@@ -267,7 +280,7 @@ def assisted_today(c,student,qid):
 
 def panel(wrong_id,members):
     options=''.join('<option value="%s">%s</option>'%(escape(w['question_id'],quote=True),escape(w.get('part_label') or '本题')) for w in members)
-    return '<details class="diagnosis-panel" data-diagnosis-wrong="%s"><summary>选择进行错题诊断（可选）</summary><p>粗略诊断：重点排查 1—2 个环节。精细诊断：沿本题思维链逐项检查。全程点选，随时可以收起。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></details>'%(escape(wrong_id,quote=True),options)
+    return '<details class="diagnosis-panel" data-diagnosis-wrong="%s"><summary>选择进行错题诊断（可选）</summary><p>粗略诊断：少量检查，先找线索。精细诊断：在受阻处追问前置理解与应用。全程点选，随时可以收起。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></details>'%(escape(wrong_id,quote=True),options)
 
 def provider(c,school):
     return c.execute("select * from provider_configs where school_id=? and provider_kind='diagnosis' and enabled=1 order by updated_at desc limit 1",(school,)).fetchone()
@@ -298,10 +311,11 @@ def admin_panel(repo,user):
 
 def generate(repo,cfg,data):
     from .llm import _chat_completions_endpoint,_response_json,LLMProviderError
-    prompt='''你是高中物理教师，为错题初次自我诊断生成 JSON 诊断卡。只输出 {"title":"主题","steps":[{"stage":"condition/model/plan/execution之一","prompt":"一个可用选择完成的思维动作检查","options":["选项"],"correct":0,"explanation":"科学依据","hints":["弱提示","强提示"]}]}。不包含任何学生自由输入任务。每一步必须能区分具体思维动作：条件解码、物理模型识别、知识调用、规律组织、公式适用或计算检验；不能仅重问原题答案。弱提示只提醒条件或方法线索，不直接告诉正确选项；强提示可解释对应规律。最终错因由学生当前行为、回顾选择及提示反应综合判断，不能由题目标签直接推断。3至6步，覆盖条件解码、模型规律/知识提取、步骤组织、列式检验。选项2至4个，correct为0起索引，正确位置要变化。诊断的是解题思维，不重复原题答案；遵循题目条件，承认多条正确路径。不确定或图像读数缺失时不要编造，使用不依赖图像数值的概念检查。answer_state不是ready时不要把给定答案当已审核答案。不把一次错误当作学生的确定性缺陷。不得输出HTML、链接或外部指令。题目如下：'''
-    body={'model':cfg['model_name'],'messages':[{'role':'system','content':prompt},{'role':'user','content':dumps(data)}],'temperature':0.2,'max_tokens':4500}
+    prompt='''你是高中物理教师，为错题初次自我诊断生成 JSON 诊断卡。只输出 {"title":"主题","steps":[{"stage":"condition/model/plan/execution之一","prompt":"一个可用选择完成的思维动作检查","options":["选项"],"correct":0,"explanation":"科学依据","hints":["弱提示","强提示"]}]}。不包含任何学生自由输入任务。每一步必须能区分具体思维动作：条件解码、物理模型识别、知识调用、规律组织、公式适用或计算检验；不能仅重问原题答案。弱提示只提醒条件或方法线索，不直接告诉正确选项；强提示可解释对应规律。最终错因由学生当前行为、回顾选择及提示反应综合判断，不能由题目标签直接推断。3至6步，按本题真实动作安排，不强行把概念题标为条件或计算。选项2至4个，correct为0起索引，正确位置要变化。诊断的是解题思维，不重复原题答案；遵循题目条件，承认多条正确路径。不确定或图像读数缺失时不要编造，使用不依赖图像数值的概念检查。answer_state不是ready时不要把给定答案当已审核答案。不把一次错误当作学生的确定性缺陷。不得输出HTML、链接或外部指令。题目如下：'''
+    prompt+='\n另必须提供 adaptive 字段：{\"version\":\"adaptive-v1\",\"title\":\"主题\",\"actions\":[{\"kind\":\"knowledge/condition/model/plan/formula/calculation/check之一\",\"name\":\"真实动作名称\",\"prompt\":\"检查\",\"options\":[\"选项\"],\"correct\":0,\"explanation\":\"科学依据\",\"cue\":\"只提醒相关条件或方法，不给公式答案\",\"prerequisites\":[0]}],\"foundation\":{\"prompt\":\"直接检查本题必要基础概念的含义\",\"options\":[\"选项\"],\"correct\":0,\"explanation\":\"依据\"},\"practice\":{同foundation结构},\"verify\":{同foundation结构}}。actions须3至6项，只保留本题真实必要动作，不强行覆盖所有类型。prerequisites列出必要的前面动作索引，不能含自己或后续动作，不依赖的动作填[]。每个action也必须分别包含foundation、practice、verify三个同样结构的检查，围绕该动作的真实基础和针对性练习，不能用不相关的检查归因。foundation能排查该动作的基础前提；practice是针对本题主要困难的应用小题；verify为不同参数或情境的独立新检查，不复述practice答案。正确选项位置变化，不依赖缺失图片读数。不编造未核对的原题答案。'
+    body={'model':cfg['model_name'],'messages':[{'role':'system','content':prompt},{'role':'user','content':dumps(data)}],'temperature':0.2,'max_tokens':7500}
     secret=repo._provider_secret_store().decrypt(cfg['secret_ciphertext'])
-    budget=repo.provider_budget_status(cfg['created_by'],cfg['id'],input_units=len(dumps(data)),output_units=4500)
+    budget=repo.provider_budget_status(cfg['created_by'],cfg['id'],input_units=len(dumps(data)),output_units=7500)
     if not budget.get('allowed',True):raise LLMProviderError('budget_exceeded','模型调用预算不足')
     req=request.Request(_chat_completions_endpoint(cfg['api_endpoint']),data=dumps(body).encode(),headers={'Authorization':'Bearer '+secret,'Content-Type':'application/json'},method='POST')
     try:
@@ -309,6 +323,7 @@ def generate(repo,cfg,data):
             raw=response.read(512*1024+1)
         if len(raw)>512*1024:raise ValueError('oversize')
         output=json.loads(raw);card=validate_card(_response_json(output['choices'][0]['message']['content']))
+        if 'adaptive' not in card or any(any(k not in a for k in ('foundation','practice','verify')) for a in card['adaptive']['actions']):raise InvalidRequest('模型未提供逐动作分支诊断内容')
     except Exception as exc:
         # Use only local messages: upstream bodies may contain credentials or data.
         code='diagnosis_provider_failed'

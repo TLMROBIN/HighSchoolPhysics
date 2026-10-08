@@ -81,7 +81,8 @@ class DiagnosisTests(unittest.TestCase):
         cfg=diagnosis.provider(self.c,self.admin['school_id']);self.assertEqual('secret-test-value',self.repo._provider_secret_store().decrypt(cfg['secret_ciphertext']))
         self.assertEqual(1,self.c.execute("select count(*) from provider_configs where provider_kind='diagnosis' and enabled=1").fetchone()[0])
         html=render_admin_app(self.admin,self.repo.admin_dashboard(self.admin['id']));self.assertIn('name="baseurl"',html);self.assertNotIn('secret-test-value',html)
-        response=unittest.mock.MagicMock();response.__enter__.return_value.read.return_value=json.dumps({'choices':[{'message':{'content':json.dumps(card())}}],'usage':{'prompt_tokens':10,'completion_tokens':20}}).encode()
+        from tests.test_diagnosis_adaptive import sample
+        response=unittest.mock.MagicMock();response.__enter__.return_value.read.return_value=json.dumps({'choices':[{'message':{'content':json.dumps(dict(card(),adaptive=sample()))}}],'usage':{'prompt_tokens':10,'completion_tokens':20}}).encode()
         with patch.object(diagnosis.request,'urlopen',return_value=response) as call:
             diagnosis.test_config(self.repo,self.admin)
             req=call.call_args[0][0];self.assertEqual('https://api.example.com/v1/chat/completions',req.full_url)

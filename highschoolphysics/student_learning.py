@@ -485,13 +485,14 @@ def knowledge_picker(items,selected):
 
 def filters(repo,user,module,params,bank=False):
     from .learning_views import hidden
+    from .wrong_causes import CAUSES
     catalog=question_bank.taxonomy(repo,user)
     selected=lambda key:(params.get(key) or [''])[0]
     def picker(key,label,items):
         return '<label>%s<select name="%s"><option value="">全部</option>%s</select></label>'%(label,key,''.join(
             '<option value="%s"%s>%s</option>'%(esc(k),' selected' if selected(key)==k else '',esc(v)) for k,v in items))
     return '<aside class="student-filter-sidebar"><details class="student-filter-drawer" data-filter-scope="'+module+'" open><summary aria-label="展开或收起筛选条件" title="筛选条件"><svg class="student-filter-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8Z"/></svg><span class="student-filter-title">筛选条件</span></summary><form method="get" class="student-filters">'+hidden('module',module)+'<label>搜索题目<input type="search" name="search" value="'+esc(selected('search'))+'"></label>'+knowledge_picker(catalog['knowledge'],selected('knowledge'))+''.join(
-        picker(k,label,[(t['id'],t['path_text']) for t in catalog[k]]) for k,label in KINDS.items() if k!='knowledge')+picker('type','题型',list(TYPES.items()))+picker('level','难度',[(l,l) for l in LEVELS])+(
+        picker(k,label,[(t['id'],t['path_text']) for t in catalog[k]]) for k,label in KINDS.items() if k!='knowledge')+(picker('cause','我标记的错因',[('unmarked','尚未标记')]+list(CAUSES.items())) if module=='wrong' else '')+picker('type','题型',list(TYPES.items()))+picker('level','难度',[(l,l) for l in LEVELS])+(
         picker('batch','导入批次',[(r['id'],r['source_file_name']) for r in repo.conn.execute('select id,source_file_name from question_import_batches where school_id=? order by created_at desc',(user['school_id'],))])+
         picker('paper','试卷',[(r['id'],r['title']) for r in question_bank.list_papers(repo,user)]) if bank else '')+'<button>筛选</button><a href="app?module='+module+'">重置筛选</a></form></details></aside>'
 
@@ -695,7 +696,8 @@ def page(repo,user,params,base_path=''):
         out.append('<h2>错题本</h2>')
         if value('mastered'):out.append('<p role="status">已移出错题本，不再提示复习。</p>')
         tag_sets=tag_filters(repo,user,params)
-        matched=[g for g in all_wrongs if any(match(w,params,tag_sets) for w in g['members'])]
+        from .wrong_causes import matches as cause_matches
+        matched=[g for g in all_wrongs if any(match(w,params,tag_sets) for w in g['members']) and cause_matches(c,user,g,value('cause'))]
         cards=['<p>共 %s 道错题</p>'%len(matched)]
         from .wrong_causes import panel as cause_panel
         for i,g in enumerate(matched,1):
@@ -711,7 +713,7 @@ def page(repo,user,params,base_path=''):
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
-    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-diagnosis-optin-v3"><script src="assets/diagnosis.js?v=20261008-diagnosis-optin-v3" defer></script>')
+    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-adaptive-v1"><script src="assets/diagnosis.js?v=20261008-adaptive-v1" defer></script>')
     out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261008-wrong-causes-v1"><script src="assets/student-learning.js?v=20261008-wrong-causes-v1" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

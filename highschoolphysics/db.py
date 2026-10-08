@@ -276,6 +276,8 @@ def initialize_database(conn):
     migrate_reasoning(conn)
     from .wrong_causes import migrate as migrate_wrong_causes
     migrate_wrong_causes(conn)
+    from .diagnosis_adaptive import migrate as migrate_adaptive
+    migrate_adaptive(conn)
 
 
 def _initialize_legacy_schema(conn):
