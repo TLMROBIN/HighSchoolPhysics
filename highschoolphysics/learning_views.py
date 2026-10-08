@@ -660,13 +660,11 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
             '<p>无作答记录不等于缺考。教师核实后确认缺考，发布时才会跳过；已有部分作答的学生需补齐缺失题目。</p>']
     body.append('<h4>没有作答记录，待教师确认（%s人）</h4>' % len(no_cards))
     if no_cards:
-        body.append('<table><tr><th>班级 / 学生</th><th>教师确认</th></tr>')
+        items = ['<div class="exam-bulk-toolbar"><label class="exam-check"><input type="checkbox" data-bulk-all>全选</label><span data-bulk-count>已选0人</span></div><ul class="exam-confirm-list">']
         for p in no_cards:
-            body.append('<tr><td>%s · %s</td><td>%s</td></tr>' % (esc(p['class_name']), esc(p['display_name']),
-                form('missing-student', hidden('assessment_id', assessment_id) + hidden('student_id', p['student_id']) +
-                     hidden('status', 'absent') + '<label>缺考原因<input name="reason" required maxlength="1000" placeholder="填写教师核实结果"></label>' +
-                     '<label><input type="checkbox" required>已核实该学生缺考</label><button>确认缺考，发布时跳过</button>')))
-        body.append('</table>')
+            items.append('<li><label class="exam-check"><input type="checkbox" name="student_ids" value="%s" data-bulk-item><span>%s · %s</span></label></li>' % (esc(p['student_id']),esc(p['class_name']),esc(p['display_name'])))
+        items.append('</ul><label>缺考原因（选填）<input name="reason" maxlength="1000" placeholder="可以不填写"></label><button type="submit" data-bulk-submit disabled>批量确认缺考</button>')
+        body.append(form('missing-students-batch',hidden('assessment_id',assessment_id)+''.join(items)))
     else:
         body.append('<p>当前没有等待缺考确认的学生。</p>')
     if absent:
@@ -688,18 +686,17 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
     pending = [r for r in responses if r['outcome'] == 'pending' and r['student_id'] in students]
     body.append('<section id="exam-pending-reviews" class="exam-pending-reviews"><h4>待确认作答（%s项）</h4>' % len(pending))
     if pending:
-        body.append('<p>在下方原卡中拖动查看细节，用缩放按钮或滚轮放大；核对后填写答案、结果和依据。</p>')
+        body.append('<p>勾选要确认的作答，核对每项答案和结果后批量保存。答题卡点击后展开，核对依据可不填写。</p>')
+        items = ['<div class="exam-bulk-toolbar"><label class="exam-check"><input type="checkbox" data-bulk-all>全选</label><span data-bulk-count>已选0项</span></div><ul class="exam-confirm-list">']
         for r in pending:
             p = students[r['student_id']]
             q = question_map[r['snapshot_id']]
             content = snapshot_content(c, q['id'], r['school_id']) or {}
             number = (content.get('document') or {}).get('number') or q['original_question_number'] or q['position']
             label = '第%s题 %s' % (number, content.get('child_label', ''))
-            body.append('<article class="exam-review-item"><div class="exam-review-evidence"><h5>%s · %s · %s</h5>'
-                        '<p>%s</p>%s</div><div class="exam-review-controls">%s</div></article>' % (
-                            esc(p['class_name']), esc(p['display_name']), esc(label),
-                            esc(r['final_answer'] or r['initial_answer'] or '未识别到答案'),
-                            _review_card_viewer(c, assessment_id, r, q), response_controls(r, False, expanded=True)))
+            items.append('<li data-review-row data-response-id="%s" data-decision-id="%s"><label class="exam-check"><input type="checkbox" data-bulk-item><span>%s · %s · %s</span></label><div class="exam-review-fields">%s</div><details class="exam-card-details"><summary>查看答题卡</summary>%s</details></li>' % (esc(r['id']),esc(r['effective_decision_id']),esc(p['class_name']),esc(p['display_name']),esc(label),response_controls(r,False,batch=True),_review_card_viewer(c,assessment_id,r,q)))
+        items.append('</ul><label>核对依据（选填）<textarea name="reason" maxlength="2000" placeholder="可以不填写"></textarea></label><button type="submit" data-bulk-submit disabled>批量确认待复核作答</button>')
+        body.append(form('response-review-batch',hidden('assessment_id',assessment_id)+''.join(items)))
     else:
         body.append('<p>当前没有等待复核的作答。</p>')
     body.append('</section></section>')
@@ -709,7 +706,7 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
 def _review_card_viewer(c, assessment_id, response, question):
     cards = c.execute("select id,source_file,front_page,back_page from unmatched_answer_cards where assessment_id=? and assigned_student_id=? and status='assigned' order by rowid", (assessment_id, response['student_id'])).fetchall()
     sources = []
-    preferred = 'back' if question['position'] >= 19 else 'front'
+    preferred = 'back' if question['position'] >= 20 else 'front'
     for card in cards:
         for side, label in (('front', '正面'), ('back', '背面')):
             sources.append(('exam-unmatched-card-media?id=%s&side=%s' % (quote(card['id']), side),
@@ -992,7 +989,7 @@ def export_wrong_book(repo,user,aid,student_id=None,class_id=None,base_path=""):
     return ''.join(out)+'</section>'
 
 
-def response_controls(r, published, expanded=False):
+def response_controls(r, published, expanded=False, batch=False):
     if not published and r['outcome']!='pending':
         return ''
     action='response-correct' if published else 'response-review'
@@ -1002,7 +999,9 @@ def response_controls(r, published, expanded=False):
     body+='<label>核对后的结果'+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'</label>'
     if published:
         body+='<label>更正类型'+select('reason_code',[('extraction_error','识别或转录错误'),('external_error','外部结果错误'),('judgment_error','判定错误')])+'</label>'
-    body+='<label>核对依据（必填）<textarea name="reason" required maxlength="2000"></textarea></label>'
+    if batch:
+        return '<label>核对后的答案<textarea name="answer">%s</textarea></label><label>核对后的结果%s</label>' % (esc(r['final_answer']),select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')]).replace(' required',''))
+    body+='<label>核对依据（%s）<textarea name="reason"%s maxlength="2000"></textarea></label>' % ('必填' if published else '选填',' required' if published else '')
     body+='<button>%s</button><div class="response-preview"></div>' % ('预览更正影响' if published else '确认复核')
     if published:
         body+='<button type="button" class="confirm-answers" hidden>确认更正并更新统计</button>'

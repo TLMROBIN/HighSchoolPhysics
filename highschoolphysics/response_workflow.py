@@ -740,8 +740,8 @@ def confirm_missing_student(repo, user, p):
                         (a["id"], student["student_id"])).fetchone():
             raise StateConflict("学生已有作答记录，请核对缺失题目，不能按无答卷确认缺考")
         reason = str(p.get("reason") or "").strip()
-        if status == "absent" and (not reason or len(reason) > 1000):
-            raise InvalidRequest("请填写教师核实的缺考原因（最多1000字）")
+        if len(reason) > 1000:
+            raise InvalidRequest("缺考原因最多1000字，可不填写")
         conn.execute("update assessment_participants set status=? where assessment_id=? and student_id=?",
                      (status, a["id"], student["student_id"]))
         _audit(conn, user, "missing_student_confirmed", a["id"], {
@@ -804,9 +804,62 @@ def publish(repo,user,p):
         conn.rollback();raise
 
 
-def review_or_correct(repo,user,p,correction=False):
+
+def confirm_missing_students(repo, user, p):
+    ids = p.get("student_ids", [])
+    if isinstance(ids, str): ids = [ids]
+    if not isinstance(ids, list) or not 1 <= len(ids) <= 500 or any(not isinstance(i,str) or not i for i in ids) or len(set(ids)) != len(ids):
+        raise InvalidRequest("请选择要确认缺考的学生，最多500人")
+    reason = str(p.get("reason") or "").strip()
+    if len(reason) > 1000: raise InvalidRequest("缺考原因最多1000字，可不填写")
+    conn = repo.conn
+    conn.commit(); conn.execute("begin immediate")
+    try:
+        a = assessment(repo,user,p["assessment_id"])
+        if a["grading_status"] == "published": raise StateConflict("已发布的考试不能更改参试状态")
+        students = []
+        for sid in ids:
+            student = conn.execute("select ap.* from assessment_participants ap join users u on u.id=ap.student_id where ap.assessment_id=? and ap.student_id=? and u.school_id=?",(a["id"],sid,user["school_id"])).fetchone()
+            if not student or student["status"] != "present": raise StateConflict("名单或参试状态已变化，请刷新后重新选择")
+            if conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",(a["id"],sid)).fetchone():
+                raise StateConflict("所选学生已有作答记录，未确认任何人缺考；请刷新核对")
+            students.append(student)
+        for student in students:
+            conn.execute("update assessment_participants set status='absent' where assessment_id=? and student_id=?",(a["id"],student["student_id"]))
+            _audit(conn,user,"missing_student_confirmed",a["id"],{"student_id":student["student_id"],"previous_status":"present","status":"absent","reason":reason,"batch":True})
+        conn.commit()
+        return {"message":"已批量确认%s人缺考，发布时将跳过" % len(students),"count":len(students)}
+    except Exception:
+        conn.rollback(); raise
+
+
+def review_batch(repo, user, p):
+    records = p.get("records")
+    if not isinstance(records,list) or not 1 <= len(records) <= 200 or any(not isinstance(r,dict) for r in records):
+        raise InvalidRequest("请选择要确认的作答，最多200项")
+    ids = [r.get("response_id") for r in records]
+    if any(not isinstance(i,str) or not i for i in ids) or len(set(ids)) != len(ids): raise InvalidRequest("作答选择无效或重复")
+    key = str(p.get("request_key") or "").strip()
+    if not key or len(key)>60: raise InvalidRequest("批量提交标识无效")
+    conn = repo.conn
+    conn.commit(); conn.execute("begin immediate")
+    try:
+        a = assessment(repo,user,p["assessment_id"])
+        if a["grading_status"] == "published": raise StateConflict("已发布的考试请使用结果更正")
+        for record in records:
+            r,_ = _response(repo,user,record["response_id"])
+            if r["assessment_id"] != a["id"]: raise InvalidRequest("所选作答不属于本次考试")
+        for index,record in enumerate(records):
+            review_or_correct(repo,user,dict(record,reason=p.get("reason",""),request_key=key+"-"+str(index)),_batch=True)
+        conn.commit()
+        return {"message":"已批量确认%s条作答" % len(records),"count":len(records)}
+    except Exception:
+        conn.rollback(); raise
+
+def review_or_correct(repo,user,p,correction=False, _batch=False):
     conn=repo.conn
-    conn.execute("begin immediate")
+    if not _batch:
+        conn.execute("begin immediate")
     try:
         r,a=_response(repo,user,p["response_id"])
         if (a["grading_status"]=="published") != correction:
@@ -818,8 +871,8 @@ def review_or_correct(repo,user,p,correction=False):
         code=p.get("reason_code","teacher_review")
         if code not in ("teacher_review","extraction_error","external_error","judgment_error"):
             raise InvalidRequest("此入口仅支持作答或结果更正；身份和标准答案修订需另行核对")
-        if not reason or len(reason)>2000 or not key or len(key)>100 or not isinstance(answer,str) or outcome not in ("correct","wrong","blank"):
-            raise InvalidRequest("请填写答案、已确认结果、更正/复核依据及提交标识")
+        if (correction and not reason) or len(reason)>2000 or not key or len(key)>100 or not isinstance(answer,str) or outcome not in ("correct","wrong","blank"):
+            raise InvalidRequest("请填写答案、已确认结果及提交标识；发布后更正需填写依据")
         score_evidence=conn.execute('select imported_score from response_evidence where response_id=? and imported_score is not null limit 1',(r['id'],)).fetchone()
         score_only=bool(score_evidence and not (r['initial_answer'] or '').strip())
         if score_only and not answer.strip() and outcome=='blank':
@@ -830,7 +883,8 @@ def review_or_correct(repo,user,p,correction=False):
         if prior:
             if (prior["answer"],prior["outcome"],prior["reason"],prior["reason_code"])!=(answer,outcome,reason,code):
                 raise StateConflict("重复请求内容不一致")
-            conn.rollback();return {"message":"已处理，未重复写入"}
+            if not _batch: conn.rollback()
+            return {"message":"已处理，未重复写入"}
         expected=p.get("expected_decision_id")
         if not expected or expected!=r["effective_decision_id"]:
             raise StateConflict("这条作答已经变化，请刷新后重新核对")
@@ -865,7 +919,8 @@ def review_or_correct(repo,user,p,correction=False):
             _sync_wrong(conn,conn.execute("select * from student_responses where id=?",(r["id"],)).fetchone())
             _publication(conn,user,a["id"],"correction")
         _audit(conn,user,"response_corrected" if correction else "response_reviewed",r["id"],{"decision_id":did,"reason":reason})
-        conn.commit()
+        if not _batch: conn.commit()
         return dict(message="更正已生效；首次记录和历史练习保留" if correction else "作答已复核",decision_id=did)
     except Exception:
-        conn.rollback();raise
+        if not _batch: conn.rollback()
+        raise

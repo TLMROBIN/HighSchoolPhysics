@@ -285,6 +285,8 @@ def api(repo,user,action,p,base_path=""):
         return {'csv':read_file(p)}
     if action=='publish': return response_workflow.publish(repo,user,p)
     if action=='response-history': return response_workflow.history(repo,user,p)
+    if action=='missing-students-batch': return response_workflow.confirm_missing_students(repo,user,p)
+    if action=='response-review-batch': return response_workflow.review_batch(repo,user,p)
     if action=='response-review': return response_workflow.review_or_correct(repo,user,p)
     if action=='response-correct': return response_workflow.review_or_correct(repo,user,p,correction=True)
     if action=='submit': return submit(repo,actor,p)

@@ -48,6 +48,42 @@ class ResponseWorkflowTests(unittest.TestCase):
         learning.api(self.repo,self.admin,'response-correct',dict(p,confirm=True,preview_token=preview['preview_token']))
         return p,preview
 
+    def test_bulk_absence_optional_reason_and_atomic_validation(self):
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
+        self.save(self.payload())
+        html=learning_views.exams(self.repo,self.admin,self.a)
+        self.assertIn('data-action="missing-students-batch"',html)
+        self.assertIn('缺考原因（选填）',html)
+        with self.assertRaises(PermissionDenied):
+            learning.api(self.repo,self.student,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002']))
+        with self.assertRaises(StateConflict):
+            learning.api(self.repo,self.admin,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002','stu-1001']))
+        self.assertEqual(self.c.execute("select status from assessment_participants where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],'present')
+        result=learning.api(self.repo,self.admin,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002']))
+        self.assertEqual(result['count'],1)
+        self.assertEqual(self.c.execute("select status from assessment_participants where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],'absent')
+
+    def test_bulk_review_optional_reason_atomic_stale_and_retry(self):
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
+        self.save(dict(assessment_id=self.a,request_key='pending-bulk',records=[dict(student_id=i,number=1,answer='E') for i in ['stu-1001','stu-1002']]))
+        rows=self.c.execute('select * from student_responses where assessment_id=? order by student_id',(self.a,)).fetchall()
+        records=[dict(response_id=r['id'],expected_decision_id=r['effective_decision_id'],answer='B',outcome='correct') for r in rows]
+        payload=dict(assessment_id=self.a,request_key='review-bulk',records=records)
+        invalid=dict(payload,records=[records[0],dict(records[1],expected_decision_id='stale')])
+        with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'response-review-batch',invalid)
+        self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and outcome='pending'",(self.a,)).fetchone()[0],2)
+        html=learning_views.exams(self.repo,self.admin,self.a)
+        self.assertIn('data-action="response-review-batch"',html)
+        self.assertIn('data-bulk-all',html)
+        self.assertIn('核对依据（选填）',html)
+        self.assertIn('<details class="exam-card-details"><summary>查看答题卡</summary>',html)
+        self.assertNotIn('<details class="exam-card-details" open',html)
+        result=learning.api(self.repo,self.admin,'response-review-batch',payload);self.assertEqual(result['count'],2)
+        decision_count=self.c.execute('select count(*) from response_decisions').fetchone()[0]
+        learning.api(self.repo,self.admin,'response-review-batch',payload)
+        self.assertEqual(self.c.execute('select count(*) from response_decisions').fetchone()[0],decision_count)
+        self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and outcome='correct'",(self.a,)).fetchone()[0],2)
+
     def test_import_preview_required_and_immutable_evidence(self):
         p=self.payload()
         with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(p,confirm=True))
