@@ -116,8 +116,8 @@ def render_layout(title, user, body, active="", question_math=False):
         asset_version=escape(ASSET_VERSION),
         user_text=user_text,
         body=body,
-        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261006-answers-v4">' if 'data-question-bank' in body else '',
-        bank_scripts='<script defer src="/assets/question-bank.js?v=20261008-tag-request-key-v1"></script>' if 'data-question-bank' in body else '',
+        bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261008-ai-progress-v1">' if 'data-question-bank' in body else '',
+        bank_scripts='<script defer src="/assets/question-bank.js?v=20261008-ai-progress-v1"></script>' if 'data-question-bank' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(

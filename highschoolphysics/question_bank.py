@@ -305,10 +305,12 @@ def jobs(repo, user, ids):
         raise InvalidRequest('需要 1—500 个任务 ID')
     result=[]
     for jid in ids:
-        row=repo.conn.execute('select * from question_tag_jobs where id=? and school_id=?', (jid,user['school_id'])).fetchone()
+        row=repo.conn.execute('''select j.*,q.original_question_number from question_tag_jobs j
+            join questions q on q.id=j.question_id and q.school_id=j.school_id
+            where j.id=? and j.school_id=?''', (jid,user['school_id'])).fetchone()
         if row is None:
             raise ResourceNotFound('标签任务不存在')
-        item={'id':jid,'question_id':row['question_id'],'status':row['status'],'error_code':row['error_code'],'result':loads(row['result_json'],{})}
+        item={'id':jid,'question_id':row['question_id'],'question_number':row['original_question_number'],'status':row['status'],'error_code':row['error_code'],'result':loads(row['result_json'],{})}
         if row['candidate_id']:
             candidate=repo.get_candidate(row['candidate_id'])
             item['candidate']=candidate
@@ -511,6 +513,11 @@ def page(user):
       <div class="bank-filters"><label>导入批次<select data-bank-batch><option value="">全部批次与手工录题</option></select></label><label>试卷<select data-bank-paper><option value="">全部题目</option></select></label><label>题型<select data-bank-type><option value="">全部题型</option><option value="single_choice">单选题</option><option value="multiple_choice">多选题</option><option value="experiment">实验题</option><option value="solution">解答题</option><option value="fill">填空题</option><option value="unknown">待确认</option></select></label><label>每页<select data-bank-size><option value="10">10 道题</option><option value="20" selected>20 道题</option><option value="50">50 道题</option></select></label><label>题目搜索<input type="search" data-bank-search placeholder="题干或原题号"></label><button type="button" data-bank-filter>筛选</button></div>
       <div class="bank-actions"><button type="button" data-bank-select-all>选中当前范围全部题目</button><button type="button" data-bank-clear>清空选择</button><span data-bank-selected>已选 0 道小题</span>
       <button type="button" data-bank-ai-missing>AI 生成未标注题</button><button type="button" data-bank-ai>AI 重新生成所选题</button><button type="button" data-bank-save-ai hidden>采用所选 AI 建议</button></div>
+      <section class="bank-ai-progress" data-bank-ai-progress hidden aria-label="AI 标签生成进度">
+        <strong data-bank-ai-summary role="status" aria-live="polite"></strong>
+        <progress data-bank-ai-bar value="0" max="1" aria-label="AI 标签已处理进度"></progress>
+        <p data-bank-ai-counts></p><p data-bank-ai-detail></p><small data-bank-ai-updated></small>
+      </section>
       <p data-bank-status role="status" aria-live="polite"></p><div data-bank-results></div>
       <nav class="bank-pagination"><button data-bank-prev type="button">上一页</button><span data-bank-page></span><button data-bank-next type="button">下一页</button></nav>
       <form data-bank-save-paper class="bank-save-paper"><h2>保存为一套试卷</h2><label>试卷名称<input name="title" required maxlength="240"></label><button type="submit">保存所选题目为试卷</button><a href="/teacher?module=exams#new-exam">新建考试</a></form>

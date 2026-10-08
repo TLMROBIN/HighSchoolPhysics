@@ -2,6 +2,9 @@
 .bank-card-heading input[type=checkbox]{width:20px;height:20px;flex:0 0 20px;padding:0;margin:0}.bank-card-heading label span{flex:1}.bank-actions{top:64px}@media(max-width:720px){.bank-card-heading label{width:100%}}
 
 .bank-layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:24px;align-items:start}
+.bank-ai-progress{margin:18px 0;padding:18px;border:1px solid #c8dcd9;border-radius:10px;background:#f0f8f6;color:#174b60}
+.bank-ai-progress progress{display:block;width:100%;height:14px;margin:12px 0;accent-color:var(--teal,#08766f)}
+.bank-ai-progress p{margin:8px 0;line-height:1.6}.bank-ai-progress small{color:#526773}
 .bank-sidebar{position:sticky;top:80px;max-height:calc(100vh - 100px);overflow:auto;padding:16px 12px;border:1px solid #d5e0e6;border-radius:12px;background:#fff}
 .bank-sidebar h2{font-size:1.1rem;margin:0 0 12px}.bank-sidebar p{font-size:.85rem;color:#526773}
 .bank-sidebar ul{list-style:none;margin:0;padding-left:12px}.bank-sidebar li{margin:3px 0}

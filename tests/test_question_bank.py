@@ -281,6 +281,10 @@ class QuestionBankTests(unittest.TestCase):
         self.conn.commit()
         status,data=self.post('/api/question-bank/generate',{'question_ids':['q-newton-1'],'only_missing':False,'request_key':'bank-model-queue'})
         self.assertEqual(status,200,data);jobs=data['result']['job_ids']
+        self.conn.execute("update questions set original_question_number='12.1' where id='q-newton-1'");self.conn.commit()
+        queued=self.get('/api/question-bank/jobs?id='+jobs[0])[1]['result']['jobs'][0]
+        self.assertEqual(queued['status'],'queued')
+        self.assertEqual(queued['question_number'],'12.1')
         self.assertEqual(self.post('/api/question-bank/generate',{'question_ids':['q-newton-1'],'only_missing':False,'request_key':'bank-model-queue'})[1]['result']['job_ids'],jobs)
         self.assertEqual(self.post('/api/question-bank/tags',{'entries':[self.entry()]})[0],200)
         before=self.repo.tags_for_question('q-newton-1')

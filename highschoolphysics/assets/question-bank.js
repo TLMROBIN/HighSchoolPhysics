@@ -22,7 +22,29 @@
   const button = (text, fn) => { const b=node('button',text); b.type='button'; b.addEventListener('click',async()=>{b.disabled=true;try {await fn();}catch(e){status(e.message);}finally{b.disabled=false;}}); return b; };
   const math = (n) => window.renderMathInElement?.(n,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false},{left:'\\[',right:'\\]',display:true},{left:'\\(',right:'\\)',display:false}],throwOnError:false,trust:false,ignoredTags:['script','noscript','style','textarea','pre','code']});
   const selected = new Set(), suggestions = new Map(), editors = new Map();
-  let listing, catalog, offset=0, jobIds=[], polling=false;
+  let listing, catalog, offset=0, jobIds=[], polling=false, submitting=false;
+  const generationButtons = () => {
+    for (const name of ['ai','ai-missing']) $(name).disabled=submitting||jobIds.length>0;
+  };
+  const renderProgress = (jobs, total) => {
+    const queued=jobs.filter(j=>j.status==='queued').length;
+    const running=jobs.filter(j=>j.status==='running');
+    const completed=jobs.filter(j=>j.status==='completed').length;
+    const failed=jobs.filter(j=>j.status==='failed').length;
+    const stale=jobs.filter(j=>j.result?.status==='stale').length;
+    const processed=completed+failed, active=queued+running.length>0;
+    const percent=Math.round(processed/total*100);
+    $('ai-progress').hidden=false;
+    $('ai-bar').max=total;$('ai-bar').value=processed;
+    $('ai-summary').textContent=`${active?(running.length?'正在生成 AI 标签':'等待后台生成'):'AI 标签任务已结束'} · 已处理 ${processed}/${total} 道（${percent}%）`;
+    $('ai-counts').textContent=`等待 ${queued} · 生成中 ${running.length} · 完成 ${completed-stale} · 失败 ${failed} · 需重新生成 ${stale}`;
+    const current=running.map(j=>j.question_number?'原题号 '+j.question_number:'所选题目').join('、');
+    const next=stale?'部分题目内容或标签已变化，需重新选择这些题目生成。':'';
+    $('ai-detail').textContent=(active?(current?`当前正在生成：${current}。`:'任务已排队，等待后台处理。'):'')+
+      (completed>stale?' 已完成的 AI 建议可展开查看，调整后采用。':(!active&&!failed&&!stale?'暂无可采用的 AI 建议。':''))+next;
+    $('ai-updated').textContent=`最近更新 ${new Date().toLocaleTimeString('zh-CN',{hour12:false})}`+(active?' · 每 2.5 秒自动更新；刷新页面可继续查看进度。':'');
+    return active;
+  };
   const params=new URLSearchParams(location.search);
   let batch=params.get('batch_id') || '', paper=params.get('paper_id') || '';
   let tagFamily='',tagId='',pageSize=20;
@@ -147,10 +169,7 @@
     if(polling||!jobIds.length)return;polling=true;
     try{
       const result=await api('jobs?'+jobIds.map(id=>'id='+encodeURIComponent(id)).join('&'));
-      let done=0,failed=0,stale=0;
       for(const job of result.jobs){
-        if(job.status==='completed')done++;if(job.status==='failed')failed++;
-        if(job.result.status==='stale')stale++;
         if(job.result.status==='suggested'&&job.candidate){
           const expected=job.result.expected;
           suggestions.set(job.question_id,{candidate:job.candidate,expected});editors.get(job.question_id)?.showSuggestion();
@@ -158,16 +177,24 @@
       }
       const reasons={budget_blocked:'调用预算或每日限额已用完',missing_secret:'未配置模型密钥',missing_model:'未配置模型名称',invalid_model_output:'模型返回的标签无效',llm_provider_not_configured:'大模型配置已停用',secret_unavailable:'模型密钥无法读取'};
       const failures=result.jobs.filter(j=>j.status==='failed').map(j=>reasons[j.error_code]||j.error_code||'生成失败，请重试');
-      status(`AI 标签：完成 ${done}/${jobIds.length}；失败 ${failed}；内容或标签已变化 ${stale}。生成结果可调整后保存。`+(failures.length?'\n失败原因：'+[...new Set(failures)].join('；'):''));refreshSelection();
-      if(result.jobs.some(j=>['queued','running'].includes(j.status)))setTimeout(poll,2500);
-      else {sessionStorage.removeItem(jobStorageKey); jobIds=[];}
-    }catch(e){status(e.message+'；稍后继续查询');setTimeout(poll,5000);}finally{polling=false;}
+      const active=renderProgress(result.jobs,jobIds.length);
+      status(failures.length?'失败原因：'+[...new Set(failures)].join('；'):'');refreshSelection();
+      if(active)setTimeout(poll,2500);
+      else {sessionStorage.removeItem(jobStorageKey); jobIds=[];generationButtons();}
+    }catch(e){status('进度查询暂时失败：'+e.message+'；5 秒后自动重试。后台任务可能仍在继续。');setTimeout(poll,5000);}finally{polling=false;}
   };
   const generate=async(onlyMissing)=>{
     if(!selected.size)throw Error('请先选择题目或选中当前批次全部题目');
     if(jobIds.length)throw Error('当前 AI 任务仍在进行，请等待完成后再发起');
-    const result=await api('generate',{question_ids:[...selected],only_missing:onlyMissing,request_key:requestKey()});
-    jobIds=[...new Set([...jobIds,...result.job_ids])];sessionStorage.setItem(jobStorageKey,JSON.stringify(jobIds));status(`已排队 ${result.job_ids.length} 道题；跳过 ${result.skipped.length} 道已有标签题。`);await poll();
+    if(submitting)return;
+    submitting=true;generationButtons();
+    try{
+      status('正在提交 AI 标签任务…');
+      const result=await api('generate',{question_ids:[...selected],only_missing:onlyMissing,request_key:requestKey()});
+      jobIds=[...new Set([...jobIds,...result.job_ids])];sessionStorage.setItem(jobStorageKey,JSON.stringify(jobIds));
+      if(jobIds.length){renderProgress(jobIds.map(id=>({id,status:'queued',result:{}})),jobIds.length);await poll();}
+      else {$('ai-progress').hidden=true;status(`没有需要生成的题目；已跳过 ${result.skipped.length} 道已有标签题。`);sessionStorage.removeItem(jobStorageKey);}
+    }finally{submitting=false;generationButtons();}
   };
   $('ai-missing').addEventListener('click',run(()=>generate(true)));$('ai').addEventListener('click',run(()=>generate(false)));
   $('save-ai').addEventListener('click',run(async()=>{
@@ -178,5 +205,5 @@
   $('save-paper').addEventListener('submit',async e=>{e.preventDefault();try{const title=new FormData(e.currentTarget).get('title');const result=await api('paper',{title,question_ids:[...selected]});paper=result.paper.id;batch='';offset=0;await load();status('试卷已保存，可以前往教师工作台新建考试。');}catch(err){status(err.message);}});
   const loadTokens=async()=>{const result=await api('tokens');$('tokens').replaceChildren();for(const t of result.tokens){const row=node('p',t.name+' · '+t.expires_at+' · '+(t.revoked_at?'已撤销':'有效'));if(!t.revoked_at)row.append(button('撤销',async()=>{await api('tokens/revoke',{id:t.id});await loadTokens();}));$('tokens').append(row);}};
   $('token').addEventListener('submit',async e=>{e.preventDefault();try{const form=new FormData(e.currentTarget);const result=await api('tokens',{name:form.get('name'),days:Number(form.get('days'))});const output=$('token-result');output.replaceChildren(node('p','接入凭证（仅显示一次）：'));const input=node('input');input.value=result.token;input.readOnly=true;input.setAttribute('aria-label','Agent 接入凭证');output.append(input,button('复制凭证',async()=>navigator.clipboard.writeText(result.token)),button('隐藏凭证',async()=>output.replaceChildren()));await loadTokens();}catch(err){status(err.message);}});
-  (async()=>{try{catalog=await api('taxonomy');renderTagTree();await load();await loadTokens();try{jobIds=JSON.parse(sessionStorage.getItem(jobStorageKey)||'[]');}catch{}if(jobIds.length)await poll();}catch(e){status(e.message);}})();
+  (async()=>{try{catalog=await api('taxonomy');renderTagTree();await load();await loadTokens();try{jobIds=JSON.parse(sessionStorage.getItem(jobStorageKey)||'[]');}catch{}generationButtons();if(jobIds.length)await poll();}catch(e){status(e.message);}})();
 })();
