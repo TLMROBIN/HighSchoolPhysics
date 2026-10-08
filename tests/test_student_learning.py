@@ -25,10 +25,10 @@ class StudentLearningTests(unittest.TestCase):
         result=student_learning.api(self.repo,self.user,'bank-start',dict(question_id=q[0],request_key='start-'+kind))
         return student_learning.owned_trial(self.c,self.user,result['url'].split('=')[1])
 
-    def test_home_is_count_and_four_modules_and_settings_filter_only_queue(self):
+    def test_home_is_count_and_three_modules_and_settings_filter_only_queue(self):
         page=learning_views.student(self.repo,self.user,{})
-        for label in ('待复习','错题本','历史测试','知识图谱','题库','关注设置'):self.assertIn(label,page)
-        self.assertIn('app?module=graph',page)
+        for label in ('待复习','错题本','历史测试','题库','关注设置'):self.assertIn(label,page)
+        self.assertNotIn('app?module=graph',page)
         self.assertNotIn('student-wrong',page)
         originals=[tuple(r) for r in self.c.execute('select * from student_responses')]
         student_learning.api(self.repo,self.user,'student-preferences',dict(types=['experiment'],levels=['挑战']))

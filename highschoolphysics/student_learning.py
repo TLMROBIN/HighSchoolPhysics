@@ -675,7 +675,8 @@ def page(repo,user,params,base_path=''):
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
     out.append(form('student-preferences',settings)+'</details></header>')
     out.append('<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>'%len(due))
-    modules=(('wrong','错题本'),('history','历史测试'),('graph','知识图谱'),('bank','题库'))
+    # Keep the student graph entry offline until the user explicitly requests restoration.
+    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
