@@ -34,6 +34,8 @@ def _normalise_formula(value):
     if not isinstance(value, str) or len(value) > MAX_FORMULA_CHARS:
         return None, "formula_output_invalid"
     latex = value.strip()
+    if "\ufffd" in latex:
+        return None, "formula_contains_replacement_character"
     if latex.startswith("$$") and latex.endswith("$$") and len(latex) >= 4:
         body = latex[2:-2]
         delimiter = "$$"

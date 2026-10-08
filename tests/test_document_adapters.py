@@ -325,6 +325,10 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(result["manifest"]["embedded_formula_converted_count"], 1)
             self.assertEqual(result["manifest"]["embedded_formula_unresolved_count"], 0)
 
+    def test_mtef_replacement_character_requires_visible_source_fallback(self):
+        self.assertEqual(_normalise_formula("$F^{\ufffd}+mg=ma$"),
+                         (None, "formula_contains_replacement_character"))
+
     def test_legacy_doc_routes_through_pdf_recognition_and_keeps_source_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
