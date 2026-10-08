@@ -20,6 +20,32 @@ class ReasoningDiagnosisTests(unittest.TestCase):
         text=(Path(diagnosis.__file__).parent/'assets/diagnosis.js').read_text()
         self.assertNotIn('<textarea',text);self.assertNotIn('name="note"',text);self.assertIn('说不清 / 不知道怎么选',text)
         s=self.start();self.assertEqual(2,s['protocol_version']);self.assertNotIn('note',s)
+    def test_optional_entry_is_closed_and_does_not_eagerly_load(self):
+        html=diagnosis.panel(self.w['id'],[self.w])
+        self.assertTrue(html.startswith('<details '));self.assertNotIn(' open',html)
+        self.assertIn('选择进行错题诊断（可选）',html)
+        js=(Path(diagnosis.__file__).parent/'assets/diagnosis.js').read_text()
+        self.assertIn("panel.addEventListener('toggle',()=>{if(panel.open)load();});",js)
+        self.assertIn('if(current===generation)choose(r);',js)
+        self.assertIn('粗略诊断',js);self.assertIn('精细诊断',js)
+    def test_existing_empty_deep_record_can_choose_quick_then_deep(self):
+        s=self.start(mode='deep');self.assertEqual(4,s['total'])
+        s=self.event(s,'select-mode',mode='quick',self_report='knowledge_retrieval')
+        self.assertEqual('quick',s['mode']);self.assertEqual(2,s['total']);self.assertEqual('模型与规律',s['step']['stage'])
+        s=self.event(s,'select-mode',mode='deep',self_report='condition')
+        self.assertEqual('deep',s['mode']);self.assertEqual(4,s['total']);self.assertEqual('条件理解',s['step']['stage'])
+        self.assertFalse(s['assisted']);self.assertEqual(0,s['checked_count'])
+    def test_mode_selection_preserves_answers_and_pending_reflection(self):
+        s=self.start('knowledge_retrieval');s=self.event(s,'answer',answer=0)
+        with self.assertRaises(StateConflict):self.event(s,'select-mode',mode='deep',self_report='condition')
+        s=self.event(s,'locate',reason='not_recalled')
+        before=[tuple(r) for r in self.c.execute("select * from diagnostic_events where action in ('answer','locate')")]
+        prior=s
+        s=self.event(s,'select-mode','choose-deep',mode='deep',self_report='condition')
+        self.assertEqual(4,s['total']);self.assertEqual(1,s['checked_count']);self.assertEqual('knowledge_retrieval',s['self_report'])
+        self.assertEqual(1,s['prior_checks'])
+        self.assertEqual(before,[tuple(r) for r in self.c.execute("select * from diagnostic_events where action in ('answer','locate')")])
+        self.assertEqual(s,self.event(prior,'select-mode','choose-deep',mode='deep',self_report='condition'))
     def test_knowledge_retrieval_distinct_from_forgetting(self):
         s=self.start('knowledge_retrieval');self.assertEqual('模型与规律',s['step']['stage'])
         s=self.event(s,'answer',answer=0);self.assertIn('reflection',s);self.assertEqual('',s['feedback']['explanation'])

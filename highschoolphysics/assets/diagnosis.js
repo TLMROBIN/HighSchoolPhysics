@@ -8,12 +8,20 @@
     const body=panel.querySelector('[data-diagnosis-body]'),target=panel.querySelector('[data-diagnosis-target]');let state=null,busy=false,generation=0;
     async function call(action,p={}){const r=await fetch('api/learning/diagnosis-'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol_version:2,wrong_id:panel.dataset.diagnosisWrong,question_id:target.value,...p})}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error?.message||d.message||'操作失败，请重试');return d.result;}
     function event(name,p={}){return perform('event',{session_id:state.session_id,cursor:state.cursor,event:name,request_key:key(),...p});}
+    function choose(result){
+      state=result.state;
+      if(!result.available){body.innerHTML='<p>'+esc(result.message)+'</p>';return;}
+      const report=state?.self_report||'unsure',checked=state?.checked_count||0;
+      body.innerHTML=`<form data-diagnosis-start><p>选择这次怎样找卡点。全程只需点选，不影响正常重做。</p><label>回想最初做这道题时，最接近你的情况<select name="self_report" ${checked?'disabled':''}>${Object.entries(reports).map(([k,v])=>`<option value="${k}" ${k===report?'selected':''}>${v}</option>`).join('')}</select></label><div class="diagnosis-actions"><button name="mode" value="quick">粗略诊断</button><button name="mode" value="deep" class="secondary">精细诊断</button></div><p class="diagnosis-note">粗略：重点排查 1—2 个环节，快速归类；精细：沿本题条件理解、模型与规律、步骤衔接、列式检验逐项排查。</p></form>${state?`<p class="diagnosis-note">已有${state.mode==='quick'?'粗略':'精细'}诊断记录${checked?'，已检查 '+checked+' 个环节；选择另一方式会保留已有选择':''}。</p><button class="secondary" data-diagnosis-resume>${state.status==='active'?'继续已有诊断':'查看已有结果'}</button>`:''}`;
+    }
     function render(result){
       state=result.state;
       if(!result.available){body.innerHTML='<p>'+esc(result.message)+'</p>';return;}
-      if(!state){body.innerHTML=`<form data-diagnosis-start><p>先定位这道题最早卡住的一环，再区分“知识没记住”与“知道但没想到”。全程只需点选。</p><label>回想最初做这道题时，最接近你的情况<select name="self_report">${Object.entries(reports).map(([k,v])=>`<option value="${k}" ${k==='unsure'?'selected':''}>${v}</option>`).join('')}</select></label><div class="diagnosis-actions"><button name="mode" value="quick">简略诊断</button><button name="mode" value="deep" class="secondary">精细诊断</button></div><p class="diagnosis-note">简略：重点排查 1—2 个环节；精细：沿本题思维链逐项检查。不确定就选“说不清”，可以随时结束。</p></form>`;return;}
+      if(!state){choose(result);return;}
       const modern=state.protocol_version===2;
-      let html=`<p class="diagnosis-progress">${state.mode==='quick'?'简略诊断':'精细诊断'} · ${Math.min(state.cursor+1,state.total)}/${state.total} · 最初情况：${esc((modern?reports:legacy)[state.self_report]||'待排查')}</p>`;
+      const prior=state.prior_checks||0,total=state.total-prior;
+      const progress=state.status==='active'?`本次 ${Math.min(state.cursor-prior+1,total)}/${total}${prior?'（保留之前 '+prior+' 个检查）':''}`:'已检查 '+(state.checked_count??state.findings.length)+' 个环节';
+      let html=`<p class="diagnosis-progress">${state.mode==='quick'?'粗略诊断':'精细诊断'} · ${progress} · 最初情况：${esc((modern?reports:legacy)[state.self_report]||'待排查')}</p>`;
       if(!modern)html+='<p class="diagnosis-note">这是此前保存的检查记录，继续完成不会改写原记录。</p>';
       if(state.reflection){
         if(state.step)html+=`<p>刚才检查：${esc(state.step.prompt)}</p>`;
@@ -41,9 +49,10 @@
       body.innerHTML=html;
     }
     async function perform(action,p){if(busy)return;busy=true;target.disabled=true;body.querySelectorAll('button').forEach(b=>b.disabled=true);try{render(await call(action,p));}catch(error){let out=body.querySelector('[data-diagnosis-error]');if(!out){out=document.createElement('p');out.dataset.diagnosisError='';out.setAttribute('role','alert');body.append(out);}out.textContent=error.message;body.querySelectorAll('button').forEach(b=>b.disabled=false);}finally{busy=false;target.disabled=false;}}
-    body.addEventListener('submit',e=>{e.preventDefault();const f=e.target;if(f.matches('[data-diagnosis-start]'))perform('start',{mode:e.submitter.value,self_report:f.elements.self_report.value});else if(f.matches('[data-diagnosis-answer]'))event('answer',{answer:Number(f.elements.answer.value)});else if(f.matches('[data-diagnosis-locate]'))event('locate',{reason:f.elements.reason.value});else if(f.matches('[data-diagnosis-revise]'))event('revise',{reason:f.elements.reason.value});});
-    body.addEventListener('click',e=>{const b=e.target.closest('[data-diagnosis-event],[data-diagnosis-confirm]');if(b)event(b.dataset.diagnosisEvent||'finish',{confirmation:b.dataset.diagnosisConfirm||''});});
-    async function load(){const current=++generation;body.textContent='正在读取诊断…';try{const r=await call('state');if(current===generation)render(r);}catch(error){if(current===generation)body.textContent=error.message;}}
-    target.addEventListener('change',load);load();
+    body.addEventListener('submit',e=>{e.preventDefault();const f=e.target;if(f.matches('[data-diagnosis-start]')){const p={mode:e.submitter.value,self_report:f.elements.self_report.value};if(state?.protocol_version===2)event('select-mode',p);else if(state){if(p.mode==='deep'&&state.mode==='quick')event('deepen');else render({available:true,state});}else perform('start',p);}else if(f.matches('[data-diagnosis-answer]'))event('answer',{answer:Number(f.elements.answer.value)});else if(f.matches('[data-diagnosis-locate]'))event('locate',{reason:f.elements.reason.value});else if(f.matches('[data-diagnosis-revise]'))event('revise',{reason:f.elements.reason.value});});
+    body.addEventListener('click',e=>{if(e.target.closest('[data-diagnosis-resume]')){render({available:true,state});return;}const b=e.target.closest('[data-diagnosis-event],[data-diagnosis-confirm]');if(b)event(b.dataset.diagnosisEvent||'finish',{confirmation:b.dataset.diagnosisConfirm||''});});
+    async function load(){const current=++generation;body.textContent='正在读取诊断…';try{const r=await call('state');if(current===generation)choose(r);}catch(error){if(current===generation)body.textContent=error.message;}}
+    target.addEventListener('change',()=>{if(panel.open)load();});
+    panel.addEventListener('toggle',()=>{if(panel.open)load();});
   });
 })();

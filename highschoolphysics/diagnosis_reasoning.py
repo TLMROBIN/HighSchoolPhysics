@@ -112,7 +112,9 @@ def state(c,s):
         saved=next((result(e).get('classification') for e in reversed(evs) if result(e).get('classification')),None)
         if saved:summary=saved
     findings=[dict(stage=t['stage'],passed=t['passed'] is True,assisted=t['hints']>0,explanation=card['steps'][t['index']]['explanation'] if s['status']!='active' or t['passed'] is True and not (s['cursor']<len(indices) and indices[s['cursor']]==t['index'] and not any(e['action']=='locate' for e in evs) and s['self_report']!='unsure') else '',graph_node_id=t['graph_node_id']) for t in summary['trace'] if t['label']!='尚未检查']
-    out=dict(protocol_version=PROTOCOL,session_id=s['id'],mode=s['mode'],status=s['status'],self_report=s['self_report'],cursor=cursor,total=len(indices),findings=findings,summary=summary,assisted=bool(s['assisted_at']),message=summary['message'],confirmation=summary['confirmation'])
+    out=dict(protocol_version=PROTOCOL,session_id=s['id'],mode=s['mode'],status=s['status'],self_report=s['self_report'],cursor=cursor,total=len(indices),checked_count=sum(t['label']!='尚未检查' for t in summary['trace']),findings=findings,summary=summary,assisted=bool(s['assisted_at']),message=summary['message'],confirmation=summary['confirmation'])
+    selection=next((e for e in reversed(evs) if e['action'] in ('select-mode','deepen')),None)
+    out['prior_checks']=result(selection).get('preserved_checks',0) if selection else 0
     if s['status']!='active' or cursor>=len(indices):return out
     if s['self_report']=='time' and not any(e['action']=='locate' for e in evs):
         out['reflection']=dict(prompt='当时没有完成这道题，更接近哪种情况？',options=[dict(value=k,label=REASONS[k][0]) for k in REFLECTIONS['context']]);return out
@@ -148,8 +150,10 @@ def api(repo,user,action,p,g,w,data,card,s):
     if action!='diagnosis-event' or not s or s['id']!=p.get('session_id'):raise InvalidRequest('诊断操作或记录无效')
     key=p.get('request_key');event=p.get('event')
     if not isinstance(key,str) or not key or len(key)>100:raise InvalidRequest('缺少提交标识')
-    if event not in ('answer','locate','revise','hint','next','finish','deepen'):raise InvalidRequest('诊断操作无效')
-    value={k:p.get(k) for k in ('event','cursor','answer','reason','confirmation')};c.execute('begin immediate')
+    if event not in ('answer','locate','revise','hint','next','finish','deepen','select-mode'):raise InvalidRequest('诊断操作无效')
+    value={k:p.get(k) for k in ('event','cursor','answer','reason','confirmation')}
+    if event=='select-mode':value.update(mode=p.get('mode'),self_report=p.get('self_report'))
+    c.execute('begin immediate')
     try:
         s=c.execute('select * from diagnostic_sessions where id=?',(s['id'],)).fetchone();old=c.execute('select * from diagnostic_events where session_id=? and request_key=?',(s['id'],key)).fetchone()
         if old:
@@ -157,7 +161,20 @@ def api(repo,user,action,p,g,w,data,card,s):
             c.rollback();return {'available':True,'state':state(c,s)}
         if p.get('cursor')!=s['cursor']:raise StateConflict('诊断步骤已更新，请刷新')
         current=state(c,s);content=session_card(c,s);indices=json.loads(s['steps_json']);index=indices[min(s['cursor'],len(indices)-1)];step=content['steps'][index];evs=events(c,s);r={}
-        if event=='finish':
+        if event=='select-mode':
+            mode=p.get('mode');report=p.get('self_report','unsure')
+            if mode not in ('quick','deep') or report not in REPORTS:raise InvalidRequest('请选择诊断方式与最初的情况')
+            if current.get('reflection') and current.get('step'):
+                raise StateConflict('上次检查还有一个卡点选择未完成，请先继续已有诊断完成该选择。')
+            used=list(dict.fromkeys(e['step'] for e in evs if e['action']=='answer'))
+            if used:report=s['self_report']
+            remaining=[i for i in range(len(content['steps'])) if i not in used]
+            if mode=='quick':
+                start=next((i for i,t in enumerate(content['steps']) if t['stage']==REPORT_STAGE[report]),0)
+                remaining=([i for i in remaining if i>=start]+[i for i in remaining if i<start])[:2]
+            r={'mode':mode,'preserved_checks':len(used),'new_checks':len(remaining)}
+            c.execute('update diagnostic_sessions set mode=?,self_report=?,steps_json=?,cursor=?,status=? where id=?',(mode,report,dumps(used+remaining),len(used),'active' if remaining else 'completed',s['id']))
+        elif event=='finish':
             confirmation=p.get('confirmation','')
             if confirmation not in ('agree','different','unsure',''):raise InvalidRequest('确认选项无效')
             r={'confirmation':confirmation};complete=s['status']=='completed' or current.get('step',{}).get('can_next') and s['cursor']==len(indices)-1
@@ -167,6 +184,7 @@ def api(repo,user,action,p,g,w,data,card,s):
         elif event=='deepen':
             if s['mode']!='quick':raise InvalidRequest('已是精细诊断')
             used=list(dict.fromkeys(e['step'] for e in evs if e['action']=='answer'));remaining=[i for i in range(len(content['steps'])) if i not in used]
+            r={'preserved_checks':len(used),'new_checks':len(remaining)}
             c.execute('update diagnostic_sessions set mode=?,steps_json=?,cursor=?,status=? where id=?',('deep',dumps(used+remaining),len(used),'active' if remaining else 'completed',s['id']))
         elif event=='revise':
             if s['status']=='active':raise InvalidRequest('请先结束诊断，再更正分类')
@@ -201,6 +219,8 @@ def api(repo,user,action,p,g,w,data,card,s):
         c.execute('insert into diagnostic_events values(?,?,?,?,?,?,?,?)',('de-'+uuid.uuid4().hex,s['id'],key,event,index,dumps(value),dumps(r),now()));c.execute('update diagnostic_sessions set updated_at=? where id=?',(now(),s['id']))
         updated=c.execute('select * from diagnostic_sessions where id=?',(s['id'],)).fetchone()
         if updated['status']!='active':
+            if any(e['action']=='answer' for e in events(c,updated)):
+                c.execute('update diagnostic_sessions set assisted_at=coalesce(assisted_at,?) where id=?',(now(),s['id']))
             r['classification']=summarize(updated,content,events(c,updated))
             c.execute('update diagnostic_events set result_json=? where session_id=? and request_key=?',(dumps(r),s['id'],key))
         c.commit()

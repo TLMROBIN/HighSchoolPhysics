@@ -267,7 +267,7 @@ def assisted_today(c,student,qid):
 
 def panel(wrong_id,members):
     options=''.join('<option value="%s">%s</option>'%(escape(w['question_id'],quote=True),escape(w.get('part_label') or '本题')) for w in members)
-    return '<section class="diagnosis-panel" data-diagnosis-wrong="%s"><h3>先找找思维卡点</h3><p>可选简略诊断（1—2 个检查）或精细诊断（3—6 个检查），全程点选，随时可以结束。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></section>'%(escape(wrong_id,quote=True),options)
+    return '<details class="diagnosis-panel" data-diagnosis-wrong="%s"><summary>选择进行错题诊断（可选）</summary><p>粗略诊断：重点排查 1—2 个环节。精细诊断：沿本题思维链逐项检查。全程点选，随时可以收起。</p><label>诊断范围<select data-diagnosis-target>%s</select></label><div data-diagnosis-body aria-live="polite"></div></details>'%(escape(wrong_id,quote=True),options)
 
 def provider(c,school):
     return c.execute("select * from provider_configs where school_id=? and provider_kind='diagnosis' and enabled=1 order by updated_at desc limit 1",(school,)).fetchone()
