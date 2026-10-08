@@ -4,6 +4,22 @@
  const key=()=>globalThis.crypto?.randomUUID?.()||'request-'+Date.now()+'-'+Math.random().toString(36).slice(2);
  const payload=f=>{const p={};for(const[k,v]of new FormData(f)){if(k in p)p[k]=[].concat(p[k],v);else p[k]=v;}return p;};
  const labels={correct:'本次正确',wrong:'本次做错了',blank:'空白',pending:'答案尚待确认'};
+ document.querySelectorAll('[data-wrong-causes]').forEach(panel=>{
+  const buttons=[...panel.querySelectorAll('[data-cause]')],status=panel.querySelector('[role=status]');let busy=false;
+  panel.addEventListener('click',async e=>{
+   const button=e.target.closest('[data-cause]');if(!button||busy)return;
+   const code=button.dataset.cause,selected=buttons.filter(b=>b.getAttribute('aria-pressed')==='true').map(b=>b.dataset.cause);
+   let causes=selected.includes(code)?selected.filter(x=>x!==code):[...selected,code];
+   if(!selected.includes(code))causes=code==='unsure'?['unsure']:causes.filter(x=>x!=='unsure');
+   busy=true;buttons.forEach(b=>b.disabled=true);status.textContent='正在保存…';
+   try{
+    const d=await request('wrong-causes',{wrong_id:panel.dataset.wrongCauses,scope_key:panel.dataset.scopeKey,revision:Number(panel.dataset.revision),causes,request_key:key()});
+    panel.dataset.revision=d.revision;buttons.forEach(b=>b.setAttribute('aria-pressed',String(d.causes.includes(b.dataset.cause))));
+    status.textContent=d.causes.length?'已保存：'+buttons.filter(b=>d.causes.includes(b.dataset.cause)).map(b=>b.textContent).join('、'):'已取消所有标记';
+   }catch(err){status.textContent='保存未确认：'+err.message+'。请刷新后核对。';}
+   finally{busy=false;buttons.forEach(b=>b.disabled=false);}
+  });
+ });
  const compactFilters=matchMedia('(max-width:1100px)');
  const viewportHeight=()=>document.documentElement.style.setProperty('--student-viewport-height',Math.min(innerHeight,globalThis.visualViewport?.height||innerHeight)+'px');
  viewportHeight();addEventListener('resize',viewportHeight);globalThis.visualViewport?.addEventListener('resize',viewportHeight);

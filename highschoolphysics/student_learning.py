@@ -140,6 +140,9 @@ def api(repo, user, action, p, base_path=''):
 def _api(repo, user, action, p, base_path=''):
     require_student(user)
     c, uid = repo.conn, user['id']
+    if action == 'wrong-causes':
+        from .wrong_causes import save
+        return save(repo, user, p)
     if action == 'wrong-mastered':
         if p.get('confirmed') is not True:
             raise InvalidRequest('请先确认已掌握并移出错题本')
@@ -694,9 +697,10 @@ def page(repo,user,params,base_path=''):
         tag_sets=tag_filters(repo,user,params)
         matched=[g for g in all_wrongs if any(match(w,params,tag_sets) for w in g['members'])]
         cards=['<p>共 %s 道错题</p>'%len(matched)]
+        from .wrong_causes import panel as cause_panel
         for i,g in enumerate(matched,1):
             w=g['anchor'];title=('第 %s 题'%g['number']) if g['number'] else ('错题 %s'%i)
-            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s<a href="app?practice=%s">查看、诊断与重做</a>%s</article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),quote(g['id']),form('wrong-mastered',hidden('wrong_id',g['id'])+'<button type="submit">已掌握</button>')))
+            cards.append('<article class="student-wrong"><h3>%s</h3>%s%s%s<a href="app?practice=%s">查看、诊断与重做</a>%s</article>'%(esc(title),wrong_render(c,w,user,base_path),group_first_record(c,g,user),cause_panel(c,user,g),quote(g['id']),form('wrong-mastered',hidden('wrong_id',g['id'])+'<button type="submit">已掌握</button>')))
         if not matched:cards.append('<p>没有匹配的错题，请调整筛选条件。</p>')
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
@@ -708,6 +712,6 @@ def page(repo,user,params,base_path=''):
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
     out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-diagnosis-optin-v3"><script src="assets/diagnosis.js?v=20261008-diagnosis-optin-v3" defer></script>')
-    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261007-student-tablet-v3"><script src="assets/student-learning.js?v=20261007-mastered-v1" defer></script>')
+    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261008-wrong-causes-v1"><script src="assets/student-learning.js?v=20261008-wrong-causes-v1" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

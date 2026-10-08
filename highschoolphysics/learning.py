@@ -258,7 +258,7 @@ def api(repo,user,action,p,base_path=""):
     if action.startswith('diagnosis-'):
         from .diagnosis import api as diagnosis_api
         return diagnosis_api(repo,user,action,p)
-    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit','wrong-mastered'):
+    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit','wrong-mastered','wrong-causes'):
         from .student_learning import api as student_api
         return student_api(repo,user,action,p,base_path)
     if action=='answers':

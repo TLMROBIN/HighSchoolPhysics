@@ -128,3 +128,5 @@
  .student-workspace .student-tag-chart span { overflow-wrap:anywhere; }
  .student-workspace .student-library-content { overflow-wrap:anywhere; }
 }
+
+.wrong-causes{margin:1rem 0;padding:1rem 0;border-top:1px solid #d9e5e2}.wrong-causes h4{margin:0 0 .4rem}.wrong-causes p{font-size:.9rem;color:#536d68;line-height:1.6}.wrong-cause-options{display:flex;flex-wrap:wrap;gap:.5rem}.wrong-causes .wrong-cause-chip{min-height:44px;padding:.55rem .8rem;margin:0;background:#fff;color:#315750;border:1px solid #adc6bf;border-radius:7px;font:inherit;cursor:pointer}.wrong-causes .wrong-cause-chip[aria-pressed=true]{background:#0f766e;color:#fff;border-color:#0f766e}.wrong-cause-chip:focus-visible{outline:3px solid #08766f;outline-offset:3px}.wrong-cause-chip:disabled{opacity:.6}.wrong-causes [role=status]{min-height:1.5em;margin-bottom:0}

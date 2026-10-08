@@ -274,6 +274,8 @@ def initialize_database(conn):
     migrate_graph(conn)
     from .diagnosis_reasoning import migrate as migrate_reasoning
     migrate_reasoning(conn)
+    from .wrong_causes import migrate as migrate_wrong_causes
+    migrate_wrong_causes(conn)
 
 
 def _initialize_legacy_schema(conn):
