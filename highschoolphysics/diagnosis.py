@@ -303,17 +303,34 @@ def generate(repo,cfg,data):
         if len(raw)>512*1024:raise ValueError('oversize')
         output=json.loads(raw);card=validate_card(_response_json(output['choices'][0]['message']['content']))
     except Exception as exc:
-        repo.record_provider_usage(cfg['created_by'],cfg['id'],'diagnosis',PROMPT_VERSION,outcome='failed',error_category='diagnosis_provider_failed',detail={'message':'诊断调用或内容校验失败'})
-        raise LLMProviderError('diagnosis_provider_failed','诊断调用或内容校验失败，请检查服务与模型') from exc
+        # Use only local messages: upstream bodies may contain credentials or data.
+        code='diagnosis_provider_failed'
+        message='诊断调用或内容校验失败，请检查服务与模型'
+        from urllib.error import HTTPError, URLError
+        if isinstance(exc, HTTPError):
+            code='diagnosis_http_%s' % exc.code
+            messages={401:'API Key 无效或已失效',403:'API Key 无权调用此模型',
+                      404:'模型或 API 地址不存在',429:'调用过于频繁或账户额度不足',
+                      503:'当前模型不可用，请核对服务商的可用模型 ID 或稍后重试'}
+            message='诊断模型服务返回 HTTP %s：%s' % (exc.code,messages.get(exc.code,'服务商拒绝请求或服务异常，请核对地址、模型和账户状态'))
+        elif isinstance(exc, (TimeoutError, URLError)):
+            code='diagnosis_network_error'
+            message='连接诊断模型服务失败或超时，请稍后重试'
+        repo.record_provider_usage(cfg['created_by'],cfg['id'],'diagnosis',PROMPT_VERSION,outcome='failed',error_category=code,detail={'message':message})
+        raise LLMProviderError(code,message) from exc
     usage=output.get('usage',{})
     repo.record_provider_usage(cfg['created_by'],cfg['id'],'diagnosis',PROMPT_VERSION,outcome='success',input_units=usage.get('prompt_tokens',0),output_units=usage.get('completion_tokens',0),detail={'message':'诊断结构校验通过'})
     return card
 
 
 def test_config(repo,user):
+    from .llm import LLMProviderError
     repo._require_admin_actor(user['id']);cfg=provider(repo.conn,user['school_id'])
     if not cfg:raise InvalidRequest('请先保存诊断模型配置')
-    generate(repo,cfg,{'stem':'质量 m 的物体在水平面上匀速直线运动。讨论合力与各个力的关系。'})
+    try:
+        generate(repo,cfg,{'stem':'质量 m 的物体在水平面上匀速直线运动。讨论合力与各个力的关系。'})
+    except LLMProviderError as exc:
+        raise InvalidRequest(str(exc)) from exc
     return {'message':'已实际调用模型并获得符合诊断结构的检查卡。'}
 
 

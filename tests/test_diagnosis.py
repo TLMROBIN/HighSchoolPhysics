@@ -96,6 +96,18 @@ class DiagnosisTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception,'诊断调用或内容校验失败'):diagnosis.test_config(self.repo,self.admin)
         usage=self.c.execute('select detail_json from provider_usage_events').fetchone()[0];self.assertNotIn('secret-test',usage)
 
+    def test_admin_model_unavailable_is_actionable_domain_error(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+        diagnosis.save_config(self.repo,self.admin,dict(baseurl='https://api.example.com/v1',model='x',apikey='secret-test'))
+        failure=HTTPError('https://api.example.com/v1/chat/completions',503,'secret-test',{},BytesIO(b'secret-test'))
+        with patch.object(diagnosis.request,'urlopen',side_effect=failure):
+            with self.assertRaisesRegex(InvalidRequest,'HTTP 503.*当前模型不可用') as caught:
+                diagnosis.test_config(self.repo,self.admin)
+        self.assertNotIn('secret-test',str(caught.exception))
+        usage=self.c.execute('select error_category,detail_json from provider_usage_events').fetchone()
+        self.assertEqual('diagnosis_http_503',usage[0]);self.assertNotIn('secret-test',usage[1])
+
     def test_backfill_all_reviewed_cards_and_fingerprint_validation(self):
         manifest=json.loads(Path('highschoolphysics/diagnostic_data/reviewed-20261007.json').read_text())
         self.assertEqual(23,len(manifest));self.assertEqual(92,sum(len(diagnosis.validate_card(x['card'])['steps']) for x in manifest))
