@@ -652,6 +652,13 @@
 
 .document-upload-form label[hidden] { display: none; }
 
+.question-preview .question-image-options > li,
+.answer-question-comparison .question-image-options > li { flex-direction: column-reverse; align-items: center; }
+.question-preview .question-image-options .question-content-image,
+.answer-question-comparison .question-image-options .question-content-image { max-width: 100%; max-height: 9rem; }
+.question-preview .question-content-image.figure-right,
+.answer-question-comparison .question-content-image.figure-right { max-width: 40%; max-height: 15rem; }
+
 .publication-selection { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; margin-bottom: .85rem; }
 .publication-selection label { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
 .publication-selection input[type="checkbox"] { width: 1.1rem; height: 1.1rem; margin: 0; }

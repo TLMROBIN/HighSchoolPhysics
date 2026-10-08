@@ -33,6 +33,12 @@
 .question-options .option-key { flex: 0 0 1.6em; }
 .question-options > li > div { min-width: 0; flex: 1; }
 .question-options p { margin: 0; }
+.question-content .question-image-options { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .6rem; padding-left: 0; }
+.question-content .question-image-options > li { display: flex; flex-direction: column-reverse; align-items: center; }
+.question-content .question-image-options .question-content-image { max-width: 100%; max-height: 9rem; margin: .25rem auto; }
+.question-content .figure-wide { width: 100%; max-width: 42rem; max-height: 20rem; }
+.question-content .figure-right { float: right; max-width: 40%; max-height: 15rem; margin: .3rem 0 .5rem 1rem; }
+.question-stem { display: flow-root; }
 .question-children > li { display: flow-root; }
 .question-children > li > strong { float: left; margin-right: .5rem; }
 .question-children > li > div > p:first-child { margin-top: 0; }

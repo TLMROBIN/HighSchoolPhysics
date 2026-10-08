@@ -127,10 +127,19 @@ def _make_markdown_parser(asset_url):
             return '<span class="question-image-unavailable">图片待复核：%s</span>' % html.escape(
                 token.content or "未命名图片"
             )
+        # Only a bounded, explicit image size hint is allowed from Markdown.
+        hint = token.attrGet("title") or ""
+        classes = "question-content-image"
+        if hint == "wide":
+            classes += " figure-wide"
+        if re.fullmatch(r"right width=\d{2,3}", hint):
+            classes += " figure-right"
+        width = re.fullmatch(r"(?:right )?width=(\d{2,3})", hint)
+        style = ' style="width:%dpx"' % max(80, min(720, int(width.group(1)))) if width else ""
         return (
-            '<img class="question-content-image" src="%s" alt="%s" '
+            '<img class="%s" src="%s" alt="%s"%s '
             'loading="lazy" decoding="async">'
-            % (html.escape(resolved, quote=True), html.escape(token.content or "", quote=True))
+            % (classes, html.escape(resolved, quote=True), html.escape(token.content or "", quote=True), style)
         )
 
     def render_link_open(renderer, tokens, index, options, env):
@@ -178,7 +187,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
         def collect_figure(match):
             figures.append(match.group(0))
             return ""
-        stem_html = re.sub(r'<img\b[^>]*class="question-content-image"[^>]*>', collect_figure, stem_html)
+        stem_html = re.sub(r'<img\b[^>]*class="question-content-image(?: figure-right)?"[^>]*>', collect_figure, stem_html)
         stem_html = re.sub(r"<p>\s*</p>", "", stem_html)
     child_html = {}
     if compact_layout:
@@ -193,7 +202,8 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
             parts.append('<div class="question-lower-text">')
 
     if include_options and document.get("options"):
-        parts.append('<ol class="question-options">')
+        image_options = all(re.fullmatch(r'\s*!\[[^\]]*\]\(asset:[^)]+\)\s*', option['markdown']) for option in document['options'])
+        parts.append('<ol class="question-options%s">' % (' question-image-options' if image_options else ''))
         for option in document["options"]:
             parts.append(
                 '<li data-option-key="%s"><span class="option-key">%s.</span>'

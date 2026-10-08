@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "sfmono-regular",
+        "createdAt": "2026-10-08T09:00:45.217Z",
+        "reason": "Codex reviewed: existing .question-markdown source editor intentionally uses a monospace fallback for Markdown and LaTeX editing; no typography change in this task."
+      }
+    ]
+  }
+}

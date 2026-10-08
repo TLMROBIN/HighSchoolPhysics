@@ -5,6 +5,20 @@ from highschoolphysics.question_rendering import question_math_asset_tags, rende
 
 
 class QuestionRenderingHTTPTests(unittest.TestCase):
+    def test_image_options_and_bounded_source_layout_hints(self):
+        doc = {'number': '3', 'stem_md': '题干\n\n![原图](asset:tube "width=95")',
+               'options': [{'key': k, 'markdown': '![图](asset:plot)' } for k in 'ABCD'], 'children': []}
+        rendered = render_question(doc, asset_url=lambda aid: '/assets/' + aid)
+        self.assertIn('question-options question-image-options', rendered)
+        self.assertIn('width:95px', rendered)
+        self.assertIn('choice-figures', rendered)
+        wide = render_question(dict(doc, stem_md='![原图](asset:row "wide")'), asset_url=lambda aid: '/assets/' + aid)
+        self.assertIn('question-content-image figure-wide', wide)
+        self.assertNotIn('choice-figures', wide)
+        from highschoolphysics.question_rendering import render_markdown
+        unsafe = render_markdown('![图](asset:plot "width=999; color:red")', lambda aid: '/assets/' + aid)
+        self.assertNotIn('style=', unsafe)
+
     def test_compact_full_question_moves_child_figures_to_right_column(self):
         document={'number':'12','stem_md':'完整公共题干','options':[],
                   'children':[{'key':'p1','label':'(1)','stem_md':'第一问\n\n![电路](asset:img1)','options':[]},

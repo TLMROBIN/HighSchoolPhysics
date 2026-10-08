@@ -25,6 +25,27 @@ def fixture_ir():
 
 
 class QuestionSplitterTests(unittest.TestCase):
+    def test_year_led_stems_and_scan_page_furniture(self):
+        ir = fixture_ir()
+        base = ir['blocks'][1]
+        ir['blocks'] = [
+            dict(base, id='section', type='heading', markdown='一、单项选择题：本题共7小题。'),
+            dict(base, id='q1', order=2, markdown='1. 2026年4月，某核素发生衰变。\nA.甲\nB.乙\nC.丙\nD.丁'),
+            dict(base, id='footer', order=3, type='footer', markdown='物理 第1页共6页'),
+            dict(base, id='q7', order=4, markdown='7. 2026年6月5日，研究所发布成果。'),
+            dict(base, id='options', order=5, markdown='A.甲\nB.乙\nC.丙\nD.丁'),
+            dict(base, id='multiple', order=6, type='heading', markdown='二、多项选择题：本题共3小题。'),
+            dict(base, id='q8', order=7, markdown='8. 多选题。\nA.甲\nB.乙\nC.丙\nD.丁'),
+            dict(base, id='nonchoice', order=8, type='heading', markdown='三、非选择题：共54分。'),
+            dict(base, id='q11', order=9, markdown='11. 实验条件。\n(1) 求测量值。'),
+        ]
+        result = split_document_ir(ir)
+        docs = [q['document'] for q in result['questions']]
+        self.assertEqual([d['number'] for d in docs], ['1', '7', '8', '11'])
+        self.assertEqual(docs[2]['kind'], 'multiple_choice')
+        self.assertFalse(any('第1页' in d['stem_md'] or '非选择题' in d['stem_md'] for d in docs))
+        self.assertTrue(any(b['reason'] == 'page_footer' for b in result['unassigned_blocks']))
+
     def test_mixed_number_ranges_in_choice_heading(self):
         ir=fixture_ir();base=ir['blocks'][0]
         ir['blocks']=[dict(base,id='head',markdown='**一、单选题（1-7为单选，8-10为多选）**')]

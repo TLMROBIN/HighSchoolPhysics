@@ -10,7 +10,7 @@ from .document_models import validate_document_ir, validate_question_document
 
 
 QUESTION_RE = re.compile(
-    r"(?m)(?:(?<=\n)|^|(?<=\s)|(?<=\)))[ \t]*(?:第\s*(?P<dnum>\d{1,3})\s*题|(?P<num>\d{1,3})\s*(?:[．、]|[.](?![ \t]*\d)|[.](?=20\d{2}年)))"
+    r"(?m)(?:(?<=\n)|^|(?<=\s)|(?<=\)))[ \t]*(?:第\s*(?P<dnum>\d{1,3})\s*题|(?P<num>\d{1,3})\s*(?:[．、]|[.](?![ \t]*\d)|[.](?=[ \t]*20\d{2}年)))"
 )
 CHILD_RE = re.compile(r"(?m)(?:^|(?<=\n)|(?<=\)))[ \t]*[（(]\s*(?P<label>\d{1,2}|[一二三四五六七八九十])\s*[）)]\s*")
 INLINE_OPTION_RE = re.compile(r"(?<![A-Za-z])\(?([A-H])[).．、]\s*")
@@ -22,7 +22,7 @@ ANSWER_HEADING_RE = re.compile(r"^(?:参考答案|答案(?:与解析|及解析)?
 ANSWER_SECTION_TITLE_RE = re.compile(r"(?:参考答案|答案与解析|答案及解析|答案和解析)\s*(?:[|｜].*)?$", re.IGNORECASE)
 ANSWER_CARD_TITLE_RE = re.compile(r"(?:答题卡|答题纸)\s*$")
 SECTION_HEADING_RE = re.compile(
-    r"^[一二三四五六七八九十]+[、．.]\s*(?:选择题|单选题|多选题|单项选择题|多项选择题|填空题|实验题|解答题|计算题|综合题)(?:\s*[（(].*)?$"
+    r"^[一二三四五六七八九十]+[、．.]\s*(?:非选择题|选择题|单选题|多选题|单项选择题|多项选择题|填空题|实验题|解答题|计算题|综合题)(?:\s*[（(:：].*)?$"
 )
 HEADER_TYPES = {"header", "footer"}
 
@@ -111,10 +111,14 @@ def _separate_numbered_questions(blocks):
     section_kind = None
     choice_ranges = []
     for block in blocks:
+        if block.get("type") in HEADER_TYPES:
+            excluded = dict(block, _unassigned_reason="page_" + block["type"])
+            leading.append(excluded)
+            continue
         text = block.get("markdown", "")
         if _is_section_heading(block):
             heading = re.split(r'[（(]', text, maxsplit=1)[0]
-            section_kind = ("multiple_choice" if "多选" in heading or "多项选择" in heading
+            section_kind = (None if "非选择" in heading else "multiple_choice" if "多选" in heading or "多项选择" in heading
                             else "single_choice" if "选择" in heading or "单选" in heading
                             else "experiment" if "实验" in heading else None)
             choice_ranges = [(int(start), int(end), 'multiple_choice' if label.startswith('多') else 'single_choice')
