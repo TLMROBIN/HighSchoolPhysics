@@ -48,6 +48,38 @@ class ResponseWorkflowTests(unittest.TestCase):
         learning.api(self.repo,self.admin,'response-correct',dict(p,confirm=True,preview_token=preview['preview_token']))
         return p,preview
 
+    def test_delete_unmatched_card_requires_confirmation_and_preserves_responses(self):
+        self.save(self.payload())
+        before = dict(self.response())
+        self.c.execute("""insert into unmatched_answer_cards
+            (id,school_id,assessment_id,created_by,request_key,payload_hash,class_name,
+             source_file,front_page,back_page,detected_name,records_json,front_image,back_image,created_at)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            ('unmatched-test',self.admin['school_id'],self.a,self.admin['id'],'card-test','hash',
+             '高二物理1班','test.pdf',1,2,'李雨曦','[]',b'front',b'back',workflow.timestamp()))
+        self.c.commit()
+        p = dict(operation='delete',card_id='unmatched-test',confirm=True)
+        self.assertIn('data-delete-unmatched-card="李雨曦"',learning_views._unmatched_answer_cards(self.c,self.a))
+        with self.assertRaises(InvalidRequest):
+            learning.api(self.repo,self.admin,'unmatched-cards',dict(p,confirm=False))
+        with self.assertRaises(PermissionDenied):
+            learning.api(self.repo,self.student,'unmatched-cards',p)
+        with self.assertRaises(InvalidRequest):
+            learning.api(self.repo,dict(self.admin,school_id='other-school'),'unmatched-cards',p)
+        self.c.execute("update unmatched_answer_cards set status='assigned',assigned_student_id='stu-1001' where id='unmatched-test'")
+        self.c.commit()
+        self.assertNotIn('data-delete-unmatched-card',learning_views._unmatched_answer_cards(self.c,self.a))
+        with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'unmatched-cards',p)
+        self.c.execute("update unmatched_answer_cards set status='awaiting_student',assigned_student_id=null where id='unmatched-test'")
+        self.c.commit()
+        result=learning.api(self.repo,self.admin,'unmatched-cards',p)
+        self.assertTrue(result['deleted'])
+        self.assertEqual(self.c.execute("select count(*) from unmatched_answer_cards where id='unmatched-test'").fetchone()[0],0)
+        self.assertEqual(dict(self.response()),before)
+        event=self.c.execute("select detail_json from audit_events where action='unmatched_answer_card_deleted'").fetchone()
+        self.assertEqual(json.loads(event[0])['detected_name'],'李雨曦')
+        with self.assertRaises(InvalidRequest):workflow.unmatched_card_image(self.repo,self.admin,'unmatched-test','front')
+
     def test_bulk_absence_optional_reason_and_atomic_validation(self):
         self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
         self.save(self.payload())

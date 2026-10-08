@@ -428,9 +428,41 @@ def _decode_card_image(value, label):
     raise InvalidRequest("%s图片只支持JPEG或PNG" % label)
 
 
+def delete_unmatched_card(repo, user, p):
+    conn = repo.conn
+    card = conn.execute("select * from unmatched_answer_cards where id=? and school_id=?",
+                        (p.get("card_id"), user["school_id"])).fetchone()
+    if not card:
+        raise InvalidRequest("待匹配答题卡不存在")
+    assessment(repo, user, card["assessment_id"])
+    if p.get("confirm") is not True:
+        raise InvalidRequest("请确认删除这张待匹配答题卡")
+    conn.commit()
+    conn.execute("begin immediate")
+    try:
+        card = conn.execute("select * from unmatched_answer_cards where id=? and school_id=?",
+                            (p.get("card_id"), user["school_id"])).fetchone()
+        if not card or card["status"] != "awaiting_student" or card["assigned_student_id"]:
+            raise StateConflict("答题卡已指定学生或已删除，请刷新后查看")
+        detail = {key: card[key] for key in ("assessment_id", "detected_name", "source_file",
+                  "front_page", "back_page", "class_name", "payload_hash")}
+        detail["record_count"] = len(loads(card["records_json"], []))
+        detail["image_sha256"] = {side: hashlib.sha256(card[side + "_image"]).hexdigest()
+                                  for side in ("front", "back")}
+        _audit(conn, user, "unmatched_answer_card_deleted", card["id"], detail)
+        conn.execute("delete from unmatched_answer_cards where id=?", (card["id"],))
+        conn.commit()
+        return dict(message="已删除待匹配答题卡，请刷新查看。", deleted=True, card_id=card["id"])
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def unmatched_cards(repo, user, p):
     conn = repo.conn
     operation = p.get("operation")
+    if operation == "delete":
+        return delete_unmatched_card(repo, user, p)
     if operation == "reassign":
         return reassign_student_answers(repo, user, p)
     if operation == "save":

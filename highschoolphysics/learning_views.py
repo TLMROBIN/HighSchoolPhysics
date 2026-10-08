@@ -358,6 +358,10 @@ def _unmatched_answer_cards(c, assessment_id):
                          hidden('card_id', card["id"]) +
                          '<label>指定学生%s</label>' % select('student_id', students_by_class[card["class_name"]]) +
                          '<button>指定并导入作答</button>'))
+        body.append(form('unmatched-cards', hidden('operation', 'delete') +
+                         hidden('card_id', card["id"]) +
+                         '<button data-delete-unmatched-card="%s">删除这张答题卡</button>' %
+                         esc(card["detected_name"] or "未识别姓名")))
         body.append('</article>')
     body.append('</section>')
     return ''.join(body)
@@ -453,7 +457,7 @@ def question_part_context(c, snapshot_row, school_id):
         return ''
     label = esc(content["child_label"])
     return '<p class="question-part-context"><strong>本次作答对应：%s小问。</strong>完整题干和其他小问一并展示。</p>' % label
-def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261008-batch-confirmation-v1"><script src="assets/learning.js?v=20261008-batch-confirmation-v1" defer></script>'
+def footer(): return '<link rel="stylesheet" href="assets/learning-responses.css?v=20261008-batch-confirmation-v1"><script src="assets/learning.js?v=20261008-card-delete-v1" defer></script>'
 def base(user,title="错题与学习记录"):
     if user['role']=='student':
         return '<section class="panel learning"><h1>历史考试与作答</h1><nav><a href="app">学生首页</a> · <a href="app?module=history">历史测试</a></nav><p>这里保留考试首次作答与导入得分，后续练习不会覆盖这些记录。</p>'
