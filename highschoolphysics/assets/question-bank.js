@@ -3,6 +3,15 @@
   if (!root) return;
   const base = document.body.dataset.basePath || '';
   const jobStorageKey='hsp-bank-tag-jobs:'+root.dataset.actorId;
+  const requestKey = () => {
+    const cryptoApi = globalThis.crypto;
+    if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID();
+    if (typeof cryptoApi?.getRandomValues === 'function') {
+      return Array.from(cryptoApi.getRandomValues(new Uint8Array(24)), value => value.toString(16).padStart(2, '0')).join('');
+    }
+    // This key deduplicates requests; it is not an authentication credential.
+    return 'bank-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  };
   const $ = (name) => root.querySelector(`[data-bank-${name}]`);
   const node = (tag, text, className) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (className) n.className = className; return n; };
   const status = (text) => $('status').textContent = text;
@@ -157,7 +166,7 @@
   const generate=async(onlyMissing)=>{
     if(!selected.size)throw Error('请先选择题目或选中当前批次全部题目');
     if(jobIds.length)throw Error('当前 AI 任务仍在进行，请等待完成后再发起');
-    const result=await api('generate',{question_ids:[...selected],only_missing:onlyMissing,request_key:crypto.randomUUID()});
+    const result=await api('generate',{question_ids:[...selected],only_missing:onlyMissing,request_key:requestKey()});
     jobIds=[...new Set([...jobIds,...result.job_ids])];sessionStorage.setItem(jobStorageKey,JSON.stringify(jobIds));status(`已排队 ${result.job_ids.length} 道题；跳过 ${result.skipped.length} 道已有标签题。`);await poll();
   };
   $('ai-missing').addEventListener('click',run(()=>generate(true)));$('ai').addEventListener('click',run(()=>generate(false)));
