@@ -37,7 +37,7 @@ MAX_OLE_OBJECTS = 512
 MAX_OLE_OBJECT_BYTES = 5 * 1024 * 1024
 MAX_OLE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_MTEF_OUTPUT_BYTES = 8 * 1024 * 1024
-DOCX_ADAPTER_VERSION = "1.6.0"
+DOCX_ADAPTER_VERSION = "1.6.1"
 
 
 def _run_markitdown(source_path):
@@ -249,7 +249,10 @@ def _ole_relationships(archive):
         target = rel.get("Target", "")
         target_mode = rel.get("TargetMode", "Internal")
         rel_type = rel.get("Type", "")
-        if not rel_id or target_mode.lower() == "external" or not rel_type.endswith("/oleObject"):
+        # Some Word exporters label MathType OLE payloads as packages. Only
+        # relationships referenced by OLEObject nodes reach the decoder, which
+        # validates the compound document and equation stream itself.
+        if not rel_id or target_mode.lower() == "external" or not rel_type.endswith(("/oleObject", "/package")):
             continue
         normalized = posixpath.normpath(posixpath.join("word", target.replace("\\", "/")))
         if normalized.startswith("../") or normalized.startswith("/"):
@@ -691,6 +694,13 @@ def _paragraph_text(paragraph, rels, archive, store, school_id, block_id, issues
                             "message": "MathType 原生公式已转成可编辑 LaTeX；需对照对应预览核对公式内容",
                         })
                     else:
+                        # Preserve the visible formula at its source position
+                        # even when editable conversion fails. The blocking
+                        # issue still requires a teacher to repair the formula.
+                        for asset_id in preview_ids:
+                            output.append("![公式预览（待复核）](asset:%s)" % asset_id)
+                        if not preview_ids:
+                            output.append("【公式转换失败，待对照原文补录】")
                         issues.append({
                             "code": "embedded_formula_unconverted",
                             "severity": "blocking",

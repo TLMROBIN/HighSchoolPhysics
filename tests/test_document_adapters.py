@@ -260,7 +260,7 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issue["details"]["shape_name"], "矩形 6")
             self.assertEqual(issue["details"]["geometry"], "rect")
             self.assertEqual(issue["details"]["extent_emu"], {"cx": "6330950", "cy": "3599180"})
-            self.assertEqual(result["manifest"]["adapter_version"], "1.6.0")
+            self.assertEqual(result["manifest"]["adapter_version"], "1.6.1")
 
     def test_docx_counts_each_embedded_ole_object_once(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -291,7 +291,7 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issue["source_locator"]["embedded_object_relationship_id"], "rId3")
             self.assertEqual(issue["source_locator"]["embedded_object_part"], "word/embeddings/oleObject1.bin")
 
-    def test_docx_keeps_corrupt_mtef_object_blocked_without_using_its_preview_as_body(self):
+    def test_docx_keeps_corrupt_mtef_object_blocked_with_visible_preview(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "corrupt.docx"
             make_docx(path, include_ole=True, ole_payload=b"not a compound OLE document")
@@ -299,12 +299,31 @@ class DocumentAdapterTests(unittest.TestCase):
             result = convert_docx(path, store, "school-1", "doc-ole-corrupt", "conv-ole-corrupt", "f" * 64)
 
             self.assertEqual(result["markdown"].count("![插图](asset:"), 1)
+            self.assertEqual(result["markdown"].count("![公式预览（待复核）](asset:"), 1)
             self.assertNotIn("[U+", result["markdown"])
             self.assertEqual(result["manifest"]["embedded_formula_converted_count"], 0)
             self.assertEqual(result["manifest"]["embedded_formula_unresolved_count"], 1)
             issue = next(issue for issue in result["manifest"]["issues"] if issue["code"] == "embedded_formula_unconverted")
             self.assertEqual(issue["severity"], "blocking")
             self.assertEqual(issue["details"]["reason"], "mtef_parse_failed")
+
+    def test_docx_converts_mathType_package_relationship(self):
+        fixture = Path(__file__).parent / "fixtures" / "mtef" / "parallel.ole"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "package.docx"
+            make_docx(path, include_ole=True, ole_payload=fixture.read_bytes())
+            with zipfile.ZipFile(path) as archive:
+                entries = {name: archive.read(name) for name in archive.namelist()}
+            key = "word/_rels/document.xml.rels"
+            entries[key] = entries[key].replace(b"relationships/oleObject", b"relationships/package")
+            with zipfile.ZipFile(path, "w") as archive:
+                for name, data in entries.items():
+                    archive.writestr(name, data)
+            result = convert_docx(path, DocumentStore(Path(directory) / "documents"),
+                                  "school-1", "doc-package", "conv-package", "a" * 64)
+            self.assertIn(r"OC\parallel", result["markdown"])
+            self.assertEqual(result["manifest"]["embedded_formula_converted_count"], 1)
+            self.assertEqual(result["manifest"]["embedded_formula_unresolved_count"], 0)
 
     def test_legacy_doc_routes_through_pdf_recognition_and_keeps_source_provenance(self):
         with tempfile.TemporaryDirectory() as directory:
