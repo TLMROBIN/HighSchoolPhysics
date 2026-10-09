@@ -9,12 +9,13 @@ import tempfile
 import threading
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from unittest import mock
 
 from PIL import Image
 
 from highschoolphysics.document_adapters import AdapterError, convert_document
-from highschoolphysics.document_adapters.docx_native import _math_text_run, convert_docx, _reconcile_markitdown_blocks
+from highschoolphysics.document_adapters.docx_native import _math_value, _math_text_run, convert_docx, _reconcile_markitdown_blocks
 from highschoolphysics.document_adapters.mtef_worker import _normalise_formula, _restore_unlisted_cjk
 from highschoolphysics.document_adapters.mineru_pdf import _run, convert_pdf
 from highschoolphysics.document_store import DocumentStore
@@ -189,6 +190,16 @@ class DocumentAdapterTests(unittest.TestCase):
         cancelled.set()
         error = self._run_long_lived_mineru_fixture(timeout_seconds=20, cancel_event=cancelled)
         self.assertEqual(error.code, "cancelled")
+
+    def test_omml_default_delimiters_are_parentheses_but_explicit_empty_is_invisible(self):
+        for properties, expected in (
+            ('', r'\left( M+m \right)'),
+            ('<m:dPr><m:sepChr m:val=","/></m:dPr>', r'\left( M+m \right)'),
+            ('<m:dPr><m:begChr m:val=""/><m:endChr m:val=""/></m:dPr>', r'\left. M+m \right.'),
+            ('<m:dPr><m:begChr m:val="["/></m:dPr>', r'\left[ M+m \right)'),
+        ):
+            formula = ET.fromstring('<m:oMath xmlns:m="%s"><m:d>%s<m:e><m:r><m:t>M+m</m:t></m:r></m:e></m:d></m:oMath>' % (M, properties))
+            self.assertEqual(_math_value(formula), (expected, True))
 
     def test_omml_chinese_punctuation_and_degree_symbols_remain_renderable(self):
         self.assertEqual(_math_text_run("F、F，60∘"), r"F\text{、}F\text{，}60^{\circ}")

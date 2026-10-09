@@ -527,12 +527,12 @@ def _math_value(node):
             return (r"\sqrt[%s]{%s}" % (degree, body)) if degree else (r"\sqrt{%s}" % body), True
         if name == "d":
             props = first_named(element, "dPr")
-            begin = end = ""
+            begin, end = "(", ")"
             if props is not None:
                 beg = first_named(props, "begChr")
                 end_node = first_named(props, "endChr")
-                begin = beg.get(_q(M, "val"), "") if beg is not None else ""
-                end = end_node.get(_q(M, "val"), "") if end_node is not None else ""
+                begin = beg.get(_q(M, "val"), "") if beg is not None else "("
+                end = end_node.get(_q(M, "val"), "") if end_node is not None else ")"
             return r"\left%s %s \right%s" % (begin or ".", children_text(first_named(element, "e")), end or "."), True
         if name == "nary":
             props = first_named(element, "naryPr")

@@ -69,6 +69,7 @@ def _is_answer_heading(block):
 def _starts_answer_section(block):
     text = (block.get("markdown") or "").strip()
     text = re.sub(r"^#{1,6}\s*", "", text)
+    text = re.sub(r"^(\*\*|__)(.*?)\1$", r"\2", text).strip()
     return _is_answer_heading(block) or bool(ANSWER_SECTION_TITLE_RE.search(text))
 
 

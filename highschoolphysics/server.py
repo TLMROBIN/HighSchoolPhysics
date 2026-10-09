@@ -46,7 +46,7 @@ from .question_content import visible_question_asset_ids
 
 ASSET_VERSION = "20261007-question-difficulty-v1"
 QUESTION_ASSET_VERSION = "20261007-student-tablet-v3"
-DOCUMENT_ASSET_VERSION = "20261006-answers-v4"
+DOCUMENT_ASSET_VERSION = "20261009-live-preview-v1"
 
 
 def ensure_database(path, demo_mode=False):

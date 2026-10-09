@@ -604,14 +604,34 @@
         (["remove_option", "move_option"].includes(button.dataset.structureAction) && !optionSelect.value);
     });
   };
+  const previewFailure = (card, error) => {
+    if (error.previewObsolete) return;
+    const body = card.querySelector("[data-preview-body]");
+    body.textContent = "预览更新失败，当前修改尚未显示。请保留 Markdown 的章节和起止标记，仅修改正文后重试。";
+    setText(card.querySelector(".save-status"), `预览更新失败：${error.message}`);
+  };
   const previewCard = async (card, structureAction) => {
+    window.clearTimeout(card.previewTimer);
+    const sequence = card.previewSequence = (card.previewSequence || 0) + 1;
     const id = card.dataset.documentItem;
     const markdown = card.querySelector(".question-markdown").value;
     const questionNumber = card.querySelector("[data-question-number-edit]").value.trim();
     const operations = JSON.parse(card.dataset.structureOperations || "[]");
-    const result = await request(`/api/documents/items/${encodeURIComponent(id)}/preview`, {
-      task_id: taskId, markdown, structure_operations: operations, structure_action: structureAction,
-    });
+    let result;
+    try {
+      result = await request(`/api/documents/items/${encodeURIComponent(id)}/preview`, {
+        task_id: taskId, markdown, structure_operations: operations, structure_action: structureAction,
+      });
+    } catch (error) {
+      error.previewObsolete = sequence !== card.previewSequence;
+      previewFailure(card, error);
+      throw error;
+    }
+    if (sequence !== card.previewSequence || markdown !== card.querySelector(".question-markdown").value) {
+      const error = new Error("内容已继续修改，正在等待最新预览。");
+      error.previewObsolete = true;
+      throw error;
+    }
     result.document.number = questionNumber;
     result.document.bank_type = card.querySelector('[data-bank-kind]').value;
     card.querySelector("[data-preview-body]").innerHTML = result.html;
@@ -681,7 +701,7 @@
         await previewCard(card);
         setText(status, "预览已更新；保存前修改仍只在此页面。 ");
       } catch (error) {
-        setText(status, error.message);
+        previewFailure(card, error);
       }
     });
   });
@@ -809,7 +829,7 @@
         card.dataset.structureOperations = JSON.stringify(draft.operations || []);
         card.querySelectorAll("[data-issue-id]").forEach((input) => { input.checked = draft.issues.includes(input.dataset.issueId); });
         setText(card.querySelector(".save-status"), "已恢复本页未保存草稿；请更新预览并核对后保存。");
-        previewCard(card).catch((error) => setText(card.querySelector(".save-status"), error.message));
+        previewCard(card).catch((error) => previewFailure(card, error));
       } else {
         setText(card.querySelector(".save-status"), "有旧版本本地草稿，未覆盖当前版本。可下载后对照恢复。");
         const download = document.createElement("button");
@@ -823,7 +843,23 @@
         card.querySelector(".question-card-actions").append(download);
       }
     }
-    card.addEventListener("input", () => cacheDraft(card));
+    card.addEventListener("input", (event) => {
+      cacheDraft(card);
+      if (!event.target.matches(".question-markdown")) return;
+      card.previewSequence = (card.previewSequence || 0) + 1;
+      window.clearTimeout(card.previewTimer);
+      // Hide stale content immediately, including if the next request fails.
+      card.querySelector("[data-preview-body]").textContent = "正文已修改，正在更新预览…";
+      setText(card.querySelector(".save-status"), "正文已修改，等待预览更新；尚未保存。");
+      card.previewTimer = window.setTimeout(async () => {
+        try {
+          await previewCard(card);
+          setText(card.querySelector(".save-status"), "预览已更新；修改尚未保存。");
+        } catch (error) {
+          previewFailure(card, error);
+        }
+      }, 450);
+    });
     card.addEventListener("change", () => cacheDraft(card));
     card.querySelector("[data-structure-target]").addEventListener("change", () => refreshStructureControls(card, card.questionStructure));
     const changeStructure = async (operation) => {

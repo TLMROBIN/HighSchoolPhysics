@@ -68,6 +68,21 @@ class QuestionSplitterTests(unittest.TestCase):
         ir["blocks"] = [dict(ir["blocks"][1], markdown="13．某实验装置如下。\n（1）请选择正确操作。\nA．甲\nB．乙\n（2）多选：请选择正确操作。\nA．丙\nB．丁")]
         children = split_document_ir(ir)["questions"][0]["document"]["children"]
         self.assertEqual([child["kind"] for child in children], ["single_choice", "multiple_choice"])
+    def test_bold_named_reference_answers_do_not_leak_into_last_question(self):
+        ir = fixture_ir()
+        base = ir['blocks'][0]
+        for title in ('**《限时训练1》参考答案**', '__参考答案__', '### **参考答案**'):
+            ir['blocks'] = [
+                dict(base, id='q12', order=1, markdown='12．木板题。\n（3）求相对位移。'),
+                dict(base, id='answers', order=2, markdown=title),
+                dict(base, id='table', order=3, markdown='| 题号 | 1 | 2 |\n| --- | --- | --- |\n| 答案 | C | D |'),
+                dict(base, id='solution1', order=4, markdown='1．【解析】解释第一题。'),
+            ]
+            result = split_document_ir(ir)
+            self.assertEqual([q['document']['number'] for q in result['questions']], ['12'])
+            self.assertEqual(result['questions'][0]['document']['children'][0]['stem_md'], '求相对位移。')
+            self.assertEqual(result['answer_blocks'], ['answers', 'table', 'solution1'])
+
     def test_numbers_options_children_and_source_assets_are_preserved(self):
         result = split_document_ir(fixture_ir())
         self.assertEqual([item["document"]["number"] for item in result["questions"]], ["1", "2"])
