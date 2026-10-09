@@ -651,6 +651,25 @@ def teacher(repo,user,params,document_import_enabled=False):
     body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>')+'</details>')
     return ''.join(body)+'</section>'+footer()
 
+def _exam_non_submission_records(c, assessment_id, participants, editable=True):
+    students = [p for p in participants if p['status'] == 'not_submitted']
+    if not students:
+        return ''
+    confirmations = {}
+    for event in c.execute("""select a.detail_json, datetime(a.created_at, '+8 hours') confirmed_at,
+        u.display_name confirmed_by from audit_events a left join users u on u.id=a.actor_id
+        where a.resource_id=? and a.action='missing_submission_confirmed'
+        order by a.created_at desc, a.rowid desc""", (assessment_id,)):
+        detail = json.loads(event['detail_json'])
+        confirmations.setdefault(detail['student_id'], {**dict(event), 'reason': detail.get('reason', '')})
+    body = ['<details class="exam-non-submissions" open><summary>已确认缺缴（%s人，发布时跳过）</summary><table><tr><th>班级 / 学生</th><th>确认人</th><th>确认时间（北京时间）</th><th>备注</th><th>操作</th></tr>' % len(students)]
+    for p in students:
+        event = confirmations.get(p['student_id'], {})
+        action = form('missing-student', hidden('assessment_id', assessment_id) + hidden('student_id', p['student_id']) + hidden('status', 'present') + '<button>撤销缺缴，恢复待录入</button>') if editable else '已发布'
+        body.append('<tr><td>%s · %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (esc(p['class_name']), esc(p['display_name']), esc(event.get('confirmed_by') or '—'), esc(event.get('confirmed_at') or '—'), esc(event.get('reason') or '—'), action))
+    return ''.join(body) + '</table></details>'
+
+
 def _exam_missing_records(c, assessment_id, participants, responses, questions):
     recorded = defaultdict(set)
     for response in responses:
@@ -661,16 +680,17 @@ def _exam_missing_records(c, assessment_id, participants, responses, questions):
     partial = [(p, positions) for p, positions in missing if positions and recorded[p['student_id']]]
     absent = [p for p in participants if p['status'] == 'absent']
     body = ['<section class="exam-missing-records"><h3>考试结果管理 · 缺失作答确认</h3>'
-            '<p>无作答记录不等于缺考。教师核实后确认缺考，发布时才会跳过；已有部分作答的学生需补齐缺失题目。</p>']
+            '<p>勾选未交答卷的学生，确认后记为“缺缴”，保存确认人、时间及备注，发布时跳过这些学生。已有部分作答的学生需补齐缺失题目。</p>']
     body.append('<h4>没有作答记录，待教师确认（%s人）</h4>' % len(no_cards))
     if no_cards:
         items = ['<div class="exam-bulk-toolbar"><label class="exam-check"><input type="checkbox" data-bulk-all>全选</label><span data-bulk-count>已选0人</span></div><ul class="exam-confirm-list">']
         for p in no_cards:
             items.append('<li><label class="exam-check"><input type="checkbox" name="student_ids" value="%s" data-bulk-item><span>%s · %s</span></label></li>' % (esc(p['student_id']),esc(p['class_name']),esc(p['display_name'])))
-        items.append('</ul><label>缺考原因（选填）<input name="reason" maxlength="1000" placeholder="可以不填写"></label><button type="submit" data-bulk-submit disabled>批量确认缺考</button>')
-        body.append(form('missing-students-batch',hidden('assessment_id',assessment_id)+''.join(items)))
+        items.append('</ul><label>缺缴备注（选填）<input name="reason" maxlength="1000" placeholder="可以不填写"></label><button type="submit" data-bulk-submit disabled>确认所选学生缺缴</button>')
+        body.append(form('missing-students-batch',hidden('assessment_id',assessment_id)+hidden('status','not_submitted')+''.join(items)))
     else:
-        body.append('<p>当前没有等待缺考确认的学生。</p>')
+        body.append('<p>当前没有缺少全部作答记录的学生。</p>')
+    body.append(_exam_non_submission_records(c, assessment_id, participants))
     if absent:
         body.append('<details><summary>已确认缺考（%s人，发布时跳过）</summary><table>' % len(absent))
         for p in absent:
@@ -859,6 +879,8 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         body.append(_exam_missing_records(c, aid, participants, rs, qs))
         body.append(form('publish',hidden('assessment_id',aid)+'<button>发布作答结果到错题本</button>'))
     groups=defaultdict(lambda:dict(total=0,wrong=0,blank=0,students=set(),affected=set()))
+    if staff and a['grading_status']=='published':
+        body.append(_exam_non_submission_records(c, aid, participants, editable=False))
     present=[p for p in participants if p['status']=='present' and (staff or p['student_id']==user['id'])]
     if staff:
         scope_ids=set(loads(a.get('scope_json'),{}).get('class_ids',[])) | {a['class_id']}

@@ -785,22 +785,22 @@ def confirm_missing_student(repo, user, p):
         if not student:
             raise InvalidRequest("学生不在本次考试名单中")
         status = p.get("status")
-        if status not in ("absent", "present") or student["status"] not in ("absent", "present"):
-            raise InvalidRequest("无效的缺考确认操作")
+        if status not in ("absent", "present", "not_submitted") or student["status"] not in ("absent", "present", "not_submitted"):
+            raise InvalidRequest("无效的缺考或缺缴确认操作")
         if conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",
                         (a["id"], student["student_id"])).fetchone():
-            raise StateConflict("学生已有作答记录，请核对缺失题目，不能按无答卷确认缺考")
+            raise StateConflict("学生已有作答记录，请核对缺失题目，不能按无答卷确认缺考或缺缴")
         reason = str(p.get("reason") or "").strip()
         if len(reason) > 1000:
             raise InvalidRequest("缺考原因最多1000字，可不填写")
         conn.execute("update assessment_participants set status=? where assessment_id=? and student_id=?",
                      (status, a["id"], student["student_id"]))
-        _audit(conn, user, "missing_student_confirmed", a["id"], {
+        _audit(conn, user, "missing_submission_confirmed" if status == "not_submitted" else "missing_student_confirmed", a["id"], {
             "student_id": student["student_id"], "previous_status": student["status"],
             "status": status, "reason": reason})
         conn.commit()
         return {"message": "%s%s" % (student["display_name"],
-                "已由教师确认缺考，发布时将跳过" if status == "absent" else "已恢复参试，需补齐作答后发布")}
+                "已由教师确认缺缴，发布时将跳过" if status == "not_submitted" else ("已由教师确认缺考，发布时将跳过" if status == "absent" else "已恢复参试，需补齐作答后发布"))}
     except Exception:
         conn.rollback()
         raise
@@ -828,7 +828,7 @@ def publish(repo,user,p):
             (select 1 from response_review_items x where x.response_id=r.id and x.status='open'))""",
             (a["id"],)).fetchone()[0]
         if missing_count or pending_count:
-            raise StateConflict("尚缺%s条作答、%s条待复核。请查看考试结果管理中的缺失清单；无答卷学生须由教师确认缺考，其他缺失需补录。" %
+            raise StateConflict("尚缺%s条作答、%s条待复核。请查看考试结果管理中的缺失清单；无答卷学生须由教师确认缺缴或缺考，其他缺失需补录。" %
                                 (missing_count, pending_count))
         rows=[]
         for u in participants:
@@ -857,12 +857,16 @@ def publish(repo,user,p):
 
 
 def confirm_missing_students(repo, user, p):
+    status = p.get("status", "absent")
+    if status not in ("absent", "not_submitted"):
+        raise InvalidRequest("无效的缺考或缺缴确认状态")
+    label = "缺缴" if status == "not_submitted" else "缺考"
     ids = p.get("student_ids", [])
     if isinstance(ids, str): ids = [ids]
     if not isinstance(ids, list) or not 1 <= len(ids) <= 500 or any(not isinstance(i,str) or not i for i in ids) or len(set(ids)) != len(ids):
-        raise InvalidRequest("请选择要确认缺考的学生，最多500人")
+        raise InvalidRequest("请选择要确认缺考或缺缴的学生，最多500人")
     reason = str(p.get("reason") or "").strip()
-    if len(reason) > 1000: raise InvalidRequest("缺考原因最多1000字，可不填写")
+    if len(reason) > 1000: raise InvalidRequest("确认原因最多1000字，可不填写")
     conn = repo.conn
     conn.commit(); conn.execute("begin immediate")
     try:
@@ -873,13 +877,13 @@ def confirm_missing_students(repo, user, p):
             student = conn.execute("select ap.* from assessment_participants ap join users u on u.id=ap.student_id where ap.assessment_id=? and ap.student_id=? and u.school_id=?",(a["id"],sid,user["school_id"])).fetchone()
             if not student or student["status"] != "present": raise StateConflict("名单或参试状态已变化，请刷新后重新选择")
             if conn.execute("select 1 from student_responses where assessment_id=? and student_id=?",(a["id"],sid)).fetchone():
-                raise StateConflict("所选学生已有作答记录，未确认任何人缺考；请刷新核对")
+                raise StateConflict("所选学生已有作答记录，未更改任何学生；请刷新核对")
             students.append(student)
         for student in students:
-            conn.execute("update assessment_participants set status='absent' where assessment_id=? and student_id=?",(a["id"],student["student_id"]))
-            _audit(conn,user,"missing_student_confirmed",a["id"],{"student_id":student["student_id"],"previous_status":"present","status":"absent","reason":reason,"batch":True})
+            conn.execute("update assessment_participants set status=? where assessment_id=? and student_id=?",(status,a["id"],student["student_id"]))
+            _audit(conn,user,"missing_submission_confirmed" if status == "not_submitted" else "missing_student_confirmed",a["id"],{"student_id":student["student_id"],"previous_status":"present","status":status,"reason":reason,"batch":True})
         conn.commit()
-        return {"message":"已批量确认%s人缺考，发布时将跳过" % len(students),"count":len(students)}
+        return {"message":"已确认%s人%s，记录已保存，发布时将跳过" % (len(students),label),"count":len(students)}
     except Exception:
         conn.rollback(); raise
 

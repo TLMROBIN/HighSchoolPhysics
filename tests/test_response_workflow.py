@@ -137,7 +137,7 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.save(self.payload())
         html=learning_views.exams(self.repo,self.admin,self.a)
         self.assertIn('data-action="missing-students-batch"',html)
-        self.assertIn('缺考原因（选填）',html)
+        self.assertIn('缺缴备注（选填）',html)
         with self.assertRaises(PermissionDenied):
             learning.api(self.repo,self.student,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002']))
         with self.assertRaises(StateConflict):
@@ -146,6 +146,49 @@ class ResponseWorkflowTests(unittest.TestCase):
         result=learning.api(self.repo,self.admin,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002']))
         self.assertEqual(result['count'],1)
         self.assertEqual(self.c.execute("select status from assessment_participants where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],'absent')
+
+    def test_non_submission_confirmation_audit_restore_and_publish(self):
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
+        self.save(self.payload())
+        html=learning_views.exams(self.repo,self.admin,self.a)
+        self.assertIn('name="status" value="not_submitted"',html)
+        self.assertIn('确认所选学生缺缴',html)
+        payload=dict(assessment_id=self.a,student_ids=['stu-1002'],status='not_submitted',reason='未交答卷')
+        with self.assertRaises(PermissionDenied):
+            learning.api(self.repo,self.student,'missing-students-batch',payload)
+        with self.assertRaises(StateConflict):
+            learning.api(self.repo,self.admin,'missing-students-batch',{**payload,'student_ids':['stu-1002','stu-1001']})
+        self.assertEqual(self.c.execute("select status from assessment_participants where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],'present')
+        result=learning.api(self.repo,self.admin,'missing-students-batch',payload)
+        self.assertEqual(result['count'],1)
+        self.assertEqual(self.c.execute("select status from assessment_participants where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],'not_submitted')
+        self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],0)
+        event=self.c.execute("select * from audit_events where action='missing_submission_confirmed' and resource_id=?",(self.a,)).fetchone()
+        self.assertEqual(event['actor_id'],self.admin['id'])
+        self.assertTrue(event['created_at'])
+        self.assertEqual(json.loads(event['detail_json'])['reason'],'未交答卷')
+        html=learning_views.exams(self.repo,self.admin,self.a)
+        self.assertIn('已确认缺缴（1人',html)
+        self.assertIn('未交答卷',html)
+        self.assertIn('撤销缺缴',html)
+        learning.api(self.repo,self.admin,'missing-student',dict(assessment_id=self.a,student_id='stu-1002',status='present'))
+        with self.assertRaises(StateConflict):
+            learning.api(self.repo,self.admin,'publish',dict(assessment_id=self.a))
+        learning.api(self.repo,self.admin,'missing-students-batch',payload)
+        learning.api(self.repo,self.admin,'publish',dict(assessment_id=self.a))
+        html=learning_views.exams(self.repo,self.admin,self.a)
+        self.assertIn('已确认缺缴（1人',html)
+        self.assertNotIn('撤销缺缴',html)
+        self.assertEqual(self.c.execute("select count(*) from wrong_questions where assessment_id=? and student_id='stu-1002'",(self.a,)).fetchone()[0],0)
+        with self.assertRaises(StateConflict):
+            learning.api(self.repo,self.admin,'missing-student',dict(assessment_id=self.a,student_id='stu-1002',status='present'))
+
+    def test_non_submission_does_not_bypass_pending_review(self):
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
+        self.save(self.payload('E'))
+        learning.api(self.repo,self.admin,'missing-students-batch',dict(assessment_id=self.a,student_ids=['stu-1002'],status='not_submitted'))
+        with self.assertRaisesRegex(StateConflict,'0条作答、1条待复核'):
+            learning.api(self.repo,self.admin,'publish',dict(assessment_id=self.a))
 
     def test_bulk_review_optional_reason_atomic_stale_and_retry(self):
         self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'",(self.a,));self.c.commit()
