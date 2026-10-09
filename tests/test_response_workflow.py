@@ -201,6 +201,11 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and outcome='pending'",(self.a,)).fetchone()[0],2)
         html=learning_views.exams(self.repo,self.admin,self.a)
         self.assertIn('data-action="response-review-batch"',html)
+        self.assertEqual(html.count('<option value="wrong" selected>错误</option>'), 4)
+        for row in rows:
+            self.assertIn('<option value="wrong" selected>错误</option>',learning_views.response_controls(row,False))
+            self.assertNotIn(' selected',learning_views.response_controls(dict(row,outcome='wrong'),True))
+        self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and outcome='pending'",(self.a,)).fetchone()[0],2)
         self.assertIn('data-bulk-all',html)
         self.assertIn('核对依据（选填）',html)
         self.assertIn('<details class="exam-card-details"><summary>查看答题卡</summary>',html)

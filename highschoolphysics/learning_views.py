@@ -275,7 +275,7 @@ def form(action, body):
     return '<form class="learning-form" data-action="%s">%s<div role="status"></div></form>'%(action,body)
 
 def hidden(k,v): return '<input type="hidden" name="%s" value="%s">'%(esc(k),esc(v))
-def select(name, rows): return '<select name="%s" required><option value="">请选择</option>%s</select>'%(name,''.join('<option value="%s">%s</option>'%(esc(k),esc(v)) for k,v in rows))
+def select(name, rows, selected=None): return '<select name="%s" required><option value="">请选择</option>%s</select>'%(name,''.join('<option value="%s"%s>%s</option>'%(esc(k),' selected' if k == selected else '',esc(v)) for k,v in rows))
 def tags(s):
     labels = {'knowledge': '知识点', 'ability': '能力', 'literacy': '素养'}
     return '<p>'+''.join('<span class="pill">%s：%s</span> '%(labels[t['tag_type']],esc(t['name'])) for t in loads(s['tag_snapshot_json'],[]) if t['tag_type'] in labels)+'</p>'
@@ -1020,13 +1020,14 @@ def response_controls(r, published, expanded=False, batch=False):
         return ''
     action='response-correct' if published else 'response-review'
     label='更正作答或结果' if published else '确认待复核作答'
+    outcome_select=select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')],selected='wrong' if r['outcome']=='pending' else None)
     body=hidden('response_id',r['id'])+hidden('expected_decision_id',r['effective_decision_id'])
     body+='<label>核对后的答案<textarea name="answer">%s</textarea></label>' % esc(r['final_answer'])
-    body+='<label>核对后的结果'+select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')])+'</label>'
+    body+='<label>核对后的结果'+outcome_select+'</label>'
     if published:
         body+='<label>更正类型'+select('reason_code',[('extraction_error','识别或转录错误'),('external_error','外部结果错误'),('judgment_error','判定错误')])+'</label>'
     if batch:
-        return '<label>核对后的答案<textarea name="answer">%s</textarea></label><label>核对后的结果%s</label>' % (esc(r['final_answer']),select('outcome',[('correct','正确'),('wrong','错误'),('blank','空白')]).replace(' required',''))
+        return '<label>核对后的答案<textarea name="answer">%s</textarea></label><label>核对后的结果%s</label>' % (esc(r['final_answer']),outcome_select.replace(' required',''))
     body+='<label>核对依据（%s）<textarea name="reason"%s maxlength="2000"></textarea></label>' % ('必填' if published else '选填',' required' if published else '')
     body+='<button>%s</button><div class="response-preview"></div>' % ('预览更正影响' if published else '确认复核')
     if published:
