@@ -524,6 +524,14 @@ def unmatched_cards(repo, user, p):
                     }
                     score = record.get("score")
                     maximum = record.get("max_score")
+                    if record.get("answer_blank") is True:
+                        if record["answer"].strip() or score != 0 or maximum is None:
+                            raise InvalidRequest("明确空白记录需提供空答案、0分和满分")
+                        item["answer_blank"] = True
+                    if record.get("supplied_outcome") is not None:
+                        if record["supplied_outcome"] not in OUTCOMES:
+                            raise InvalidRequest("无效的外部判定结果")
+                        item["supplied_outcome"] = record["supplied_outcome"]
                     if score is not None or maximum is not None:
                         try:
                             score_value = float(score)
@@ -624,12 +632,21 @@ def unmatched_cards(repo, user, p):
         if conn.execute("select 1 from student_responses where assessment_id=? and student_id=? and question_id=?",
                         (a["id"], student_id, snapshot["question_id"])).fetchone():
             conflicts.append(item["number"])
-        import_records.append({
+        import_record = {
             "student_id": student_id, "snapshot_id": snapshot["id"],
             "answer": item["answer"], "source_row": item["number"],
             "score": item.get("score"), "max_score": item.get("max_score"),
             "reason": item.get("marking_note", ""),
-        })
+        }
+        # Choice results come from the frozen key, not a handwritten score.
+        choice = loads(snapshot["grading_rule_json"], {}).get("type") in ("single_choice", "multiple_choice")
+        if choice:
+            import_record.pop("score")
+            import_record.pop("max_score")
+        for field in ("answer_blank", "supplied_outcome"):
+            if field in item and not (choice and field == "answer_blank"):
+                import_record[field] = item[field]
+        import_records.append(import_record)
     if conflicts:
         raise StateConflict("所选学生已有这些题号的作答，未覆盖：%s" % ", ".join(map(str, conflicts)))
     key = "unmatched-" + card["id"]
@@ -640,6 +657,8 @@ def unmatched_cards(repo, user, p):
                        (card["source_file"], card["front_page"], card["back_page"]),
         "records": import_records,
     }
+    if any(item.get("supplied_outcome") for item in import_records):
+        payload.update(source_type="external", source_reason="按原答题卡保留人工复核状态与评分依据")
     preview = import_answers(repo, user, payload)
     if not preview.get("preview"):
         raise StateConflict("作答导入没有生成预览，答题卡尚未指定")

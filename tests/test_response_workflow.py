@@ -48,6 +48,58 @@ class ResponseWorkflowTests(unittest.TestCase):
         learning.api(self.repo,self.admin,'response-correct',dict(p,confirm=True,preview_token=preview['preview_token']))
         return p,preview
 
+    def unmatched_fixture(self, record):
+        self.c.execute("""insert into unmatched_answer_cards
+            (id,school_id,assessment_id,created_by,request_key,payload_hash,class_name,
+             source_file,front_page,back_page,detected_name,records_json,front_image,back_image,created_at)
+            values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            ('card-format',self.admin['school_id'],self.a,self.admin['id'],'card-format','hash',
+             self.c.execute("select name from class_groups where id='class-physics-1'").fetchone()[0],'test.pdf',1,2,'待指定',json.dumps([record]),b'front',b'back',workflow.timestamp()))
+        self.c.commit()
+
+    def test_assign_choice_ignores_legacy_scores_and_grades_from_key(self):
+        self.unmatched_fixture(dict(number=1,answer='B',score=0,max_score=4))
+        learning.api(self.repo,self.admin,'unmatched-cards',dict(operation='assign',card_id='card-format',student_id='stu-1001'))
+        self.assertEqual(self.response()['initial_answer'],'B')
+        self.assertEqual(self.response()['outcome'],'correct')
+        evidence=self.c.execute('select imported_score from response_evidence where response_id=?',(self.response()['id'],)).fetchone()
+        self.assertIsNone(evidence[0])
+        self.assertEqual(json.loads(self.c.execute("select records_json from unmatched_answer_cards where id='card-format'").fetchone()[0])[0]['score'],0)
+
+    def test_assign_blank_choice_with_score_keeps_blank_result(self):
+        self.unmatched_fixture(dict(number=1,answer='',score=0,max_score=4,answer_blank=True))
+        learning.api(self.repo,self.admin,'unmatched-cards',dict(operation='assign',card_id='card-format',student_id='stu-1001'))
+        self.assertEqual(self.response()['outcome'],'blank')
+
+    def test_assign_preserves_blank_score_only_and_pending_states(self):
+        import base64
+        import io
+        from PIL import Image
+        image=io.BytesIO();Image.new('RGB',(2,2),'white').save(image,format='PNG')
+        encoded=base64.b64encode(image.getvalue()).decode()
+        self.c.execute("update questions set bank_type='solution' where id='q-newton-1'")
+        self.c.execute("update question_version_snapshots set grading_rule_json=? where assessment_id=?",
+                       (json.dumps(dict(type='short_answer',bank_type='solution',answer='正确解答',points=5)),self.a))
+        self.c.commit()
+        cases=[(dict(answer='',score=0,max_score=5,answer_blank=True),'blank'),
+               (dict(answer='',score=0,max_score=5),'wrong'),
+               (dict(answer='字迹待核',supplied_outcome='pending'),'pending')]
+        for index,(record,expected) in enumerate(cases):
+            aid=self.repo.create_assessment_from_paper(self.admin['id'],self.paper,'class-physics-1','test','','高二','')['id']
+            self.c.execute("update question_version_snapshots set grading_rule_json=? where assessment_id=?",
+                           (json.dumps(dict(type='short_answer',bank_type='solution',answer='正确解答',points=5)),aid))
+            self.c.commit()
+            self.c.execute("update assessment_sessions set scope_json=? where id=?",
+                           (json.dumps(dict(class_names=[self.c.execute("select name from class_groups where id=\'class-physics-1\'").fetchone()[0]])),aid))
+            self.c.commit()
+            record.update(number=1)
+            learning.api(self.repo,self.admin,'unmatched-cards',dict(operation='save',assessment_id=aid,request_key='state-'+str(index),cards=[dict(card_key='card',class_name=self.c.execute("select name from class_groups where id='class-physics-1'").fetchone()[0],source_file='test.pdf',front_page=1,back_page=2,records=[record],front_image_base64=encoded,back_image_base64=encoded)]))
+            card=self.c.execute('select id,records_json from unmatched_answer_cards where assessment_id=?',(aid,)).fetchone()
+            for flag in ['answer_blank','supplied_outcome']:
+                if flag in record:self.assertEqual(json.loads(card['records_json'])[0][flag],record[flag])
+            learning.api(self.repo,self.admin,'unmatched-cards',dict(operation='assign',card_id=card['id'],student_id='stu-1001'))
+            self.assertEqual(self.response(aid)['outcome'],expected)
+
     def test_delete_unmatched_card_requires_confirmation_and_preserves_responses(self):
         self.save(self.payload())
         before = dict(self.response())
