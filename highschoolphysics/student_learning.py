@@ -673,12 +673,14 @@ def page(repo,user,params,base_path=''):
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
     module=value('module') or 'graph'
-    out=['<section class="panel learning student-workspace"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>']
+    map_home = module == 'graph' and not wid and not value('trial')
+    out=['<section class="panel learning student-workspace%s"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>' % (' student-map-workspace' if map_home else '')]
     from .learning_views import form,hidden
     settings='<fieldset><legend>关注题型</legend>'+''.join('<label><input type="checkbox" name="types" value="%s"%s>%s</label>'%(k,' checked' if k in types else '',v) for k,v in TYPES.items())+'</fieldset>'
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
-    out.append(form('student-preferences',settings)+'</details></header>')
-    out.append('<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>'%len(due))
+    out.append(form('student-preferences',settings)+'</details>')
+    review_link = '<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>' % len(due)
+    out.append(review_link + '</header>' if map_home else '</header>' + review_link)
     # Restored as an evidence-led learning map by the 2026-10-11 upgrade request.
     modules=(('wrong','错题本'),('history','历史测试'),('graph','学习地图'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')

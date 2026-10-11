@@ -29,6 +29,21 @@ class LearningRegionsTests(unittest.TestCase):
     def teacher(self):
         return dict(self.c.execute("select * from users where id='user-teacher-li'").fetchone())
 
+    def test_empty_class_does_not_hide_available_students_by_default(self):
+        populated = self.user['class_id']
+        row = dict(self.c.execute('select * from class_groups where id=?', (populated,)).fetchone())
+        row.update(id='class-empty-first', name='000空班')
+        columns = ','.join(row)
+        self.c.execute('insert into class_groups (' + columns + ') values (' + ','.join('?' for _ in row) + ')', list(row.values()))
+        self.c.execute("insert into teacher_classes (teacher_id,class_id,subject) values (?,?,'physics')",
+                       (self.teacher()['id'], row['id']))
+        self.c.commit()
+        default = regions.analyze(self.repo, self.teacher(), {})
+        self.assertEqual(populated, default['class_id'])
+        explicit = regions.analyze(self.repo, self.teacher(), {'class_id':[row['id']]})
+        self.assertEqual({}, explicit['students'])
+        self.assertEqual(row['id'], explicit['class_id'])
+
     def review(self, index=0, **values):
         release, _ = graph.latest(self.c, self.user['school_id'])
         return graph.api(self.repo, self.teacher(), 'graph-goal-save', dict(
@@ -155,7 +170,8 @@ class LearningRegionsTests(unittest.TestCase):
         self.assertNotIn(self.other['id'], {r['student_id'] for r in data['records']})
         page = regions.student_page(self.repo, self.user, {'window':['all']})
         self.assertIn('全部学习区域', page)
-        regions.teacher_page(self.repo, self.teacher(), {'window':['all']})
+        teacher_page = regions.teacher_page(self.repo, self.teacher(), {'window':['all']})
+        self.assertNotIn('0 / 0 人反复失分', teacher_page)
         self.assertEqual(originals, [tuple(r) for r in self.c.execute('select * from student_responses')])
         self.assertEqual(0, self.c.execute('select count(*) from redo_attempts').fetchone()[0])
         self.assertEqual(0, self.c.execute('select count(*) from diagnostic_sessions').fetchone()[0])

@@ -88,6 +88,7 @@ node_check() {
     highschoolphysics/assets/question-rendering.js
     highschoolphysics/assets/question-bank.js
     highschoolphysics/assets/learning-graph.js
+    highschoolphysics/assets/learning-regions.js
     highschoolphysics/assets/diagnosis.js
   )
   for asset in "${assets[@]}"; do

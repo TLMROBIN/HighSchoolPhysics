@@ -562,6 +562,8 @@ def teacher(repo,user,params,document_import_enabled=False):
     body=['<section class="panel learning"><h1>%s</h1>' % titles.get(module,'教师工作台'), navigation(module if module in titles else '')]
     if module=='regions':
         from .learning_regions import teacher_page
+        body[0] = body[0].replace('class="panel learning"', 'class="panel learning teacher-map-workspace"')
+        body[1] = '<details class="map-module-switcher" open><summary>切换工作台模块</summary>' + body[1] + '</details>'
         return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
     if module=='graph':
         from .learning_graph import teacher_page

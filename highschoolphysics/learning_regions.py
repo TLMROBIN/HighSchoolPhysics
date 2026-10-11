@@ -88,8 +88,10 @@ def _scope(repo, user, params):
             'order by a.published_at desc,a.id', (user['id'], user['school_id']))]
     elif user['role'] in ('teacher', 'admin'):
         available = {r['id'] for r in repo.class_groups(user['id'])}
-        classes = [dict(r) for r in c.execute('select id,name,grade from class_groups '
-            'where school_id=? order by grade,name,id', (user['school_id'],)) if r['id'] in available]
+        classes = [dict(r) for r in c.execute('select g.id,g.name,g.grade from class_groups g '
+            'where g.school_id=? order by exists(select 1 from users u where u.class_id=g.id '
+            "and u.school_id=g.school_id and u.role='student' and u.status='active') desc,grade,name,id",
+            (user['school_id'],)) if r['id'] in available]
         class_id = (params.get('class_id') or [classes[0]['id'] if classes else ''])[0]
         if class_id and class_id not in {r['id'] for r in classes}:
             raise PermissionDenied('不能查看未授权班级的学情')
@@ -390,7 +392,8 @@ def analyze(repo, user, params=None):
 
 
 def assets():
-    return '<link rel="stylesheet" href="assets/learning-regions.css?v=20261011-v1">'
+    return ('<link rel="stylesheet" href="assets/learning-regions.css?v=20261011-v2">'
+            '<script src="assets/learning-regions.js?v=20261011-v2" defer></script>')
 
 
 def _filters(data, teacher=False):
@@ -402,6 +405,10 @@ def _filters(data, teacher=False):
             out.append('<option value="%s"%s>%s</option>' % (esc(c['id']),
                 ' selected' if c['id'] == data['class_id'] else '', esc(c['name'])))
         out.append('</select></label>')
+    if teacher:
+        scope = {'30':'最近30天', '90':'最近90天', 'all':'全部记录'}[data['window']]
+        title = next((a['title'] for a in data['assessments'] if a['id'] == data['assessment_id']), '全部测评')
+        out.append('<details class="region-extra-filters"><summary>%s · %s</summary><div>' % (scope, esc(title)))
     out.append('<label>记录范围<select name="window">')
     for value, label in (('30', '最近30天'), ('90', '最近90天'), ('all', '全部记录')):
         out.append('<option value="%s"%s>%s</option>' % (value,
@@ -410,7 +417,10 @@ def _filters(data, teacher=False):
     for a in data['assessments']:
         out.append('<option value="%s"%s>%s</option>' % (esc(a['id']),
             ' selected' if a['id'] == data['assessment_id'] else '', esc(a['title'])))
-    form = ''.join(out) + '</select></label><button>更新视图</button></form>'
+    form = ''.join(out) + '</select></label>'
+    if teacher:
+        form += '</div></details>'
+    form += '<button>更新视图</button></form>'
     if teacher:
         return form
     scope = {'30':'最近30天', '90':'最近90天', 'all':'全部记录'}[data['window']]
@@ -537,17 +547,26 @@ def student_page(repo, user, params):
         if passed:
             out.append('<p>已有通过证据：%s。</p>' % esc('；'.join(passed[:2])))
         label, url = _next_action(repo, user, region)
-        out.append('<a class="region-action" href="%s">%s</a>%s</article>' % (
+        out.append('<div class="region-priority-actions"><a class="region-action" href="%s">%s</a>'
+            '<details class="region-priority-evidence"><summary>查看判断依据</summary>%s</details></div></article>' % (
             esc(url), esc(label), _evidence_html(region, data, user['id'])))
+    if focus:
+        out.append('<section id="region-detail" class="region-detail" tabindex="-1">'
+            '<a href="#region-directory">返回全部区域</a><h3>%s</h3>%s</section>' % (
+            esc(focus['name']), _evidence_html(focus, data, user['id'])))
     out.append('<h3>全部学习区域</h3><p>“尚未观察”表示没有足够记录，不能据此判断薄弱。'
-               '点击内容可查看具体目标与证据。</p><div class="region-directory">')
+               '有记录的教材优先展示；点击内容可查看具体目标与证据。</p><div id="region-directory" class="region-directory">'
+               '<label class="region-search" hidden>查找学习区域<input type="search" '
+               'placeholder="搜索章节或具体知识点" data-region-search autocomplete="off"></label>'
+               '<p class="region-search-status" role="status" hidden></p>')
     by_parent = defaultdict(list)
     for r in data['regions']:
         by_parent[r['parent']].append(r)
-    nodes, _ = _catalog(repo.conn, user['school_id'])
-    for parent, regions in by_parent.items():
-        out.append('<details%s><summary>%s</summary><ul>' % (' open' if any(r['active'] for r in regions) else '',
-                   esc(nodes.get(parent, {}).get('name', '学习内容'))))
+    nodes, topic = _catalog(repo.conn, user['school_id'])
+    for parent, regions in sorted(by_parent.items(), key=lambda item: (
+            not any(r['active'] for r in item[1]), nodes.get(item[0], {}).get('stable_code', ''), item[0])):
+        out.append('<details><summary>%s <span class="region-book-count">%s 个区域有记录</span></summary><ul>' % (
+                   esc(nodes.get(parent, {}).get('name', '学习内容')), sum(r['active'] for r in regions)))
         for r in sorted(regions, key=lambda r: (r['sort'], r['id'])):
             label = LABELS[r['state']]
             if r['state'] == 'check' and not any(g['independent'] for g in r['goals']):
@@ -556,13 +575,13 @@ def student_page(repo, user, params):
                 label = '有首次答对证据'
             url = 'app?' + urlencode(dict(module='graph', window=data['window'],
                 assessment_id=data['assessment_id'], region=r['id'])) + '#region-detail'
-            out.append('<li><a href="%s"><span>%s</span><span class="region-state state-%s">%s</span></a></li>' % (
-                       esc(url), esc(r['name']), r['state'], label))
+            # Search follows the same chapter ancestry used for evidence classification.
+            search_names = [n['name'] for n in nodes.values() if topic(n['id']) and topic(n['id'])['id'] == r['id']]
+            search_names.extend(g['name'] for g in r['goals'])
+            out.append('<li data-region-name="%s"><a href="%s"><span>%s</span><span class="region-state state-%s">%s</span></a></li>' % (
+                       esc(' '.join([r['name'], *search_names])), esc(url), esc(r['name']), r['state'], label))
         out.append('</ul></details>')
     out.append('</div>')
-    if focus:
-        out.append('<section id="region-detail" class="region-detail" tabindex="-1"><h3>%s</h3>%s</section>' % (
-            esc(focus['name']), _evidence_html(focus, data, user['id'])))
     out.append(_rule_html(data) + '</section>')
     from .learning_graph import student_page as constellation
     out.append('<details class="region-constellation"><summary>展开知识关系图</summary>' + constellation(repo, user) + '</details>')
@@ -579,8 +598,10 @@ def teacher_page(repo, user, params):
         return ''.join(out) + '<p class="region-empty">当前班级没有可查看的在读学生。</p></section>' + assets()
     active = sorted((r for r in data['regions'] if r['active']), key=lambda r: (
         -sum(c['repeated'] for c in r['cells'].values()), -r['troubled'], r['sort'], r['name']))
-    out.append('<p>当前班级 %s 人。分母为相应区域或环节至少有两道不同任务证据的学生；'
+    out.append('<details class="region-count-rules"><summary>统计口径 · 当前班级 %s 人</summary>'
+               '<p>分母为相应区域或环节至少有两道不同任务证据的学生；'
                '证据不足人数单列。一次错误先补查，不计为反复受阻。</p>' % len(data['students']))
+    out.append('</details>')
     if not active:
         out.append('<p class="region-empty">当前范围尚无已发布、已标注内容的作答证据。'
                    '可以切换记录范围或测评；无记录不按零分处理。</p>')
@@ -588,24 +609,30 @@ def teacher_page(repo, user, params):
     if data['unclassified']:
         out.append('<p>有 %s 条首次作答记录缺少有效内容标签，暂未归入区域；'
                    '<a href="teacher?module=exams">核对测评与题目标签</a>。</p>' % len(data['unclassified']))
-    out.append('<p><a href="teacher?module=graph">审核诊断卡与共同目标</a> · '
+    review_link = ('<p><a href="teacher?module=graph">审核诊断卡与共同目标</a> · '
         '当前 %s 条检查记录的目标对应尚待教师确认。</p>' % unreviewed)
-    out.append('<div class="region-matrix-scroll" tabindex="0" role="region" aria-label="班级问题分布表，可横向滚动">'
+    if unreviewed:
+        out.append(review_link)
+    out.append('<label class="region-matrix-view" hidden>查看内容<select data-matrix-view>'
+        '<option value="first">首次作答线索</option>' + ''.join('<option value="%s">%s</option>' % (
+            stage, name) for stage, name in STAGES.items()) + '<option value="all">全部环节对照</option></select></label>')
+    out.append('<div id="region-matrix" class="region-matrix-scroll" tabindex="0" role="region" aria-label="班级问题分布表，可横向滚动">'
                '<table class="region-matrix"><caption>内容区域与学习环节（受阻人数 / 证据足够人数）</caption>'
-               '<thead><tr><th scope="col">内容区域</th><th scope="col">首次作答线索</th>')
+               '<thead><tr><th scope="col">内容区域</th><th scope="col" data-stage="first">首次作答线索</th>')
     for stage, name in STAGES.items():
-        out.append('<th scope="col">%s</th>' % name)
+        out.append('<th scope="col" data-stage="%s">%s</th>' % (stage, name))
     out.append('</tr></thead><tbody>')
     for region in active:
-        out.append('<tr><th scope="row">%s</th><td><a href="%s">%s / %s 人反复失分</a>'
+        first_label = '%s / %s 人反复失分' % (region['troubled'], region['observed']) if region['observed'] else '尚无足够检查'
+        out.append('<tr><th scope="row">%s</th><td data-stage="first"><a href="%s">%s</a>'
             '<small>证据不足 %s 人；具体环节待查</small></td>' % (esc(region['name']),
-            esc(_teacher_url(data, region=region['id'])), region['troubled'], region['observed'], region['insufficient']))
+            esc(_teacher_url(data, region=region['id'])), first_label, region['insufficient']))
         for stage in STAGES:
             cell = region['cells'][stage]
             label = '%s / %s 人反复受阻' % (cell['repeated'], cell['sufficient']) if cell['sufficient'] else '尚无足够检查'
             state = 'repeated' if cell['repeated'] else 'check' if cell['check'] else 'unobserved'
-            out.append('<td class="state-%s"><a href="%s">%s</a><small>证据不足 %s 人；需补查 %s 人</small></td>' % (
-                state, esc(_teacher_url(data, region=region['id'], stage=stage)), label,
+            out.append('<td data-stage="%s" class="state-%s"><a href="%s">%s</a><small>证据不足 %s 人；需补查 %s 人</small></td>' % (
+                stage, state, esc(_teacher_url(data, region=region['id'], stage=stage)), label,
                 cell['insufficient'], cell['check']))
         out.append('</tr>')
     out.append('</tbody></table></div>')
@@ -617,7 +644,9 @@ def teacher_page(repo, user, params):
     if rid and not region:
         raise InvalidRequest('学习区域不存在')
     if region:
-        out.append('<section id="region-detail" class="region-detail" tabindex="-1"><h3>%s%s</h3>' % (
+        detail_start = len(out)
+        out.append('<section id="region-detail" class="region-detail" tabindex="-1">'
+            '<a href="#region-matrix">返回班级分布</a><h3>%s%s</h3>' % (
             esc(region['name']), ' · ' + STAGES[stage] if stage else ''))
         groups = defaultdict(list)
         for sid, student in data['students'].items():
@@ -643,4 +672,11 @@ def teacher_page(repo, user, params):
                     _evidence_html(region, data, sid, True, stage)))
             out.append('</details>')
         out.append('</section>')
+        # Place requested evidence before the long table so drill-down is immediately reachable.
+        detail = out[detail_start:]
+        del out[detail_start:]
+        matrix_start = next(i for i, part in enumerate(out) if 'class="region-matrix-scroll"' in part)
+        out[matrix_start:matrix_start] = detail
+    if not unreviewed:
+        out.append('<details><summary>诊断目标审核</summary>' + review_link + '</details>')
     return ''.join(out) + _rule_html(data) + '</section>' + assets()

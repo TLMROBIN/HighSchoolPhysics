@@ -54,3 +54,59 @@
  .learning-map h2 { font-size:24px; }
 }
 @media(prefers-reduced-motion:reduce) { .learning-map * { scroll-behavior:auto!important; } }
+
+/* Scoped overrides keep the learning map quiet without changing other workspaces. */
+.learning .learning-map details { border:0; border-radius:0; background:transparent; padding:0; margin:8px 0; }
+.learning .learning-map .region-priority { border:0; border-bottom:1px solid #d8dee8; border-radius:0; padding:18px 0; margin:0; background:transparent; }
+.learning-map .region-priority h3 { margin:0 0 8px; }
+.learning-map .region-priority p { margin:8px 0; }
+.region-priority-actions { display:flex; flex-wrap:wrap; align-items:start; gap:12px 24px; margin-top:16px; }
+.learning .learning-map .region-priority-evidence { flex:1 1 220px; margin:0; }
+.region-priority-evidence>summary { color:#08766f; }
+.learning-map a:not(.region-action) { color:#08766f; }
+.learning-map .region-directory a { color:#17212f; }
+.learning-map .region-directory>details { border-bottom:1px solid #d8dee8; }
+.region-book-count { font-size:13px; font-weight:400; color:#41556f; margin-left:10px; }
+.region-search,.region-matrix-view { display:flex; flex-direction:column; gap:6px; margin:18px 0; max-width:480px; font-size:15px; }
+.region-search input { box-sizing:border-box; min-height:44px; width:100%; padding:10px 12px; border:1px solid #9aa7b6; border-radius:6px; font:inherit; background:#fff; color:#17212f; }
+.region-search input::placeholder { color:#41556f; }
+.region-search-status { color:#41556f; }
+.learning .learning-map .region-extra-filters { flex:2 1 300px; margin:0; }
+.region-extra-filters>summary { color:#08766f; }
+.region-extra-filters>div { display:flex; flex-wrap:wrap; gap:14px; padding:10px 0; }
+.teacher-learning-map .region-filters { margin:18px 0; align-items:start; }
+.teacher-learning-map .region-filters>button { margin-top:30px; }
+.learning .region-matrix { display:table; overflow:visible; }
+.learning .region-matrix :is(th,td) { padding:12px; }
+.region-matrix tbody th { position:sticky; left:0; background:#fff; border-right:1px solid #d8dee8; }
+.learning .region-matrix-single { min-width:0; table-layout:fixed; }
+.learning .region-matrix-single :is(th,td) { min-width:0; overflow-wrap:anywhere; }
+.region-matrix-single th:first-child { width:40%; }
+.learning-map button:hover,.region-action:hover { background:#08766f; box-shadow:inset 0 0 0 2px #17212f; }
+.student-map-workspace .student-workspace-heading { align-items:center; gap:12px; flex-wrap:wrap; }
+.student-map-workspace .student-workspace-heading h1 { margin:0; margin-right:auto; }
+.student-workspace.student-map-workspace .student-settings { width:auto; max-width:100%; margin:0; }
+.student-map-workspace .student-settings[open] { flex-basis:100%; order:3; }
+.student-map-workspace .student-review-count { font-size:15px; padding:10px 12px; min-height:44px; box-sizing:border-box; background:transparent; }
+.student-workspace.student-map-workspace .student-module-nav { margin:16px 0 24px; gap:4px; }
+.student-workspace.student-map-workspace .student-module-nav a { min-height:44px; }
+.learning.teacher-map-workspace .map-module-switcher { border:0; padding:0; margin:0 0 18px; border-radius:0; }
+.map-module-switcher>summary { display:none; color:#08766f; }
+.teacher-map-workspace .teacher-workbench-nav { position:static; margin:0; }
+.region-count-rules>summary { color:#41556f; }
+body:has(:is(.student-map-workspace,.teacher-map-workspace)) .session-chip { flex-wrap:wrap; justify-content:flex-end; }
+body:has(:is(.student-map-workspace,.teacher-map-workspace)) .session-chip :is(a,strong,span) { white-space:nowrap; }
+@media(max-width:700px) {
+ .region-priority-actions { display:block; }
+ .region-priority-evidence>summary { margin-top:8px; }
+ .region-book-count { display:block; margin-left:18px; }
+ .teacher-learning-map .region-filters>button { margin-top:0; }
+ .region-extra-filters>div { display:grid; grid-template-columns:1fr; }
+ .student-map-workspace .student-workspace-heading { gap:4px; }
+ .student-map-workspace .student-workspace-heading h1 { flex-basis:100%; }
+ .student-map-workspace .student-review-count { margin-left:auto; }
+ .map-module-switcher>summary { display:list-item; min-height:44px; padding:10px 0; }
+ .teacher-map-workspace .teacher-workbench-nav { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; padding:8px 0; }
+ .teacher-map-workspace .teacher-workbench-nav a { min-height:44px; padding:8px; }
+ body:has(:is(.student-map-workspace,.teacher-map-workspace)) .topbar { gap:12px; flex-wrap:wrap; padding-block:4px; }
+}
