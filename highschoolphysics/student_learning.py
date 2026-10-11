@@ -672,15 +672,15 @@ def page(repo,user,params,base_path=''):
     value=lambda k:(params.get(k) or [''])[0]
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
-    module=value('module') or 'home'
+    module=value('module') or 'graph'
     out=['<section class="panel learning student-workspace"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>']
     from .learning_views import form,hidden
     settings='<fieldset><legend>关注题型</legend>'+''.join('<label><input type="checkbox" name="types" value="%s"%s>%s</label>'%(k,' checked' if k in types else '',v) for k,v in TYPES.items())+'</fieldset>'
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
     out.append(form('student-preferences',settings)+'</details></header>')
     out.append('<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>'%len(due))
-    # Keep the student graph entry offline until the user explicitly requests restoration.
-    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
+    # Restored as an evidence-led learning map by the 2026-10-11 upgrade request.
+    modules=(('wrong','错题本'),('history','历史测试'),('graph','学习地图'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
@@ -708,12 +708,12 @@ def page(repo,user,params,base_path=''):
     elif module=='history':
         out.append('<h2>历史测试</h2>'+('<p role="status">本轮复习已完成。</p>' if value('completed') else '')+history(repo,user))
     elif module=='graph':
-        from .learning_graph import student_page
-        out.append('<h2>知识图谱</h2>'+student_page(repo,user))
+        from .learning_regions import student_page
+        out.append(student_page(repo,user,params))
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
-    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-adaptive-v1"><script src="assets/diagnosis.js?v=20261008-adaptive-v1" defer></script>')
+    out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-adaptive-v1"><script src="assets/diagnosis.js?v=20261011-map-v2" defer></script>')
     out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261008-wrong-causes-v1"><script src="assets/student-learning.js?v=20261008-wrong-causes-v1" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

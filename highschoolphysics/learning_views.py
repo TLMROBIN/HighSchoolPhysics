@@ -558,8 +558,11 @@ def _teacher_learning_evidence(repo, assessments):
 def teacher(repo,user,params,document_import_enabled=False):
     c=repo.conn
     module=(params.get('module') or [''])[0]
-    titles={'intake':'题目入库','exams':'考试管理','progress':'学生复习进度','graph':'诊断与知识图谱'}
+    titles={'intake':'题目入库','exams':'考试管理','progress':'学生复习进度','graph':'诊断与知识图谱','regions':'班级学习地图'}
     body=['<section class="panel learning"><h1>%s</h1>' % titles.get(module,'教师工作台'), navigation(module if module in titles else '')]
+    if module=='regions':
+        from .learning_regions import teacher_page
+        return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
     if module=='graph':
         from .learning_graph import teacher_page
         return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()

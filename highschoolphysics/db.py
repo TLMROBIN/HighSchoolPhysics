@@ -278,6 +278,8 @@ def initialize_database(conn):
     migrate_wrong_causes(conn)
     from .diagnosis_adaptive import migrate as migrate_adaptive
     migrate_adaptive(conn)
+    from .learning_goals import install as install_shared_goals
+    install_shared_goals(conn)
 
 
 def _initialize_legacy_schema(conn):

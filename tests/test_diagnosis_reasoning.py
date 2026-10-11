@@ -26,7 +26,8 @@ class ReasoningDiagnosisTests(unittest.TestCase):
         self.assertIn('选择进行错题诊断（可选）',html)
         js=(Path(diagnosis.__file__).parent/'assets/diagnosis.js').read_text()
         self.assertIn("panel.addEventListener('toggle',()=>{if(panel.open)load();});",js)
-        self.assertIn('if(current===generation)choose(r);',js)
+        self.assertIn('if(current===generation)',js)
+        self.assertIn("if(location.hash==='#diagnosis'&&r.state)render(r);else choose(r);",js)
         self.assertIn('粗略诊断',js);self.assertIn('精细诊断',js)
     def test_existing_empty_deep_record_can_choose_quick_then_deep(self):
         s=self.start(mode='deep');self.assertEqual(4,s['total'])

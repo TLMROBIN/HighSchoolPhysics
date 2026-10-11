@@ -6,6 +6,8 @@
   const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   document.querySelectorAll('[data-diagnosis-wrong]').forEach(panel=>{
     const body=panel.querySelector('[data-diagnosis-body]'),target=panel.querySelector('[data-diagnosis-target]');let state=null,busy=false,generation=0;
+    const requestedTarget=new URLSearchParams(location.search).get('diagnosis_question');
+    if(requestedTarget&&[...target.options].some(option=>option.value===requestedTarget))target.value=requestedTarget;
     async function call(action,p={}){const r=await fetch('api/learning/diagnosis-'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol_version:3,wrong_id:panel.dataset.diagnosisWrong,question_id:target.value,...p})}),d=await r.json();if(!r.ok||!d.ok)throw new Error(d.error?.message||d.message||'操作失败，请重试');return d.result;}
     function event(name,p={}){return perform('event',{session_id:state.session_id,cursor:state.cursor,event:name,request_key:key(),...p});}
     function choose(result){
@@ -74,8 +76,12 @@
     async function perform(action,p){if(busy)return;busy=true;target.disabled=true;body.querySelectorAll('button').forEach(b=>b.disabled=true);try{render(await call(action,p));}catch(error){let out=body.querySelector('[data-diagnosis-error]');if(!out){out=document.createElement('p');out.dataset.diagnosisError='';out.setAttribute('role','alert');body.append(out);}out.textContent=error.message;body.querySelectorAll('button').forEach(b=>b.disabled=false);}finally{busy=false;target.disabled=false;}}
     body.addEventListener('submit',e=>{e.preventDefault();const f=e.target;if(f.matches('[data-adaptive-answer]')){event(f.dataset.adaptiveAnswer,{answer:Number(f.elements.answer.value)});}else if(f.matches('[data-diagnosis-start]')){const p={mode:e.submitter.value,self_report:f.elements.self_report.value};if(state?.protocol_version>=2)event('select-mode',p);else if(state){if(p.mode==='deep'&&state.mode==='quick')event('deepen');else render({available:true,state});}else perform('start',p);}else if(f.matches('[data-diagnosis-answer]'))event('answer',{answer:Number(f.elements.answer.value)});else if(f.matches('[data-diagnosis-locate]'))event('locate',{reason:f.elements.reason.value});else if(f.matches('[data-diagnosis-revise]'))event('revise',{reason:f.elements.reason.value});});
     body.addEventListener('click',e=>{if(e.target.closest('[data-diagnosis-resume]')){render({available:true,state});return;}const b=e.target.closest('[data-diagnosis-event],[data-diagnosis-confirm]');if(b)event(b.dataset.diagnosisEvent||'finish',{confirmation:b.dataset.diagnosisConfirm||''});});
-    async function load(){const current=++generation;body.textContent='正在读取诊断…';try{const r=await call('state');if(current===generation)choose(r);}catch(error){if(current===generation)body.textContent=error.message;}}
+    async function load(){const current=++generation;body.textContent='正在读取诊断…';try{const r=await call('state');if(current===generation){if(location.hash==='#diagnosis'&&r.state)render(r);else choose(r);}}catch(error){if(current===generation)body.textContent=error.message;}}
     target.addEventListener('change',()=>{if(panel.open)load();});
     panel.addEventListener('toggle',()=>{if(panel.open)load();});
+    // Following a learning-map suggestion explicitly opens this read-only view.
+    if(location.hash==='#diagnosis' && panel===document.querySelector('[data-diagnosis-wrong]')){
+      panel.id='diagnosis';panel.open=true;panel.scrollIntoView({block:'start'});
+    }
   });
 })();

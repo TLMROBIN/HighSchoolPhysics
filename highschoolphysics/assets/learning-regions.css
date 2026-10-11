@@ -1,0 +1,56 @@
+.learning-map { color:#17212f; line-height:1.6; }
+.learning-map p { max-width:72ch; }
+.learning-map h2 { font-size:24px; margin:0 0 14px; }
+.learning-map h3 { font-size:18px; margin:28px 0 10px; }
+.region-filters { display:flex; flex-wrap:wrap; align-items:end; gap:14px; margin:24px 0 32px; }
+.region-filters label { display:flex; flex:1 1 180px; flex-direction:column; gap:6px; min-width:0; }
+.region-filters label:has([name=assessment_id]) { flex-grow:2; }
+.learning-map select { font:inherit; color:#17212f; background:#fff; border:1px solid #9aa7b6; border-radius:6px; min-height:44px; padding:8px 10px; width:100%; max-width:100%; }
+.learning-map button,.region-action { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 16px; box-sizing:border-box; border-radius:6px; background:#08766f; color:#fff; font:inherit; text-decoration:none; }
+.learning-map button:hover,.region-action:hover { background:#08766f; }
+.region-priority { padding:10px 0 24px; margin:0 0 18px; border-bottom:1px solid #d8dee8; }
+.region-priority h3 { margin:10px 0; max-width:65ch; }
+.region-state { display:inline-block; font-size:14px; font-weight:600; padding:3px 9px; border-radius:4px; color:#41556f; background:#f4f7f9; }
+.region-state.state-check,.region-state.state-mixed,.region-state.state-repeated,.region-state.state-practice { color:#704000; background:#fff2d6; }
+.region-state.state-passed { color:#2f6f3e; background:#e4f4e8; }
+.learning-map details { border:0; margin:10px 0; padding:0; }
+.learning-map summary,.region-constellation>summary { cursor:pointer; min-height:44px; padding:10px 0; box-sizing:border-box; }
+.region-evidence,.region-goal { margin-top:18px!important; }
+.region-evidence p,.region-goal p { padding:10px 0; border-bottom:1px solid #d8dee8; overflow-wrap:anywhere; }
+.region-directory { max-width:900px; }
+.region-directory>details { border-bottom:1px solid #d8dee8; }
+.region-directory>details>summary { font-weight:700; }
+.region-directory ul { list-style:none; padding:0 0 10px 18px; margin:0; }
+.region-directory li a { display:flex; gap:16px; justify-content:space-between; align-items:center; color:#17212f; min-height:48px; padding:8px; text-decoration:none; }
+.region-directory li a:hover { background:#f4f7f9; }
+.region-detail { border-top:1px solid #d8dee8; margin-top:32px; padding-top:10px; scroll-margin-top:90px; }
+.region-rules { margin-top:28px!important; color:#41556f; }
+.region-rules code { font:inherit; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.region-empty { padding:18px; background:#f4f7f9; border-radius:8px; }
+.region-matrix-scroll { overflow-x:auto; max-width:100%; margin:24px 0; border:1px solid #d8dee8; border-radius:8px; }
+.region-matrix { border-collapse:collapse; min-width:850px; width:100%; text-align:left; font-variant-numeric:tabular-nums; }
+.region-matrix caption { text-align:left; padding:14px; font-weight:600; }
+.region-matrix :is(th,td) { border-bottom:1px solid #d8dee8; padding:14px; vertical-align:top; min-width:130px; }
+.region-matrix thead { background:#f4f7f9; }
+.region-matrix tbody th { min-width:150px; font-size:15px; }
+.region-matrix td a { display:block; padding:4px 0; min-height:44px; box-sizing:border-box; color:#08766f; }
+.region-matrix small { display:block; color:#41556f; font-size:13px; margin-top:6px; }
+.region-matrix .state-repeated,.region-matrix .state-check { background:#fff2d6; }
+.region-matrix :is(.state-repeated,.state-check) a { color:#704000; }
+.region-student-group { border-bottom:1px solid #d8dee8!important; padding-bottom:14px!important; }
+.region-student-group>summary { font-weight:700; }
+.region-student-group>details { padding-left:18px; }
+.learning-map :is(a,button,select,summary),.region-constellation>summary { -webkit-tap-highlight-color:transparent; }
+.learning-map :focus-visible,.region-constellation>summary:focus-visible { outline:3px solid #08766f; outline-offset:3px; }
+.learning-map ::selection { color:#17212f; background:#dff3ef; }
+.region-matrix-scroll { scrollbar-color:#9aa7b6 #f4f7f9; scrollbar-width:thin; }
+.learning-map [hidden] { display:none!important; }
+@media(max-width:700px) {
+ .region-filters { display:grid; grid-template-columns:1fr; gap:12px; }
+ .region-directory li a { align-items:start; flex-direction:column; gap:6px; }
+ .region-directory ul { padding-left:8px; }
+ .region-action { width:100%; text-align:center; }
+ .region-student-group>details { padding-left:8px; }
+ .learning-map h2 { font-size:24px; }
+}
+@media(prefers-reduced-motion:reduce) { .learning-map * { scroll-behavior:auto!important; } }

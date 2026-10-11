@@ -9,7 +9,7 @@ from .diagnosis import dumps, now, validate_card
 from .errors import InvalidRequest, PermissionDenied, StateConflict
 
 KINDS={'knowledge':'知识点','objective':'学习目标','ability':'能力','literacy':'素养'}
-RELATIONS={'contains':'包含','prerequisite':'必要前置','supports':'有助于理解','related':'相关','confusable':'容易混淆','transfer':'方法迁移','uses_ability':'运用能力','supports_literacy':'体现素养'}
+RELATIONS={'contains':'包含','prerequisite':'必要前置','supports':'有助于理解','related':'相关','confusable':'容易混淆','transfer':'方法迁移','uses_ability':'运用能力','supports_literacy':'体现素养','observes_goal':'对应共同目标'}
 STATUS={'draft':'模型目标候选，待教师审核','curated':'系统整理，待教师确认','approved':'教师已确认','rejected':'已排除'}
 
 def migrate(c):
@@ -173,7 +173,10 @@ def api(repo,user,action,p):
         release,graph=latest(c,user['school_id'])
         if requested_version!=(release['version'] if release else 0):raise StateConflict('审核页面已过期，请刷新后继续')
         nodes={n['id']:n for n in catalog(c,user['school_id'])+graph['nodes']}
-        if action=='graph-edge-save':
+        if action=='graph-goal-save':
+            from .learning_goals import save_binding
+            save_binding(c,user,graph,p)
+        elif action=='graph-edge-save':
             candidate={k:p.get(k,'') for k in ('source','target','kind','reason','locator','conditions')};validate_edge(candidate,nodes)
             e=edge(**candidate,status='approved');e['reviewer']=user['id'];e['reviewed_at']=now()
             previous=next((x for x in graph['edges'] if x['id']==p.get('id')),None)
@@ -217,42 +220,39 @@ def api(repo,user,action,p):
     except Exception:c.rollback();raise
 
 def student_data(repo,user):
-    from .student_learning import require_student,group_wrongs
-    from .diagnosis import question_input,fingerprint
+    from .student_learning import require_student
     require_student(user);c=repo.conn;release,graph=latest(c,user['school_id'])
     nodes=catalog(c,user['school_id']);allowed={n['id'] for n in nodes}
     objectives=[n for n in graph['nodes'] if n.get('parent') in allowed and n.get('status')!='draft'];nodes+=objectives;allowed|={n['id'] for n in objectives}
     edges=[e for e in graph['edges'] if e['status'] not in ('rejected','draft') and e['source'] in allowed and e['target'] in allowed]
     for n in nodes:
         if n.get('parent') in allowed and n['kind']!='objective':edges.append(edge(n['parent'],n['id'],'contains','现有教材或素养体系的目录关系，不表示学习前置。','校本标签体系',status='approved'))
+    from .learning_regions import observations, evidence_url
     evidence=[]
-    for g in group_wrongs(repo,user):
-        for w in g['members']:
-            data=question_input(repo,w['question_id'],trial=w if w.get('personal') else None,snapshot=None if w.get('personal') else w['snapshot']);fp=fingerprint(data)
-            card=c.execute('select * from diagnostic_cards where school_id=? and question_id=? and fingerprint=?',(user['school_id'],w['question_id'],fp)).fetchone()
-            if not card:continue
-            _,maps,rid=effective(c,card)
-            session=c.execute('select * from diagnostic_sessions where student_id=? and school_id=? and wrong_id=? and question_id=? and fingerprint=?',(user['id'],user['school_id'],g['id'],w['question_id'],fp)).fetchone()
-            if session:
-                if session['graph_mapping_json'] is not None:
-                    maps=json.loads(session['graph_mapping_json']);rid=session['graph_release_id']
-                else:
-                    # Sessions made before graph support still use their immutable base card.
-                    maps=[];base=json.loads(card['card_json'])
-                    for historical in c.execute('select * from learning_graph_releases where school_id=? order by version',(user['school_id'],)):
-                        old=json.loads(historical['graph_json'])['cards'].get(card['id'])
-                        if old and old['card']==base:
-                            maps=old['mappings'];rid=historical['id'];break
-            observations={}
-            if session:
-                for ev in c.execute("select step,result_json from diagnostic_events where session_id=? and action='answer' order by created_at,id",(session['id'],)):
-                    result=json.loads(ev['result_json']);observations[ev['step']]='借助帮助完成' if result['passed'] and result['assisted'] else '本步独立通过' if result['passed'] else '本步待检查'
-            for i,m in enumerate(maps):
-                if m['node_id'] not in allowed:continue
-                evidence.append(dict(node_id=m['node_id'],label=(('第 '+str(g['number'])+' 题 · ') if g.get('number') else '')+w.get('part_label','本题')+f' · 检查点 {i+1}',status=observations.get(i,'尚未观察'),url='app?practice='+quote(g['id']),version=rid,reason=m['reason'],objective_name=m.get('objective_name',''),objective_definition=m.get('objective_definition','')))
+    shared=graph.get('shared_goals',{})
+    relevant_shared={b['goal_id'] for entry in graph.get('adaptive_bindings',{}).values() for b in entry['bindings'] if b and b.get('knowledge_id') in allowed and b.get('status')!='rejected'}
+    for gid,g in shared.items():
+        if gid in relevant_shared and g.get('status') not in ('draft','rejected'):
+            nodes.append(dict(id=gid,kind='objective',name=g['name'],definition=g['definition']+' 适用条件：'+g['conditions'],level=4,parent=None))
+            allowed.add(gid)
+    for entry in graph.get('adaptive_bindings',{}).values():
+        for b in entry['bindings']:
+            if not b:continue
+            source=b.get('node_id') if b.get('node_id') in allowed else b.get('knowledge_id')
+            if source in allowed and b['goal_id'] in allowed:
+                edges.append(edge(source,b['goal_id'],'observes_goal','本题检查动作提供这个共同学习目标的观察证据。',b['source'],status=b['status']))
+    for e in observations(c,user['school_id'],[user['id']]):
+        status='说不清' if e['passed'] is None else '借助帮助完成' if e['assisted'] and e['passed'] else '本步独立通过' if e['passed'] else '本步待检查'
+        for node_id in dict.fromkeys([e['node_id'],e['goal_id']]):
+            if node_id not in allowed:continue
+            evidence.append(dict(node_id=node_id,label=e['context']+' · '+e['label'],
+                status='目标对应待教师确认' if node_id==e['goal_id'] and not e['approved'] else status,
+                url=evidence_url(e),version=e['version'],date=e['date'],
+                assisted=e['assisted'],approved=e['approved'],reason='来自本次具体动作检查，不能推断整个知识点的掌握。',
+                objective_name=e['name'],objective_definition=e['definition']))
     return dict(nodes=nodes,edges=edges,evidence=evidence,version=release['version'] if release else 0,relations=RELATIONS,kinds=KINDS,statuses=STATUS)
 
-def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261007-v2"><script src="assets/learning-graph.js?v=20261007-v2" defer></script>'
+def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261011-v3"><script src="assets/learning-graph.js?v=20261011-v3" defer></script>'
 
 def student_page(repo,user):
     data=student_data(repo,user)
@@ -278,6 +278,8 @@ def teacher_page(repo,user,params):
         out.append('<option value="%s"%s>%s · %s</option>'%(esc(r['id']),' selected' if selected and selected['id']==r['id'] else '',esc(content['title']),STATUS[entry['status']] if entry else '目标待补充'))
     out.append('</select></label><button>查看诊断卡</button></form>')
     if selected:
+        from .learning_goals import review_html
+        out.append(review_html(c,user,selected))
         content,maps,_=effective(c,selected)
         from .question_rendering import render_question,render_markdown
         source=json.loads(selected['input_json']);document=source.get('content')

@@ -5,7 +5,7 @@
     const search=root.querySelector('[data-graph-search]'),kind=root.querySelector('[data-graph-kind]'),select=root.querySelector('[data-graph-focus]'),mode=root.querySelector('[data-graph-mode]');
     const canvas=root.querySelector('[data-graph-canvas]'),list=root.querySelector('[data-graph-list]'),detail=root.querySelector('[data-graph-detail]'),count=root.querySelector('[data-graph-count]');
     let focus=new URLSearchParams(location.search).get('focus')||data.evidence.find(e=>e.status==='本步待检查')?.node_id||data.evidence[0]?.node_id||data.nodes.find(n=>n.kind==='objective')?.id||data.nodes[0]?.id,listMode=false;
-    const observations=id=>data.evidence.filter(e=>e.node_id===id);
+    const observations=id=>data.evidence.filter(e=>e.node_id===id).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     function options(){
       const text=search.value.trim().toLowerCase(),filtered=data.nodes.filter(n=>(!kind.value||n.kind===kind.value)&&(!text||(n.name+' '+n.definition).toLowerCase().includes(text)));
       select.innerHTML=filtered.map(n=>`<option value="${esc(n.id)}">${esc(data.kinds[n.kind])} · ${esc(n.name)}</option>`).join('');
@@ -35,7 +35,7 @@
       }).join('');
       const svgNodes=visible.map(id=>{
         const n=nodes.get(id),p=positions.get(id),chars=Array.from(n.name),label=[chars.slice(0,10).join(''),chars.slice(10,20).join('')+(chars.length>20?'…':'')];
-        const own=observations(id),status=own.some(e=>e.status==='本步待检查')?'待检查':own.some(e=>e.status==='借助帮助完成')?'借助帮助':own.some(e=>e.status==='本步独立通过')?'本步通过':'尚未观察';
+        const own=observations(id),recent=own[0]?.status,status=recent==='本步待检查'?'待检查':recent==='借助帮助完成'?'借助帮助':recent==='本步独立通过'?'本步通过':recent==='目标对应待教师确认'?'对应待确认':recent==='说不清'?'说不清':'尚未观察';
         const shape=n.kind==='ability'?'<ellipse cx="0" cy="0" rx="78" ry="33"/>':n.kind==='literacy'?'<path d="M-83 0L0-42L83 0L0 42Z"/>':`<rect x="-82" y="-34" width="164" height="68" rx="${n.kind==='objective'?20:5}"/>`;
         return `<g class="graph-node ${id===focus?'selected':''} ${status==='待检查'?'needs-check':''}" transform="translate(${p.x} ${p.y})" role="button" tabindex="0" data-node="${esc(id)}" aria-label="${esc(data.kinds[n.kind]+'：'+n.name+'，'+status)}"><title>${esc(n.name)}</title>${shape}<text text-anchor="middle" y="${label[1]?-9:-4}">${esc(label[0])}</text>${label[1]?`<text text-anchor="middle" y="9">${esc(label[1])}</text>`:''}<text text-anchor="middle" class="graph-node-status" y="${label[1]?27:17}">${esc(data.kinds[n.kind])} · ${status}</text></g>`;
       }).join('');
@@ -57,9 +57,16 @@
     search.addEventListener('input',filter);status.addEventListener('change',filter);semantic.addEventListener('change',filter);filter();
   });
   const message=document.querySelector('[data-graph-review-message]');
-  document.querySelectorAll('[data-graph-card],[data-graph-edge],[data-graph-edges]').forEach(form=>form.addEventListener('submit',async e=>{
+  document.querySelectorAll('[data-shared-goal] select[name="goal_id"]').forEach(select=>select.addEventListener('change',()=>{
+    const definition=select.selectedOptions[0].dataset.definition;
+    const goal=definition?JSON.parse(definition):null;
+    select.closest('form').querySelector('[data-goal-preview]').textContent=goal?goal.definition+' · 适用条件：'+goal.conditions:'请填写新目标的名称、可观察表现和适用条件。';
+  }));
+  document.querySelectorAll('[data-graph-card],[data-graph-edge],[data-graph-edges],[data-shared-goal]').forEach(form=>form.addEventListener('submit',async e=>{
     e.preventDefault();const fd=new FormData(form),version=Number(form.dataset.version);let action,payload;
-    if(form.matches('[data-graph-card]')){
+    if(form.matches('[data-shared-goal]')){
+      action='graph-goal-save';payload={version,card_id:form.dataset.cardId,action_index:Number(form.dataset.index),...Object.fromEntries(fd)};
+    }else if(form.matches('[data-graph-card]')){
       action='graph-card-save';const steps=[],mappings=[];
       form.querySelectorAll('[data-graph-step]').forEach(part=>{const value=k=>part.querySelector(`[name="${k}"]`).value;steps.push({stage:value('stage'),prompt:value('prompt'),explanation:value('explanation'),correct:Number(value('correct')),options:[...part.querySelectorAll('[name="option"]')].map(x=>x.value),hints:[...part.querySelectorAll('[name="hint"]')].map(x=>x.value)});mappings.push(Object.fromEntries(['name','definition','knowledge_id','ability_id','literacy_id'].map(k=>[k,value(k)])));});
       payload={version,card_id:form.dataset.cardId,card:{title:fd.get('title'),steps},mappings};

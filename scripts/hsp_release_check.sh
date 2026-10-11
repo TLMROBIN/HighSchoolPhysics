@@ -87,6 +87,8 @@ node_check() {
     highschoolphysics/assets/document-import.js
     highschoolphysics/assets/question-rendering.js
     highschoolphysics/assets/question-bank.js
+    highschoolphysics/assets/learning-graph.js
+    highschoolphysics/assets/diagnosis.js
   )
   for asset in "${assets[@]}"; do
     node --check "$asset"

@@ -186,7 +186,9 @@ def api(repo,user,action,p,g,w,data,card,s):
         mode=p.get('mode');report=p.get('self_report','unsure')
         if mode not in ('quick','deep') or report not in REPORTS:raise InvalidRequest('请选择诊断方式与最初情况')
         frozen=dict(json.loads(card['card_json']),adaptive=validate(content))
-        c.execute('insert or ignore into diagnostic_sessions(id,school_id,student_id,wrong_id,question_id,fingerprint,card_id,mode,self_report,steps_json,created_at,updated_at,effective_card_json,graph_mapping_json,protocol_version) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',('ds-'+uuid.uuid4().hex,user['school_id'],user['id'],g['id'],w['question_id'],fingerprint(data),card['id'],mode,report,'[]',now(),now(),dumps(frozen),'[]',3));c.commit()
+        from .learning_goals import session_mapping
+        mappings,release_id=session_mapping(c,card,content)
+        c.execute('insert or ignore into diagnostic_sessions(id,school_id,student_id,wrong_id,question_id,fingerprint,card_id,mode,self_report,steps_json,created_at,updated_at,effective_card_json,graph_mapping_json,graph_release_id,protocol_version) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',('ds-'+uuid.uuid4().hex,user['school_id'],user['id'],g['id'],w['question_id'],fingerprint(data),card['id'],mode,report,'[]',now(),now(),dumps(frozen),dumps(mappings),release_id,3));c.commit()
         s=c.execute('select * from diagnostic_sessions where student_id=? and wrong_id=? and question_id=? and fingerprint=?',(user['id'],g['id'],w['question_id'],fingerprint(data))).fetchone();return dict(available=True,state=state(c,s))
     if action!='diagnosis-event' or not s or s['id']!=p.get('session_id'):raise InvalidRequest('诊断记录无效')
     event=p.get('event');key=p.get('request_key');value={k:p.get(k) for k in ('event','cursor','answer','reason','confirmation','mode','self_report')}
@@ -201,7 +203,9 @@ def api(repo,user,action,p,g,w,data,card,s):
         if s['protocol_version']!=3:
             if event!='select-mode' or s['status']!='active' or s['cursor']!=0 or s['assisted_at'] or c.execute('select 1 from diagnostic_events where session_id=?',(s['id'],)).fetchone():raise StateConflict('已有诊断证据不能改写，请继续原记录')
             if p.get('mode') not in ('quick','deep') or p.get('self_report','unsure') not in REPORTS:raise InvalidRequest('诊断方式无效')
-            c.execute('update diagnostic_sessions set protocol_version=3,effective_card_json=?,graph_mapping_json=?,steps_json=? where id=?',(dumps(dict(json.loads(card['card_json']),adaptive=content)),'[]','[]',s['id']))
+            from .learning_goals import session_mapping
+            mappings,release_id=session_mapping(c,card,content)
+            c.execute('update diagnostic_sessions set protocol_version=3,effective_card_json=?,graph_mapping_json=?,graph_release_id=?,steps_json=? where id=?',(dumps(dict(json.loads(card['card_json']),adaptive=content)),dumps(mappings),release_id,'[]',s['id']))
             s=c.execute('select * from diagnostic_sessions where id=?',(s['id'],)).fetchone()
         frozen=json.loads(s['effective_card_json'])['adaptive'];evs=events(c,s);current=state(c,s);r={'at':now()}
         if event in ('select-mode','deepen'):
