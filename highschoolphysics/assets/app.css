@@ -3300,3 +3300,11 @@ select {
 .difficulty-consolidate { color:#854d0e; background:#fefce8; }
 .difficulty-basic { color:#1d4ed8; background:#eff6ff; }
 .difficulty-easy { color:#166534; background:#f0fdf4; }
+
+/* Explicit navigation for tablet users without a browser back gesture. */
+.toolbox-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; min-width: 0; }
+.toolbox-link { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 14px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #172033; font-size: 14px; font-weight: 600; line-height: 1.5; text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+.toolbox-link:hover { background: #f1f5f9; }
+.toolbox-link:focus-visible { outline: 2px solid #0f766e; outline-offset: 3px; }
+
+.topbar { flex-wrap: wrap; gap: 8px 16px; padding-block: 6px; }

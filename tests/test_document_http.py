@@ -1703,7 +1703,8 @@ class DocumentHTTPTests(unittest.TestCase):
             status, _, body = self.server.request("GET", path, headers={"Cookie": student_cookie})
             self.assertEqual(status, 403, path)
             self.assertNotIn(b"export test fixture", body)
-            self.assertNotIn(b"0.50", body)
+            # Match the fixture answer as a number, not digits inside a navigation URL (10.50...).
+            self.assertNotRegex(body, rb"(?<![0-9])0\.50(?![0-9])")
 
         status, headers, payload = self.server.request(
             "GET", "/api/documents/items/%s/export.zip" % item["id"], headers={"Cookie": self.cookie}

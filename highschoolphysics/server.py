@@ -44,7 +44,7 @@ from .question_export import (
 from .question_content import visible_question_asset_ids
 
 
-ASSET_VERSION = "20261007-question-difficulty-v1"
+ASSET_VERSION = "20261012-toolbox-navigation-v1"
 QUESTION_ASSET_VERSION = "20261007-student-tablet-v3"
 DOCUMENT_ASSET_VERSION = "20261009-live-preview-v1"
 
@@ -101,7 +101,7 @@ def render_layout(title, user, body, active="", question_math=False):
 </head>
 <body data-active="{active}">
   <header class="topbar">
-    <a class="brand" href="/">高中物理闭环系统</a>
+    <div class="toolbox-heading"><a class="toolbox-link" href="http://10.50.159.62/platform/" aria-label="于博的工具箱，返回功能选择目录页">于博的工具箱</a><a class="brand" href="/">高中物理闭环系统</a></div>
     {user_text}
   </header>
   <main>{body}</main>
