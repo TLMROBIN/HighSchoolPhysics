@@ -268,6 +268,12 @@ def initialize_database(conn):
             conn.rollback()
             raise
 
+    # Progress looks up a student's original responses; difficulty aggregates
+    # by question. Neither access pattern is covered by the snapshot unique key.
+    conn.execute('create index if not exists idx_responses_student_question on student_responses(student_id,question_id)')
+    conn.execute('create index if not exists idx_responses_question on student_responses(question_id)')
+    conn.commit()
+
     from .diagnosis import migrate as migrate_diagnosis
     migrate_diagnosis(conn)
     from .learning_graph import migrate as migrate_graph

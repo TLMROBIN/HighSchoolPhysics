@@ -1,5 +1,6 @@
 import json
 import unittest
+from unittest.mock import patch
 from highschoolphysics import learning, learning_views, student_learning, question_bank
 from highschoolphysics.db import connect, initialize_database, seed_demo_data
 from highschoolphysics.repository import PhysicsRepository
@@ -38,6 +39,34 @@ class StudentLearningTests(unittest.TestCase):
         self.assertEqual(originals,[tuple(r) for r in self.c.execute('select * from student_responses')])
         self.assertIn('student-wrong',learning_views.student(self.repo,self.user,{'module':['wrong']}))
         with self.assertRaises(InvalidRequest):student_learning.api(self.repo,self.user,'student-preferences',dict(types=['fake']))
+
+    def test_map_reuses_groups_and_refreshes_evidence_on_next_request(self):
+        with patch.object(student_learning,'group_wrongs',wraps=student_learning.group_wrongs) as groups:
+            with patch.object(self.repo,'get_question',side_effect=AssertionError('redundant per-question statistics')):
+                page=learning_views.student(self.repo,self.user,{})
+            self.assertEqual(1,groups.call_count)
+        self.assertIn('我的学习地图',page)
+        # Request reuse must not freeze later progress or mastered state.
+        wrongs=student_learning.group_wrongs(self.repo,self.user)
+        for group in wrongs:
+            for wrong in group['members']:
+                self.c.execute('insert into student_mastered_wrongs(student_id,wrong_id,mastered_at) values (?,?,?)',
+                    (self.user['id'],wrong['id'],learning.now()))
+        self.c.commit()
+        refreshed=learning_views.student(self.repo,self.user,{})
+        self.assertIn('待复习 <strong>0</strong>',refreshed)
+
+    def test_response_indexes_survive_existing_database_initialization(self):
+        for name in ('idx_responses_student_question','idx_responses_question'):
+            self.c.execute('drop index '+name)
+        self.c.commit()
+        before=[tuple(row) for row in self.c.execute('select * from student_responses')]
+        initialize_database(self.c)
+        initialize_database(self.c)
+        plan=self.c.execute('explain query plan select * from student_responses where student_id=? and question_id=?',
+            (self.user['id'],'question')).fetchall()
+        self.assertTrue(any('idx_responses_student_question' in row[3] for row in plan))
+        self.assertEqual(before,[tuple(row) for row in self.c.execute('select * from student_responses')])
 
     def test_choice_trial_requires_answer_freezes_and_idempotent_add(self):
         t=self.trial();before=self.c.execute('select count(*) from student_responses').fetchone()[0]

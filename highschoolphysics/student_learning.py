@@ -337,10 +337,17 @@ def wrongs(repo,user):
         w.update(personal=True,kind=w['question_type'],tag_list=loads(w['tags_json'],[]),stem=loads(w['document_json'],{})['stem_md'])
         w['progress']=personal_progress(c,w);unique[w['question_id']]=w
     stats=statistics(c,list(unique))
+    # Only bank_type is needed here; get_question would repeat the already
+    # batched difficulty calculation once per wrong question.
+    bank_kinds={}
+    ids=list(unique)
+    for start in range(0,len(ids),400):
+        batch=ids[start:start+400]
+        bank_kinds.update(c.execute('select id,bank_type from questions where id in (%s)' %
+            ','.join('?' for _ in batch),batch).fetchall())
     for w in unique.values():
         w['level']=stats[w['question_id']]['label']
-        q=repo.get_question(w['question_id'])
-        bank_kind=q.get('bank_type','unknown')
+        bank_kind=bank_kinds.get(w['question_id'],'unknown')
         w['filter_kind']='structured' if bank_kind=='solution' else bank_kind if bank_kind!='unknown' else w['kind']
     return list(unique.values())
 
@@ -711,7 +718,7 @@ def page(repo,user,params,base_path=''):
         out.append('<h2>历史测试</h2>'+('<p role="status">本轮复习已完成。</p>' if value('completed') else '')+history(repo,user))
     elif module=='graph':
         from .learning_regions import student_page
-        out.append(student_page(repo,user,params))
+        out.append(student_page(repo,user,params,wrong_groups=all_wrongs))
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')

@@ -478,14 +478,13 @@ def _evidence_html(region, data, sid, teacher=False, stage=''):
     return ''.join(out)
 
 
-def _next_action(repo, user, region):
+def _next_action(repo, user, region, wrong_groups):
     # This is a navigation suggestion only. No attempt or assignment is created.
-    from .student_learning import group_wrongs
     from .diagnosis_adaptive import state as adaptive_state
     from .diagnosis import question_input, fingerprint
     ids = {t['question_id'] for t in region['tasks'].get(user['id'], []) if t['outcome'] in ('wrong', 'blank')}
     candidates = []
-    for group in group_wrongs(repo, user):
+    for group in wrong_groups:
         for w in group['members']:
             if w['question_id'] not in ids:
                 continue
@@ -515,7 +514,7 @@ def _next_action(repo, user, region):
     return '选择一道不同题目检查', 'app?module=bank&knowledge=' + quote(region['id'])
 
 
-def student_page(repo, user, params):
+def student_page(repo, user, params, wrong_groups=None):
     data = analyze(repo, user, params)
     active = sorted((r for r in data['regions'] if r['active']), key=lambda r: r['priority'])
     selected = (params.get('region') or [''])[0]
@@ -525,6 +524,9 @@ def student_page(repo, user, params):
     out = ['<section class="learning-map"><h2>我的学习地图</h2>'
         '<p>先找到当前值得处理的区域，再看题目依据与下一步。已会的部分也会保留。</p>', _filters(data)]
     priorities = [r for r in active if r['state'] in ('repeated', 'mixed', 'check', 'practice')][:3]
+    if priorities and wrong_groups is None:
+        from .student_learning import group_wrongs
+        wrong_groups = group_wrongs(repo, user)
     out.append('<h3>当前值得先处理</h3>')
     if not priorities:
         out.append('<p class="region-empty">当前没有足够线索列出待处理区域。尚未观察的内容保留在地图中；'
@@ -546,7 +548,7 @@ def student_page(repo, user, params):
         passed = [g['name'] for g in region['goals'] if g['state'] == 'passed']
         if passed:
             out.append('<p>已有通过证据：%s。</p>' % esc('；'.join(passed[:2])))
-        label, url = _next_action(repo, user, region)
+        label, url = _next_action(repo, user, region, wrong_groups)
         out.append('<div class="region-priority-actions"><a class="region-action" href="%s">%s</a>'
             '<details class="region-priority-evidence"><summary>查看判断依据</summary>%s</details></div></article>' % (
             esc(url), esc(label), _evidence_html(region, data, user['id'])))
