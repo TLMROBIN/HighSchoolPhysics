@@ -26,12 +26,12 @@ class StudentLearningTests(unittest.TestCase):
         result=student_learning.api(self.repo,self.user,'bank-start',dict(question_id=q[0],request_key='start-'+kind))
         return student_learning.owned_trial(self.c,self.user,result['url'].split('=')[1])
 
-    def test_home_is_learning_map_and_settings_filter_only_queue(self):
+    def test_home_is_wrong_book_and_settings_filter_only_queue(self):
         page=learning_views.student(self.repo,self.user,{})
         for label in ('待复习','错题本','历史测试','题库','关注设置'):self.assertIn(label,page)
-        self.assertIn('app?module=graph',page)
-        self.assertIn('我的学习地图',page)
-        self.assertNotIn('student-wrong',page)
+        self.assertNotIn('app?module=graph',page)
+        self.assertNotIn('我的学习地图',page)
+        self.assertIn('student-wrong',page)
         originals=[tuple(r) for r in self.c.execute('select * from student_responses')]
         student_learning.api(self.repo,self.user,'student-preferences',dict(types=['experiment'],levels=['挑战']))
         page=learning_views.student(self.repo,self.user,{})
@@ -43,7 +43,7 @@ class StudentLearningTests(unittest.TestCase):
     def test_map_reuses_groups_and_refreshes_evidence_on_next_request(self):
         with patch.object(student_learning,'group_wrongs',wraps=student_learning.group_wrongs) as groups:
             with patch.object(self.repo,'get_question',side_effect=AssertionError('redundant per-question statistics')):
-                page=learning_views.student(self.repo,self.user,{})
+                page=learning_views.student(self.repo,self.user,{'module':['graph']})
             self.assertEqual(1,groups.call_count)
         self.assertIn('我的学习地图',page)
         # Request reuse must not freeze later progress or mastered state.

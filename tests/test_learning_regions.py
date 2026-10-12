@@ -242,12 +242,16 @@ class LearningRegionsHTTPTests(unittest.TestCase):
                 learning.migrate(c); c.close()
                 _, student, _ = server.login('stu_1001', 'student123')
                 _, teacher, _ = server.login('teacher_li', 'teacher123')
-                for url, cookie, expected in [('/app', student, '我的学习地图'),
+                for url, cookie, expected in [('/app', student, '错题本'),
                     ('/app?module=graph&window=all', student, '全部学习区域'),
                     ('/teacher?module=regions&window=all', teacher, '班级问题分布')]:
                     status, _, html = server.request('GET', url, headers={'Cookie':cookie,'X-Forwarded-Prefix':'/physics'})
                     self.assertEqual(200, status); self.assertIn(expected, html.decode())
-                    self.assertIn('assets/learning-regions.css', html.decode())
+                    if url == '/app':
+                        self.assertNotIn('app?module=graph', html.decode())
+                        self.assertNotIn('我的学习地图', html.decode())
+                    else:
+                        self.assertIn('assets/learning-regions.css', html.decode())
                 self.assertEqual(403, server.request('GET', '/teacher?module=regions', headers={'Cookie':student})[0])
                 self.assertEqual(403, server.request('GET', '/app?student_id=stu-1002', headers={'Cookie':student})[0])
                 self.assertEqual(200, server.request('GET', '/assets/learning-regions.css')[0])

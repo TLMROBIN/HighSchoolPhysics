@@ -674,12 +674,14 @@ def bank(repo,user,params,base_path):
 
 def page(repo,user,params,base_path=''):
     require_student(user);c=repo.conn;uid=user['id']
+    if (params.get('student_id') or [uid])[0] != uid:
+        raise PermissionDenied('只能查看自己的学习证据')
     all_wrongs=group_wrongs(repo,user);types,levels=preferences(c,uid)
     due=[g for g in all_wrongs if any(w['progress']['available'] and (not types or w.get('filter_kind',w['kind']) in types) and (not levels or w['level'] in levels) for w in g['members'])]
     value=lambda k:(params.get(k) or [''])[0]
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
-    module=value('module') or 'graph'
+    module=value('module') or 'wrong'
     map_home = module == 'graph' and not wid and not value('trial')
     out=['<section class="panel learning student-workspace%s"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>' % (' student-map-workspace' if map_home else '')]
     from .learning_views import form,hidden
@@ -688,8 +690,7 @@ def page(repo,user,params,base_path=''):
     out.append(form('student-preferences',settings)+'</details>')
     review_link = '<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>' % len(due)
     out.append(review_link + '</header>' if map_home else '</header>' + review_link)
-    # Restored as an evidence-led learning map by the 2026-10-11 upgrade request.
-    modules=(('wrong','错题本'),('history','历史测试'),('graph','学习地图'),('bank','题库'))
+    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
