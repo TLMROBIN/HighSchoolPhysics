@@ -75,11 +75,34 @@ class LLMTaggingTests(unittest.TestCase):
         self.assertEqual(request_capture["url"], "https://llm.example.test/v1/chat/completions")
         self.assertEqual(request_capture["authorization"], "Bearer private-test-key")
         self.assertEqual(request_capture["body"]["model"], "unit-model")
+        self.assertNotIn("thinking", request_capture["body"])
         self.assertIn("指令式语句", json.dumps(request_capture["body"]["messages"][0], ensure_ascii=False))
         self.assertEqual(result["knowledge_tags"][0]["id"], knowledge[0]["id"])
         self.assertEqual(result["ability_tags"][0]["id"], ability[0]["id"])
         self.assertEqual(result["literacy_tags"][0]["id"], literacy[0]["id"])
         self.assertEqual((result["input_units"], result["output_units"]), (220, 90))
+
+    def test_deepseek_v4_tagging_does_not_exhaust_output_on_reasoning(self):
+        def fake_open(request, timeout):
+            payload = json.loads(request.data)
+            # Reproduce the provider: thinking consumes all 1200 tokens,
+            # leaving content empty; non-thinking returns label JSON.
+            disabled = payload.get("thinking") == {"type": "disabled"}
+            content = json.dumps({"knowledge_tags": [], "ability_tags": [], "literacy_tags": []}) if disabled else ""
+            return _Response(json.dumps({"choices": [{
+                "finish_reason": "stop" if disabled else "length",
+                "message": {"content": content},
+            }]}).encode())
+
+        result = generate_model_candidate_tags(
+            self.repo.get_question("q-newton-1"),
+            self.repo.knowledge_nodes(), self.repo.ability_tags(), self.repo.literacy_tags(),
+            self.repo.first_active_ontology_id(),
+            {"api_endpoint": "https://llm.example.test/v1", "model_name": "deepseek-v4-1-flash-260910"},
+            "private-test-key", opener=fake_open,
+        )
+        self.assertEqual(result["knowledge_tags"], [])
+        self.assertEqual(result["model_version"], "deepseek-v4-1-flash-260910")
 
     def test_openai_compatible_output_cannot_invent_tag_ids(self):
         question = self.repo.get_question("q-newton-1")

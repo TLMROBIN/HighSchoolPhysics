@@ -162,8 +162,14 @@ def generate_model_candidate_tags(
         "ability_tags:[{id,confidence,rationale}],literacy_tags:[{id,confidence,rationale}]}。"
     )
     user_payload = {"question": question_payload, "ontology": catalogs}
+    # DeepSeek V4 defaults to thinking; reasoning can exhaust this small
+    # tagging budget before any label JSON is produced.
+    model_options = {}
+    if model_name.lower().startswith("deepseek-v4"):
+        model_options["thinking"] = {"type": "disabled"}
     body = json.dumps(
         {
+            **model_options,
             "model": model_name,
             "temperature": 0,
             "max_tokens": LLM_MAX_OUTPUT_TOKENS,
