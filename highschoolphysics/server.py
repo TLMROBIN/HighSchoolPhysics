@@ -120,7 +120,7 @@ def render_layout(title, user, body, active="", question_math=False):
         body=body,
         bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261008-ai-progress-v1">' if 'data-question-bank' in body else '',
         bank_scripts='<script defer src="/assets/question-bank.js?v=20261008-ai-progress-v1"></script>' if 'data-question-bank' in body else '',
-        review_styles='<link rel="stylesheet" href="/assets/exam-review.css?v=20261015-v1-r2">' if 'data-exam-review' in body else '',
+        review_styles='<link rel="stylesheet" href="/assets/exam-review.css?v=20261015-v1-r3">' if 'data-exam-review' in body else '',
         review_scripts='<script defer src="/assets/exam-review.js?v=20261015-v1-r2"></script>' if 'data-exam-review' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,

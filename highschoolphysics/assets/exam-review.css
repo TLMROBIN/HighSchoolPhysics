@@ -4,7 +4,7 @@
 .review-options input[type=checkbox]{width:20px;height:20px;flex:none}.review-options select{width:auto}.review-actions{margin:18px 0}
 .exam-review-workspace{max-width:1200px;margin:auto}.exam-review-workspace h1{font-size:clamp(24px,3vw,34px);line-height:1.4}
 .review-progress{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:20px 0}.review-progress progress{width:220px;accent-color:#0f766e}
-.review-warning{padding:14px;border-left:4px solid #b7791f;background:#fff7e5;color:#694512;margin:12px 0}.review-warning[hidden]{display:none}
+.review-warning{padding:14px;border:1px solid var(--border,#d8dee8);background:#fff7e5;color:#694512;margin:12px 0}.review-warning[hidden]{display:none}
 .review-caption{color:#526467;font-size:14px;line-height:1.7}.review-items{display:grid;gap:16px;margin-top:24px}.review-item{border:1px solid #cbd5d1;border-radius:12px;background:#fff;min-width:0}
 .review-item>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px;cursor:pointer;flex-wrap:wrap;min-height:56px}
 .review-item>summary span{font-size:20px;font-weight:700}.review-item>summary strong{color:#0f766e}.review-item>summary small{color:#526467}
