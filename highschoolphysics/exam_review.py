@@ -76,7 +76,10 @@ def _settings(payload):
     if any(key in payload and type(payload[key]) is not bool for key in
            ('show_answer', 'show_statistics', 'show_knowledge', 'show_solution', 'show_errors')):
         raise InvalidRequest('课堂展示内容应使用明确开关')
-    return {'minutes': minutes, **{key: payload.get(key, True) is True for key in
+    reveal = payload.get('reveal_mode', 'after')
+    if reveal not in ('after', 'together'):
+        raise InvalidRequest('请选择先看题目或同时显示答案')
+    return {'minutes': minutes, 'reveal_mode': reveal, **{key: payload.get(key, True) is True for key in
             ('show_answer', 'show_statistics', 'show_knowledge', 'show_solution', 'show_errors')}}
 
 
@@ -277,17 +280,30 @@ def create(repo, user, p):
     aid, key = p.get('assessment_id', ''), _key(p.get('request_key'))
     assessment(repo, user, aid)
     settings = _settings(p)
-    request_hash = digest([aid, p.get('class_ids'), settings])
+    template_id = p.get('template_package_id')
+    if template_id is not None:
+        _key(template_id)
+    request_hash = digest([aid, p.get('class_ids'), settings, template_id])
     conn = repo.conn
     conn.execute('begin immediate')
     try:
         old = conn.execute('select * from exam_review_packages where created_by=? and request_key=?', (user['id'], key)).fetchone()
         if old:
-            if old['request_hash'] != request_hash:
+            legacy = dict(settings)
+            legacy.pop('reveal_mode', None)
+            legacy_hash = digest([aid, p.get('class_ids'), legacy]) if not template_id and settings['reveal_mode']=='after' else None
+            if old['request_hash'] not in (request_hash, legacy_hash):
                 raise StateConflict('重复生成请求的内容不一致')
             conn.commit()
             return get(repo, user, old['id'])
+        template = owned_package(repo, user, template_id) if template_id else None
+        if template and template['assessment_id'] != aid:
+            raise InvalidRequest('只能从同一次考试复制讲评编排')
+        inherited = {x['snapshot_id']: item_payload(x) for x in conn.execute(
+            'select * from exam_review_items where package_id=?', (template_id,))} if template else {}
         public, sources, fingerprint = collect_source(repo, user, aid, p.get('class_ids'))
+        if template:
+            settings['copied_from'] = template_id
         pid, now = identifier('review'), timestamp()
         conn.execute('''insert into exam_review_packages(id,school_id,assessment_id,created_by,request_key,request_hash,
             source_hash,source_json,settings_json,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?)''',
@@ -297,10 +313,26 @@ def create(repo, user, p):
             status = 'queued' if cfg and source['answer_state'] == 'verified' else 'reference_only'
             stats = source['statistics']
             emphasis = 'detail' if stats['correct_rate'] is None or stats['correct_rate'] < .7 else 'brief'
+            previous = inherited.get(source['snapshot_id'])
+            content, overrides, included = _reference_content(source), {}, True
+            position = source['position']
+            if previous:
+                position, included, emphasis = previous['position'], previous['included'], previous['emphasis']
+                # Reuse only content about the unchanged problem. Class-specific
+                # diagnoses and notes must be written against the new cohort.
+                stable = ('prompt_markdown', 'answer', 'analysis', 'answer_state', 'assets', 'tags')
+                if all(previous['source'].get(k) == source.get(k) for k in stable):
+                    for field in ('knowledge_notes', 'solution_steps', 'option_analysis', 'classroom_question'):
+                        if field in previous['edited_fields']:
+                            overrides[field] = previous['content'].get(field, '')
+                        else:
+                            content[field] = previous['content'].get(field, '')
+                    if previous['status'] == 'ready':
+                        status = 'ready'
             conn.execute('''insert into exam_review_items(id,package_id,snapshot_id,position,source_json,generated_json,
-                emphasis,status,updated_at) values(?,?,?,?,?,?,?,?,?)''',
-                         (identifier('review-item'), pid, source['snapshot_id'], source['position'], dumps(source),
-                          dumps(_reference_content(source)), emphasis, status, now))
+                overrides_json,included,emphasis,status,updated_at) values(?,?,?,?,?,?,?,?,?,?,?)''',
+                         (identifier('review-item'), pid, source['snapshot_id'], position, dumps(source),
+                          dumps(content), dumps(overrides), included, emphasis, status, now))
         _audit(conn, user, 'exam_review_created', pid, {'source_hash': fingerprint, 'questions': len(sources)})
         conn.commit()
     except Exception:
@@ -345,7 +377,7 @@ def get(repo, user, pid, check_stale=True):
             stale, unavailable = True, True
     counts = {status: sum(x['status'] == status for x in items) for status in ('queued', 'running', 'ready', 'failed', 'reference_only')}
     return dict(id=pid, revision=package['revision'], source_hash=package['source_hash'], source=source,
-                settings=loads(package['settings_json'], {}), created_at=package['created_at'],
+                settings={'reveal_mode': 'after', **loads(package['settings_json'], {})}, created_at=package['created_at'],
                 updated_at=package['updated_at'], items=items, counts=counts, stale=stale,
                 source_unavailable=unavailable, total=len(items), completed=len(items)-counts['queued']-counts['running'])
 
@@ -401,6 +433,47 @@ def retry_item(repo, user, p):
     return {'message': '本题已排队，教师编辑内容会保留'}
 
 
+def arrange(repo, user, p):
+    """Atomically save the full order and display settings using a package revision."""
+    package = owned_package(repo, user, p.get('package_id', ''))
+    order = p.get('item_ids')
+    if (not isinstance(order, list) or any(not isinstance(x, str) for x in order)
+            or len(order) != len(set(order)) or type(p.get('revision')) is not int):
+        raise InvalidRequest('题目顺序或编排版本无效')
+    settings = _settings(p)
+    conn = repo.conn
+    conn.execute('begin immediate')
+    try:
+        current = owned_package(repo, user, package['id'])
+        if current['revision'] != p['revision']:
+            raise StateConflict('教学编排已被其他页面更新，请载入最新编排后再调整')
+        expected = {r[0] for r in conn.execute('select id from exam_review_items where package_id=?', (package['id'],))}
+        if set(order) != expected:
+            raise InvalidRequest('顺序必须包含本资料的全部题目，且不能重复')
+        previous = loads(current['settings_json'], {})
+        if previous.get('copied_from'):
+            settings['copied_from'] = previous['copied_from']
+        conn.executemany('update exam_review_items set position=? where id=? and package_id=?',
+                         [(i, iid, package['id']) for i, iid in enumerate(order, 1)])
+        conn.execute('update exam_review_packages set settings_json=?,revision=revision+1,updated_at=? where id=?',
+                     (dumps(settings), timestamp(), package['id']))
+        _audit(conn, user, 'exam_review_arranged', package['id'], {'revision': p['revision']+1, 'item_ids': order})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return get(repo, user, package['id'])
+
+
+def fork(repo, user, p):
+    parent = owned_package(repo, user, p.get('package_id', ''))
+    if not isinstance(p.get('class_ids'), list) or len(p['class_ids']) != 1:
+        raise InvalidRequest('分班版本需要选择一个班级')
+    settings = loads(parent['settings_json'], {})
+    return create(repo, user, dict(settings, assessment_id=parent['assessment_id'],
+        template_package_id=parent['id'], class_ids=p.get('class_ids'), request_key=p.get('request_key')))
+
+
 def api(repo, user, action, p):
     if not isinstance(p, dict):
         raise InvalidRequest('请求应为 JSON 对象')
@@ -412,6 +485,10 @@ def api(repo, user, action, p):
         return save_item(repo, user, p)
     if action == 'review-retry':
         return retry_item(repo, user, p)
+    if action == 'review-arrange':
+        return arrange(repo, user, p)
+    if action == 'review-fork':
+        return fork(repo, user, p)
     raise ResourceNotFound('讲评操作不存在')
 
 

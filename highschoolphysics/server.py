@@ -120,8 +120,8 @@ def render_layout(title, user, body, active="", question_math=False):
         body=body,
         bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261008-ai-progress-v1">' if 'data-question-bank' in body else '',
         bank_scripts='<script defer src="/assets/question-bank.js?v=20261008-ai-progress-v1"></script>' if 'data-question-bank' in body else '',
-        review_styles='<link rel="stylesheet" href="/assets/exam-review.css?v=20261015-v1-r3">' if 'data-exam-review' in body else '',
-        review_scripts='<script defer src="/assets/exam-review.js?v=20261015-v1-r2"></script>' if 'data-exam-review' in body else '',
+        review_styles='<link rel="stylesheet" href="/assets/exam-review.css?v=20261015-v2-r1">' if 'data-exam-review' in body else '',
+        review_scripts='<script defer src="/assets/exam-review.js?v=20261015-v2"></script>' if 'data-exam-review' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(
@@ -4469,7 +4469,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             raise PermissionDenied('请先登录教师账号')
         if user['must_change_password']:
             raise PasswordChangeRequired('请先修改临时密码')
-        match = re.fullmatch(r'/api/exam-review/([A-Za-z0-9_-]{1,96})(?:/(export\.zip|assets/([A-Za-z0-9_-]{1,96})))?', path)
+        match = re.fullmatch(r'/api/exam-review/([A-Za-z0-9_-]{1,96})(?:/(export\.zip|preview\.html|present\.html|assets/([A-Za-z0-9_-]{1,96})))?', path)
         if not match:
             raise ResourceNotFound('讲评资料接口不存在')
         pid = match.group(1)
@@ -4480,6 +4480,9 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 payload = build_zip(repo, user, pid, self.db_path)
                 title = loads(package['source_json'], {})['title']
                 self._send_document_bytes(payload, 'application/zip', title + '-讲评资料包.zip')
+            elif match.group(2) in ('preview.html', 'present.html'):
+                from .exam_review_presentation import render_presentation
+                self._send_html(render_presentation(exam_review.get(repo, user, pid), preview=match.group(2)=='preview.html'))
             elif match.group(3):
                 item_id = (query.get('item_id') or [''])[0]
                 item = conn.execute('select source_json from exam_review_items where id=? and package_id=?', (item_id, pid)).fetchone()

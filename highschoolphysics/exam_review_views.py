@@ -3,6 +3,7 @@ from html import escape
 from urllib.parse import quote
 
 from .exam_review import CONTENT_FIELDS, _exam_scope, get, owned_package
+from .repository import loads
 from .exam_review_export import percent
 from .question_rendering import render_markdown
 
@@ -27,7 +28,7 @@ def entry_panel(repo, user, aid, class_ids=None):
         order by created_at desc,id desc limit 5''', (aid, user['school_id'])).fetchall()
     links = ''.join('<li><a href="/exam-review?id=%s">讲评资料 · %s</a></li>' % (quote(x['id']), esc(x['created_at'][:19].replace('T', ' ')+' UTC')) for x in packs)
     return '''<section class="exam-review-entry" data-exam-review-create>
-        <h3>考试讲评资料</h3><p>按所选班级整理原题、统计与讲评草稿，可编辑后下载，交给办公助手制作课件。</p>
+        <h3>考试讲评资料</h3><p>按班级整理原题、统计与讲评，调整顺序后可直接演示，也可下载交给办公助手。</p>
         <form data-review-create data-assessment-id="%s"><fieldset><legend>讲评班级</legend><div class="review-options">%s</div></fieldset>
         <label>课堂时长（分钟）<input name="minutes" type="number" min="1" max="180" value="45" required></label>
         <details><summary>课堂展示内容</summary><div class="review-options">%s</div></details>
@@ -93,20 +94,56 @@ def page(repo, user, pid):
     aid = package['source']['assessment_id']
     counts = package['counts']
     settings = package['settings']
+    arrangement = arrangement_panel(repo, user, package)
     return '''<section class="panel exam-review-workspace" data-exam-review="%s">
         <a href="/exams?id=%s">← 返回考试与作答</a><h1>%s · 讲评资料</h1>
-        <p>%s · %s 分钟。原题和统计固定为生成时的版本；可逐题编辑后下载。</p>
+        <p>%s · <span data-review-duration>%s</span> 分钟。原题和统计固定为生成时的版本；可逐题编辑后下载。</p>
         <div class="review-warning" data-review-stale%s>考试资料或作答已更新。本页保留原版本，请返回考试生成新版。</div>
         <div class="review-progress" role="status" aria-live="polite"><progress max="%s" value="%s"></progress>
         <span data-review-progress>已处理 %s / %s · 排队 %s · 失败 %s · 原资料草稿 %s</span></div>
         <p>只有题目、答案和题图发送给模型。参考答案待核对或未配置模型时保留原资料草稿，可手工补充。</p>
-        <div class="review-actions"><a class="button-link" data-review-download href="/api/exam-review/%s/export.zip">下载讲评资料包</a>
+        %s<div class="review-actions"><a class="button-link" data-review-open target="_blank" rel="noopener" href="/api/exam-review/%s/present.html">开始课堂演示</a>
+        <a class="button-link secondary" data-review-open target="_blank" rel="noopener" href="/api/exam-review/%s/preview.html">逐页预览与备注</a>
+        <a class="button-link secondary" data-review-download href="/api/exam-review/%s/export.zip">下载讲评资料包</a>
         <button type="button" class="secondary" data-review-refresh>刷新生成进度</button></div>
         <p data-review-message role="status" aria-live="polite"></p>
         <p class="review-caption">包含逐题 Markdown、完整 JSON、统计 CSV、逐页建议、原题图片、制作说明和离线预览；统计口径与考试页面一致。%s</p>
         <div class="review-items">%s</div></section>''' % (
             esc(pid), quote(aid), esc(package['source']['title']), esc('、'.join(x['name'] for x in package['source']['classes'])), settings['minutes'],
             '' if package['stale'] else ' hidden', package['total'], package['completed'], package['completed'], package['total'],
-            counts['queued'], counts['failed'], counts['reference_only'], quote(pid),
+            counts['queued'], counts['failed'], counts['reference_only'], arrangement, quote(pid), quote(pid), quote(pid),
             '导出时按所选课堂展示内容组织总稿；完整逐题数据仍含教师参考答案。',
             ''.join(item_card(pid, item, i == 0) for i, item in enumerate(package['items'])))
+
+
+def arrangement_panel(repo, user, package):
+    settings = package['settings']
+    _, _, classes = _exam_scope(repo, user, package['source']['assessment_id'])
+    order = ''.join('<li data-order-item="%s"><span>第%s题</span><span data-order-state>%s</span>'
+                    '<button type="button" data-order-up aria-label="上移第%s题">上移</button>'
+                    '<button type="button" data-order-down aria-label="下移第%s题">下移</button></li>' %
+                    (esc(item['id']), esc(item['source']['number']),
+                     ('详讲' if item['emphasis']=='detail' else '略讲') if item['included'] else '不纳入',
+                     esc(item['source']['number']), esc(item['source']['number'])) for item in package['items'])
+    toggles = ''.join('<label><input type="checkbox" name="%s"%s>%s</label>' %
+        (key, ' checked' if settings[key] else '', label) for key, label in [('show_answer','正确答案'),
+        ('show_statistics','正确率与选项分布'),('show_knowledge','知识点'),('show_solution','解题思路与选项辨析'),('show_errors','错因与纠正')])
+    variants = []
+    for row in repo.conn.execute('select id,source_json,created_at from exam_review_packages where assessment_id=? and school_id=? order by created_at desc,id desc limit 12',
+        (package['source']['assessment_id'], user['school_id'])):
+        if row['id'] == package['id']: continue
+        source = loads(row['source_json'], {})
+        variants.append('<li><a href="/exam-review?id=%s">%s · %s UTC</a></li>' %
+            (quote(row['id']), esc('、'.join(x['name'] for x in source.get('classes', []))), esc(row['created_at'][:19].replace('T',' '))))
+    return '''<section class="review-arrangement"><h2>教学编排</h2><p>详讲题逐项展示思路与错因；略讲题展示题目、答案和统计，已开启展示项的讲稿保留在备注中。</p>
+        <form data-review-arrange data-revision="%s"><div class="review-options"><label>课堂时长（分钟）<input name="minutes" type="number" min="1" max="180" value="%s" required></label>
+        <label>答案揭示<select name="reveal_mode"><option value="after"%s>先看题目，再翻页揭示</option><option value="together"%s>随题目同时显示</option></select></label></div>
+        <div class="review-options">%s</div><details open><summary>讲题顺序</summary><ol class="review-order">%s</ol></details>
+        <div class="review-actions"><button type="submit">保存教学编排</button><button class="secondary" type="button" data-arrange-reload>载入已保存编排</button></div>
+        <p role="status" aria-live="polite"></p></form>
+        <details class="review-variants"><summary>分班版本</summary><p>按当前最新作答生成独立版本，沿用顺序和未变题目的知识、思路、选项辨析与课堂追问。错因及备注重新整理，所有题目需按本班核对。</p>
+        <form data-review-fork><label>讲评班级<select name="class_id">%s</select></label><button type="submit" class="secondary">生成该班版本</button><p role="status" aria-live="polite"></p></form>
+        <ul>%s</ul></details></section>''' % (
+        package['revision'], settings['minutes'], ' selected' if settings.get('reveal_mode','after')=='after' else '',
+        ' selected' if settings.get('reveal_mode')=='together' else '', toggles, order,
+        ''.join('<option value="%s">%s</option>' % (esc(cls['id']),esc(cls['name'])) for cls in classes), ''.join(variants))

@@ -42,7 +42,97 @@
   let polling = false, timer;
   const message = root.querySelector('[data-review-message]');
   const cards = [...root.querySelectorAll('[data-review-item]')];
+  function syncItemSummary(item) {
+    const label=item.included?(item.emphasis==='detail'?'详讲':'略讲'):'不纳入';
+    const row=[...orderList.children].find(x=>x.dataset.orderItem===item.id);
+    if(row)row.querySelector('[data-order-state]').textContent=label;
+    const card=cards.find(x=>x.dataset.reviewItem===item.id);
+    const rate=item.source.statistics.correct_rate;
+    if(card)card.querySelector('summary strong').textContent=label+' · '+(rate===null?'暂无有效数据':(rate*100).toFixed(1)+'%');
+  }
   const drafts = new Map();
+  const arrangement = root.querySelector('[data-review-arrange]');
+  const orderList = arrangement.querySelector('.review-order');
+  const arrangementKey = 'hsp-review-plan:' + packageId;
+  const settingKeys = ['show_answer','show_statistics','show_knowledge','show_solution','show_errors'];
+  const order = () => [...orderList.children].map(row => row.dataset.orderItem);
+  const planSnapshot = () => ({revision:Number(arrangement.dataset.revision), item_ids:order(),
+    minutes:Number(arrangement.elements.minutes.value), reveal_mode:arrangement.elements.reveal_mode.value,
+    ...Object.fromEntries(settingKeys.map(key => [key,arrangement.elements[key].checked]))});
+  function orderButtons() {
+    [...orderList.children].forEach((row,i) => {
+      row.querySelector('[data-order-up]').disabled=i===0;
+      row.querySelector('[data-order-down]').disabled=i===orderList.children.length-1;
+    });
+  }
+  function loadPlan(plan) {
+    arrangement.dataset.revision=plan.revision;
+    arrangement.elements.minutes.value=plan.minutes;
+    arrangement.elements.reveal_mode.value=plan.reveal_mode || 'after';
+    settingKeys.forEach(key => { arrangement.elements[key].checked=plan[key]; });
+    plan.item_ids.forEach(id => { const row=[...orderList.children].find(x=>x.dataset.orderItem===id); if(row) orderList.append(row); });
+    orderButtons();
+  }
+  function planDirty() {
+    arrangement.dataset.dirty='true';
+    try { sessionStorage.setItem(arrangementKey,JSON.stringify(planSnapshot())); } catch (_) {}
+  }
+  try {
+    const cached=JSON.parse(sessionStorage.getItem(arrangementKey));
+    if(cached && JSON.stringify([...cached.item_ids].sort())===JSON.stringify(order().sort())) {
+      loadPlan(cached); arrangement.dataset.dirty='true';
+      arrangement.querySelector('[role=status]').textContent='已恢复未保存的教学编排，请核对后保存';
+    }
+  } catch (_) {}
+  orderButtons();
+  arrangement.addEventListener('input',planDirty);
+  arrangement.addEventListener('change',planDirty);
+  orderList.addEventListener('click',event => {
+    const button=event.target.closest('[data-order-up],[data-order-down]');
+    if(!button) return;
+    const row=button.closest('[data-order-item]');
+    if(button.hasAttribute('data-order-up') && row.previousElementSibling) orderList.insertBefore(row,row.previousElementSibling);
+    else if(button.hasAttribute('data-order-down') && row.nextElementSibling) orderList.insertBefore(row.nextElementSibling,row);
+    orderButtons(); planDirty();
+  });
+  arrangement.addEventListener('submit',async event => {
+    event.preventDefault();
+    const sent=planSnapshot(),button=arrangement.querySelector('[type=submit]'),status=arrangement.querySelector('[role=status]');
+    button.disabled=true;status.textContent='正在保存教学编排…';
+    try {
+      const pack=await api('review-arrange',{package_id:packageId,...sent});
+      const unchanged=JSON.stringify(sent)===JSON.stringify(planSnapshot());
+      arrangement.dataset.revision=pack.revision;
+      root.querySelector('[data-review-duration]').textContent=pack.settings.minutes;
+      if(unchanged){delete arrangement.dataset.dirty;try{sessionStorage.removeItem(arrangementKey);}catch(_){};status.textContent='已保存顺序与展示设置';}
+      else{planDirty();status.textContent='提交时的编排已保存，后续调整尚未保存';}
+      order().forEach(id=>{const card=cards.find(x=>x.dataset.reviewItem===id);if(card)root.querySelector('.review-items').append(card);});
+    } catch(error){status.textContent=error.message;}
+    finally{button.disabled=false;}
+  });
+  arrangement.querySelector('[data-arrange-reload]').addEventListener('click',async () => {
+    try{
+      const pack=await api('review-status',{package_id:packageId});
+      loadPlan({...pack.settings,revision:pack.revision,item_ids:pack.items.map(x=>x.id)});
+      root.querySelector('[data-review-duration]').textContent=pack.settings.minutes;
+      delete arrangement.dataset.dirty;try{sessionStorage.removeItem(arrangementKey);}catch(_){}
+      arrangement.querySelector('[role=status]').textContent='已载入服务器保存的教学编排';
+    }catch(error){arrangement.querySelector('[role=status]').textContent=error.message;}
+  });
+  const isDirty=()=>arrangement.dataset.dirty || [...drafts.values()].some(d=>d.form.dataset.dirty);
+  const forkForm=root.querySelector('[data-review-fork]');
+  let forkKey=null,forkClass=null;
+  forkForm.addEventListener('submit',async event=>{
+    event.preventDefault();const status=forkForm.querySelector('[role=status]'),button=forkForm.querySelector('[type=submit]');
+    if(isDirty()){status.textContent='请先保存题目编辑和教学编排，再生成分班版本';return;}
+    const classId=forkForm.elements.class_id.value;
+    if(classId!==forkClass){forkClass=classId;forkKey=crypto.randomUUID();}
+    button.disabled=true;status.textContent='正在整理本班作答与讲评…';
+    try{
+      const pack=await api('review-fork',{package_id:packageId,class_ids:[classId],request_key:forkKey});
+      location.href=base()+'/exam-review?id='+encodeURIComponent(pack.id);
+    }catch(error){status.textContent=error.message;button.disabled=false;}
+  });
   cards.forEach(card => {
     const form = card.querySelector('[data-review-edit]');
     const dirtyFields = new Set();
@@ -80,6 +170,7 @@
         const item = await api('review-save', {package_id: packageId, item_id: card.dataset.reviewItem, ...sent,
           content: Object.fromEntries(Object.entries(sent.content).filter(([key]) => dirtyFields.has(key)))});
         card.dataset.revision = item.revision;
+        syncItemSummary(item);
         if (JSON.stringify({...snapshot(), revision: sent.revision}) === JSON.stringify(sent)) {
           delete form.dataset.dirty; dirtyFields.clear(); clear(); status.textContent = '已保存本题讲评';
           Object.entries(item.content).forEach(([key, value]) => { if (form.elements[key]) form.elements[key].value = value; });
@@ -137,6 +228,7 @@
         const card = cards.find(node => node.dataset.reviewItem === item.id), draft = drafts.get(item.id);
         if (!card || !draft) return;
         const form = draft.form;
+        syncItemSummary(item);
         card.querySelector('[data-item-state]').textContent = states[item.status];
         form.querySelector('[data-review-error]').textContent = item.error;
         form.querySelector('[data-review-retry]').disabled = !['failed', 'reference_only'].includes(item.status) || item.source.answer_state !== 'verified';
@@ -155,16 +247,17 @@
     finally { polling = false; }
   }
   root.querySelector('[data-review-refresh]').addEventListener('click', refresh);
-  root.querySelector('[data-review-download]').addEventListener('click', event => {
-    if ([...drafts.values()].some(draft => draft.form.dataset.dirty)) {
-      event.preventDefault(); message.textContent = '有尚未保存的编辑，请先保存对应题目后下载';
+  root.querySelectorAll('[data-review-download],[data-review-open]').forEach(link => link.addEventListener('click', event => {
+    if (isDirty()) {
+      event.preventDefault(); message.textContent = '有尚未保存的编辑或编排，请先保存再预览、演示或下载';
       return;
     }
+    if(link.hasAttribute('data-review-open'))return;
     message.textContent = '正在打包原题图片与讲评资料，请稍候…';
     setTimeout(() => { message.textContent = ''; }, 12000);
-  });
+  }));
   window.addEventListener('beforeunload', event => {
-    if ([...drafts.values()].some(draft => draft.form.dataset.dirty)) { event.preventDefault(); event.returnValue = ''; }
+    if (isDirty()) { event.preventDefault(); event.returnValue = ''; }
   });
   refresh();
 })();
