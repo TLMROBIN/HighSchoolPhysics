@@ -31,7 +31,7 @@ def catalog(c,school):
     nodes=[]
     for kind,table in (('knowledge','knowledge_nodes'),('ability','ability_tags'),('literacy','literacy_tags')):
         for r in c.execute('select * from '+table+' where school_id=? and enabled=1 and deleted_at is null',(school,)):
-            r=dict(r);nodes.append(dict(id=r['id'],kind=kind,name=r['name'],definition=r.get('description') or r['name'],parent=r.get('parent_id'),level=r.get('level',0)))
+            r=dict(r);nodes.append(dict(id=r['id'],kind=kind,name=r['name'],definition=r.get('description') or r['name'],parent=r.get('parent_id'),level=r.get('level',0),sort=r.get('stable_code') or r['id']))
     return nodes
 
 def latest(c,school):
@@ -219,49 +219,67 @@ def api(repo,user,action,p):
         return {'release_id':rid,'version':(release['version'] if release else 0)+1}
     except Exception:c.rollback();raise
 
-def student_data(repo,user):
-    from .student_learning import require_student
-    require_student(user);c=repo.conn;release,graph=latest(c,user['school_id'])
+def curriculum_data(repo,user):
+    """Read the school's visible curriculum without any student's evidence."""
+    if user['role'] not in ('student','teacher','admin'):
+        raise PermissionDenied('需要有效的学习或教学身份')
+    c=repo.conn;release,graph=latest(c,user['school_id'])
     nodes=catalog(c,user['school_id']);allowed={n['id'] for n in nodes}
-    objectives=[n for n in graph['nodes'] if n.get('parent') in allowed and n.get('status')!='draft'];nodes+=objectives;allowed|={n['id'] for n in objectives}
+    objectives=[n for n in graph['nodes'] if n.get('parent') in allowed and n.get('status') not in ('draft','rejected')];nodes+=objectives;allowed|={n['id'] for n in objectives}
     edges=[e for e in graph['edges'] if e['status'] not in ('rejected','draft') and e['source'] in allowed and e['target'] in allowed]
     for n in nodes:
         if n.get('parent') in allowed and n['kind']!='objective':edges.append(edge(n['parent'],n['id'],'contains','现有教材或素养体系的目录关系，不表示学习前置。','校本标签体系',status='approved'))
-    from .learning_regions import observations, evidence_url
-    evidence=[]
     shared=graph.get('shared_goals',{})
-    relevant_shared={b['goal_id'] for entry in graph.get('adaptive_bindings',{}).values() for b in entry['bindings'] if b and b.get('knowledge_id') in allowed and b.get('status')!='rejected'}
+    relevant_shared={b['goal_id'] for entry in graph.get('adaptive_bindings',{}).values() for b in entry['bindings'] if b and b.get('knowledge_id') in allowed and b.get('status') not in ('draft','rejected')}
     for gid,g in shared.items():
         if gid in relevant_shared and g.get('status') not in ('draft','rejected'):
             nodes.append(dict(id=gid,kind='objective',name=g['name'],definition=g['definition']+' 适用条件：'+g['conditions'],level=4,parent=None))
             allowed.add(gid)
     for entry in graph.get('adaptive_bindings',{}).values():
         for b in entry['bindings']:
-            if not b:continue
+            if not b or b.get('status') in ('draft','rejected'):continue
             source=b.get('node_id') if b.get('node_id') in allowed else b.get('knowledge_id')
             if source in allowed and b['goal_id'] in allowed:
                 edges.append(edge(source,b['goal_id'],'observes_goal','本题检查动作提供这个共同学习目标的观察证据。',b['source'],status=b['status']))
-    for e in observations(c,user['school_id'],[user['id']]):
+    return dict(nodes=nodes,edges=list({e['id']:e for e in edges}.values()),evidence=[],version=release['version'] if release else 0,relations=RELATIONS,kinds=KINDS,statuses=STATUS)
+
+
+def student_data(repo,user):
+    from .student_learning import require_student
+    from .learning_regions import observations, evidence_url
+    require_student(user)
+    data=curriculum_data(repo,user);allowed={n['id'] for n in data['nodes']}
+    for e in observations(repo.conn,user['school_id'],[user['id']]):
         status='说不清' if e['passed'] is None else '借助帮助完成' if e['assisted'] and e['passed'] else '本步独立通过' if e['passed'] else '本步待检查'
         for node_id in dict.fromkeys([e['node_id'],e['goal_id']]):
             if node_id not in allowed:continue
-            evidence.append(dict(node_id=node_id,label=e['context']+' · '+e['label'],
+            data['evidence'].append(dict(node_id=node_id,label=e['context']+' · '+e['label'],
                 status='目标对应待教师确认' if node_id==e['goal_id'] and not e['approved'] else status,
                 url=evidence_url(e),version=e['version'],date=e['date'],
                 assisted=e['assisted'],approved=e['approved'],reason='来自本次具体动作检查，不能推断整个知识点的掌握。',
                 objective_name=e['name'],objective_definition=e['definition']))
-    return dict(nodes=nodes,edges=edges,evidence=evidence,version=release['version'] if release else 0,relations=RELATIONS,kinds=KINDS,statuses=STATUS)
+    return data
 
-def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261011-v3"><script src="assets/learning-graph.js?v=20261011-v3" defer></script>'
+def assets():return '<link rel="stylesheet" href="assets/learning-graph.css?v=20261015-atlas-v4"><script src="assets/learning-graph.js?v=20261015-atlas-v4" defer></script>'
 
 def student_page(repo,user):
-    data=student_data(repo,user)
+    return explorer(student_data(repo,user)) + assets()
+
+
+def explorer(data,teacher=False):
+    data=dict(data,audience='teacher' if teacher else 'student')
     encoded=dumps(data).replace('<','\\u003c').replace('&','\\u0026')
-    return '''<section class="connected-graph" data-learning-graph><p>从一个具体目标展开，看看它与知识、能力和素养怎样相连。诊断只提供本题线索，不直接判断整个知识点的掌握。</p>
-    <div class="graph-controls"><label>查找学习内容<input type="search" data-graph-search placeholder="输入名称，例如动量、图像" maxlength="100"></label><label>类型<select data-graph-kind><option value="">全部类型</option><option value="knowledge">知识点</option><option value="objective">学习目标</option><option value="ability">能力</option><option value="literacy">素养</option></select></label><label>选择中心节点<select data-graph-focus></select></label><button type="button" data-graph-mode aria-pressed="false">切换到列表</button></div>
-    <p class="graph-legend">方框：知识 · 圆角框：学习目标 · 圆形：能力 · 菱形：素养<br>实线：教师确认或目录关系 · 虚线：系统整理，待教师确认 · 箭头按关系方向阅读（相关、混淆为双向）</p>
-    <div class="graph-layout"><div><div data-graph-canvas></div><div data-graph-list hidden></div><p data-graph-count role="status"></p></div><aside data-graph-detail aria-live="polite"></aside></div>
-    <noscript><p>启用脚本可交互探索图谱。以下为学习内容目录。</p>'''+''.join('<p>'+esc(n['name'])+'：'+esc(n['definition'])+'</p>' for n in data['nodes'])+'</noscript><script type="application/json" data-graph-data>'+encoded+'</script></section>'+assets()
+    title='' if teacher else '<h2>物理知识地图</h2>'
+    return '''<section class="connected-graph" data-learning-graph aria-label="物理知识地图">
+    <header class="atlas-heading"><div>'''+title+'''<p>选择教材，沿章节探索知识。</p></div><span class="atlas-version">第 '''+str(data['version'])+''' 版</span></header>
+    <div class="atlas-searchbar"><label class="atlas-search">查找学习内容<input type="search" data-graph-search placeholder="搜索知识点、能力或学习目标" maxlength="100" autocomplete="off"></label><label>内容类型<select data-graph-kind><option value="">全部类型</option><option value="knowledge">知识点</option><option value="objective">学习目标</option><option value="ability">能力</option><option value="literacy">素养</option></select></label><button type="button" class="secondary" data-graph-clear hidden>清空筛选</button></div>
+    <section class="atlas-results" data-graph-results hidden aria-label="查找结果"><p data-graph-search-status role="status"></p><div data-graph-matches></div></section>
+    <nav class="atlas-books" data-graph-books aria-label="选择教材"></nav>
+    <label class="atlas-book-picker"><span>教材</span><select data-graph-book-select aria-label="切换教材"></select></label>
+    <div class="atlas-toolbar"><nav data-graph-breadcrumb aria-label="当前位置"></nav><div class="atlas-view-controls" aria-label="图谱视图"><button type="button" class="secondary" data-graph-home>教材概览</button><button type="button" class="secondary" data-graph-mode aria-pressed="false">列表视图</button><button type="button" class="secondary atlas-detail-jump" data-graph-detail-jump>查看详情</button></div></div>
+    <div class="atlas-workspace"><div class="atlas-map"><div class="atlas-map-caption"><span data-graph-map-title></span><div class="atlas-zoom"><button type="button" class="secondary" data-graph-zoom="out" aria-label="缩小图谱">−</button><button type="button" class="secondary" data-graph-zoom="reset" aria-label="复位图谱缩放">100%</button><button type="button" class="secondary" data-graph-zoom="in" aria-label="放大图谱">＋</button></div></div><div class="atlas-canvas" data-graph-canvas tabindex="0" aria-label="知识图谱画布，可滚动查看"></div><div class="atlas-list" data-graph-list hidden></div><div class="atlas-map-footer"><p data-graph-count role="status"></p><button type="button" class="secondary" data-graph-more hidden>显示更多关联</button></div></div><aside class="atlas-detail" data-graph-detail tabindex="-1" aria-label="所选内容详情"></aside></div>
+    <div class="atlas-legend" aria-label="图谱图例"><span><i class="atlas-key knowledge"></i>知识</span><span><i class="atlas-key objective"></i>目标</span><span><i class="atlas-key ability"></i>能力</span><span><i class="atlas-key literacy"></i>素养</span><span><i class="atlas-line"></i>已确认 / 目录</span><span><i class="atlas-line candidate"></i>待教师确认</span></div><p class="atlas-disclaimer">目录连线表示内容归属，不代表学习前置；诊断观察只说明具体任务的表现。</p>
+    <noscript><p>启用脚本可交互探索图谱。以下为学习内容目录。</p>'''+''.join('<details><summary>'+esc(n['name'])+'</summary><p>'+esc(n['definition'])+'</p></details>' for n in data['nodes'])+'</noscript><script type="application/json" data-graph-data>'+encoded+'</script></section>'
 
 def select_nodes(nodes,kind,value=''):
     return ''.join('<option value="%s"%s>%s</option>'%(esc(n['id'],quote=True),' selected' if value==n['id'] else '',esc(n['name'])) for n in nodes if n['kind']==kind)
@@ -272,7 +290,8 @@ def teacher_page(repo,user,params):
     cards=c.execute('select * from diagnostic_cards where school_id=? order by question_id,created_at desc',(user['school_id'],)).fetchall()
     value=lambda k:(params.get(k) or [''])[0]
     card_id=value('card');selected=next((r for r in cards if r['id']==card_id),cards[0] if cards else None)
-    out=[f'<section class="graph-review"><h2>诊断目标与关系审核</h2><p>当前图谱第 {version} 版。系统整理内容仍待教师确认；保存会发布新版本，学生既有诊断保留开始时的卡片和目标映射。</p><p data-graph-review-message role="status"></p><form method="get"><input type="hidden" name="module" value="graph"><label>选择诊断题目<select name="card">']
+    review_open=' open' if value('card') or value('edge') else ''
+    out=[explorer(curriculum_data(repo,user),teacher=True), f'<details class="atlas-review-disclosure"{review_open}><summary>诊断目标与关系审核 <span>编辑诊断卡、确认关系并发布</span></summary><section class="graph-review"><h2>诊断目标与关系审核</h2><p>当前图谱第 {version} 版。系统整理内容仍待教师确认；保存会发布新版本，学生既有诊断保留开始时的卡片和目标映射。</p><p data-graph-review-message role="status"></p><form method="get"><input type="hidden" name="module" value="graph"><label>选择诊断题目<select name="card">']
     for r in cards:
         entry=graph['cards'].get(r['id']);content=entry['card'] if entry else json.loads(r['card_json'])
         out.append('<option value="%s"%s>%s · %s</option>'%(esc(r['id']),' selected' if selected and selected['id']==r['id'] else '',esc(content['title']),STATUS[entry['status']] if entry else '目标待补充'))
@@ -313,7 +332,7 @@ def teacher_page(repo,user,params):
         out.append('<label>'+label+'<select name="'+key+'" required>'+''.join('<option value="%s"%s>%s · %s</option>'%(esc(n['id']),' selected' if e.get(key)==n['id'] else '',KINDS[n['kind']],esc(n['name'])) for n in nodes)+'</select></label>')
     out.append('<label>关系类型<select name="kind">'+''.join('<option value="%s"%s>%s</option>'%(k,' selected' if e.get('kind')==k else '',v) for k,v in RELATIONS.items())+'</select></label>')
     for key,label in (('reason','教学依据'),('locator','来源位置'),('conditions','适用条件')):out.append('<label>'+label+'<textarea name="'+key+'" maxlength="1000"'+(' required' if key!='conditions' else '')+'>'+esc(e.get(key,''))+'</textarea></label>')
-    return ''.join(out)+'<button>确认关系并发布</button></form></section>'+assets()
+    return ''.join(out)+'<button>确认关系并发布</button></form></section></details>'+assets()
 
 if __name__=='__main__':
     import argparse

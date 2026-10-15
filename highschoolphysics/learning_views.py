@@ -568,6 +568,8 @@ def teacher(repo,user,params,document_import_enabled=False):
         return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
     if module=='graph':
         from .learning_graph import teacher_page
+        body[0] = body[0].replace('class="panel learning"', 'class="panel learning teacher-graph-workspace"').replace('<h1>诊断与知识图谱</h1>', '<h1>物理知识地图</h1>')
+        body[1] = '<details class="atlas-module-switcher" open><summary>切换工作台模块</summary>' + body[1] + '</details>'
         return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
     if module not in titles:
         return ''.join(body)+overview()+'</section>'+footer()

@@ -63,6 +63,40 @@ class LearningGraphTests(unittest.TestCase):
         self.save();self.assertIn('data-graph-step',graph.teacher_page(self.repo,self.teacher,{}))
         # Student payload never contains the correct choice or complete diagnostic card.
         payload=graph.student_data(self.repo,self.user);self.assertNotIn('"correct"',json.dumps(payload))
+    def test_shared_explorer_has_no_private_evidence_or_cross_school_nodes(self):
+        self.save()
+        state=diagnosis.api(self.repo,self.user,'diagnosis-start',dict(protocol_version=1,
+            wrong_id=self.w['id'],question_id=self.w['question_id'],mode='deep'))['state']
+        diagnosis.api(self.repo,self.user,'diagnosis-event',dict(wrong_id=self.w['id'],
+            question_id=self.w['question_id'],session_id=state['session_id'],cursor=0,
+            event='answer',answer=0,request_key='explorer-private-observation'))
+        self.assertTrue(graph.student_data(self.repo,self.user)['evidence'])
+        before=[tuple(r) for r in self.c.execute('select * from diagnostic_sessions')]
+        shared=graph.curriculum_data(self.repo,self.teacher)
+        self.assertEqual([],shared['evidence'])
+        self.assertNotIn('"correct"',json.dumps(shared))
+        self.assertEqual([],graph.curriculum_data(self.repo,dict(self.teacher,school_id='other-school'))['nodes'])
+        page=graph.teacher_page(self.repo,self.teacher,{})
+        self.assertLess(page.index('data-learning-graph'),page.index('data-graph-card'))
+        self.assertIn('<details class="atlas-review-disclosure">',page)
+        self.assertIn('<details class="atlas-review-disclosure" open>',
+            graph.teacher_page(self.repo,self.teacher,{'card':[self.card_id]}))
+        self.assertEqual(before,[tuple(r) for r in self.c.execute('select * from diagnostic_sessions')])
+
+    def test_explorer_omits_rejected_objectives_and_binding_edges(self):
+        self.save();_,data=graph.latest(self.c,self.user['school_id'])
+        rejected=data['nodes'][0]['id'];data['nodes'][0]['status']='rejected'
+        kid=self.targets['knowledge']
+        data['shared_goals']={'shared-test':dict(name='共同目标',definition='定义',conditions='条件',status='approved')}
+        data['adaptive_bindings']={'card':{'bindings':[
+            dict(goal_id='shared-test',knowledge_id=kid,node_id=kid,source='测试来源',status='rejected')]}}
+        graph.publish(self.c,self.user['school_id'],data);self.c.commit()
+        for viewer in (self.teacher,self.user):
+            visible=graph.curriculum_data(self.repo,viewer)
+            ids={n['id'] for n in visible['nodes']}
+            self.assertNotIn(rejected,ids);self.assertNotIn('shared-test',ids)
+            self.assertTrue(all(e['source'] in ids and e['target'] in ids for e in visible['edges']))
+            self.assertEqual(len(visible['edges']),len({e['id'] for e in visible['edges']}))
     def test_manifest_covers_92_specific_checks_without_tag_blanket(self):
         from pathlib import Path
         rows=json.loads((Path(diagnosis.__file__).with_name('diagnostic_data')/'graph-20261007.json').read_text())

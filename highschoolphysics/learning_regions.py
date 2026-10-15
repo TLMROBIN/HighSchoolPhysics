@@ -521,7 +521,10 @@ def student_page(repo, user, params, wrong_groups=None):
     focus = next((r for r in data['regions'] if r['id'] == selected), None)
     if selected and not focus:
         raise InvalidRequest('学习区域不存在')
-    out = ['<section class="learning-map"><h2>我的学习地图</h2>'
+    from .learning_graph import student_page as constellation
+    out = [constellation(repo, user), '<details class="atlas-learning-evidence" id="learning-evidence"'
+        + (' open' if selected else '') + '><summary>我的学习证据与待处理区域</summary>'
+        '<section class="learning-map"><h2>我的学习地图</h2>'
         '<p>先找到当前值得处理的区域，再看题目依据与下一步。已会的部分也会保留。</p>', _filters(data)]
     priorities = [r for r in active if r['state'] in ('repeated', 'mixed', 'check', 'practice')][:3]
     if priorities and wrong_groups is None:
@@ -584,9 +587,7 @@ def student_page(repo, user, params, wrong_groups=None):
                        esc(' '.join([r['name'], *search_names])), esc(url), esc(r['name']), r['state'], label))
         out.append('</ul></details>')
     out.append('</div>')
-    out.append(_rule_html(data) + '</section>')
-    from .learning_graph import student_page as constellation
-    out.append('<details class="region-constellation"><summary>展开知识关系图</summary>' + constellation(repo, user) + '</details>')
+    out.append(_rule_html(data) + '</section></details>')
     return ''.join(out) + assets()
 
 
