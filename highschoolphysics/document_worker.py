@@ -485,6 +485,10 @@ def run_once(db_path=DEFAULT_DB_PATH, document_root=None, converter=None):
         return scan_result
     job = claim_next_tag_job(db_path)
     if job is None:
+        from .exam_review_worker import run_once as run_review_once
+        review_result = run_review_once(db_path)
+        if review_result is not None:
+            return review_result
         from .diagnosis import run_once as run_diagnosis_once
         return run_diagnosis_once(db_path)
     return process_tag_job(job, db_path=db_path)

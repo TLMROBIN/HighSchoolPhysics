@@ -28,7 +28,7 @@ from .errors import (
 from .exporting import build_wrong_book_html
 from .exam_import import import_bundle, get_asset, stage_chunk, staged_bundle
 from .exam_views import render_exams, image_html
-from .repository import PhysicsRepository, dumps
+from .repository import PhysicsRepository, dumps, loads
 from . import learning, learning_views, question_bank
 from .security import hash_password
 from .sso import OidcExchangeError, exchange_oidc_code_for_claims
@@ -97,6 +97,7 @@ def render_layout(title, user, body, active="", question_math=False):
   <link rel="stylesheet" href="/assets/app.css?v={asset_version}">
   {document_styles}
   {bank_styles}
+  {review_styles}
   {math_assets}
 </head>
 <body data-active="{active}">
@@ -109,6 +110,7 @@ def render_layout(title, user, body, active="", question_math=False):
   {math_scripts}
   {document_scripts}
   {bank_scripts}
+  {review_scripts}
 </body>
 </html>""".format(
         title=escape(title),
@@ -118,6 +120,8 @@ def render_layout(title, user, body, active="", question_math=False):
         body=body,
         bank_styles='<link rel="stylesheet" href="/assets/question-bank.css?v=20261008-ai-progress-v1">' if 'data-question-bank' in body else '',
         bank_scripts='<script defer src="/assets/question-bank.js?v=20261008-ai-progress-v1"></script>' if 'data-question-bank' in body else '',
+        review_styles='<link rel="stylesheet" href="/assets/exam-review.css?v=20261015-v1-r2">' if 'data-exam-review' in body else '',
+        review_scripts='<script defer src="/assets/exam-review.js?v=20261015-v1-r2"></script>' if 'data-exam-review' in body else '',
         math_assets=math_assets,
         math_scripts=math_scripts,
         document_styles=(
@@ -3206,6 +3210,18 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 self._handle_question_asset_get(conn, user, path, parse_qs(parsed.query))
             elif path == "/":
                 self._redirect(self._home_for(user))
+            elif path == '/exam-review':
+                if not user:
+                    self._redirect('/login')
+                else:
+                    from .exam_review_views import page as review_page
+                    if user['must_change_password']:
+                        raise PasswordChangeRequired('请先修改临时密码')
+                    pid = (parse_qs(parsed.query).get('id') or [''])[0]
+                    body = review_page(PhysicsRepository(conn), user, pid)
+                    self._send_html(render_layout('考试讲评资料', user, body, 'exams', question_math=True))
+            elif path.startswith('/api/exam-review/'):
+                self._handle_exam_review_get(conn, user, path, parse_qs(parsed.query))
             elif path == "/exams":
                 if not user:
                     self._redirect("/login")
@@ -3413,7 +3429,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 raise PasswordChangeRequired(
                     "You must change your temporary password before continuing"
                 )
-            if path.startswith(('/api/learning/diagnosis-', '/api/learning/graph-')) or (path.startswith('/api/learning/') and self.headers.get('Origin')):
+            if path.startswith(('/api/learning/diagnosis-', '/api/learning/graph-', '/api/learning/review-')) or (path.startswith('/api/learning/') and self.headers.get('Origin')):
                 self._require_same_origin()
             payload = self._read_payload(max_bytes=30 * 1024 * 1024 if path in ('/api/learning/scan-upload', '/api/learning/answers-file') else 2 * 1024 * 1024)
             auth = AuthService(conn)
@@ -4444,6 +4460,37 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def _handle_exam_review_get(self, conn, user, path, query):
+        from . import exam_review
+        from .exam_review_export import build_zip
+        from .errors import ResourceNotFound
+        if not user:
+            raise PermissionDenied('请先登录教师账号')
+        if user['must_change_password']:
+            raise PasswordChangeRequired('请先修改临时密码')
+        match = re.fullmatch(r'/api/exam-review/([A-Za-z0-9_-]{1,96})(?:/(export\.zip|assets/([A-Za-z0-9_-]{1,96})))?', path)
+        if not match:
+            raise ResourceNotFound('讲评资料接口不存在')
+        pid = match.group(1)
+        repo = PhysicsRepository(conn)
+        package = exam_review.owned_package(repo, user, pid)
+        try:
+            if match.group(2) == 'export.zip':
+                payload = build_zip(repo, user, pid, self.db_path)
+                title = loads(package['source_json'], {})['title']
+                self._send_document_bytes(payload, 'application/zip', title + '-讲评资料包.zip')
+            elif match.group(3):
+                item_id = (query.get('item_id') or [''])[0]
+                item = conn.execute('select source_json from exam_review_items where id=? and package_id=?', (item_id, pid)).fetchone()
+                if not item:
+                    raise ResourceNotFound('讲评题目不存在')
+                asset = exam_review.load_asset(repo, user, loads(item['source_json'], {}), match.group(3), self.db_path)
+                self._send_document_bytes(asset['data'], asset['mime_type'], match.group(3), inline=True)
+            else:
+                self._send_json({'ok': True, 'result': exam_review.get(repo, user, pid)})
+        except QuestionExportError as exc:
+            raise InvalidRequest(str(exc)) from exc
 
     def _document_task_row(self, conn, user, task_id):
         document_ingestion._task_for_actor(conn, user, task_id)

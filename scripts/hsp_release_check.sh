@@ -90,6 +90,7 @@ node_check() {
     highschoolphysics/assets/learning-graph.js
     highschoolphysics/assets/learning-regions.js
     highschoolphysics/assets/diagnosis.js
+    highschoolphysics/assets/exam-review.js
   )
   for asset in "${assets[@]}"; do
     node --check "$asset"

@@ -14,6 +14,7 @@ from .question_difficulty import statistics, badge, badges
 from .fill_rules import UNITS, instructions, reference_answer
 from .teacher_workspace import navigation, overview
 from .exam_workflow import classes as exam_classes, scope_label
+from .exam_statistics import question_statistics, is_confirmed, choice_answer
 
 
 QUESTION_TYPE_LABELS = {
@@ -759,14 +760,16 @@ def _review_card_viewer(c, assessment_id, response, question):
 
 def _exam_answer_category(question, response):
     """Use the effective first-exam answer; redo attempts never enter these statistics."""
+    if not is_confirmed(dict(response)):
+        return '待确认'
     answer = str(response['final_answer'] or '').strip()
     if response['outcome'] == 'blank':
         return '空白'
     if not answer:
         return '待确认' if response['outcome'] == 'pending' else '未导入答案（仅得分）'
     if loads(question['grading_rule_json'],{}).get('type') in ('single_choice', 'multiple_choice'):
-        if re.fullmatch(r'[A-Fa-f,，、;；\s]+', answer):
-            return '选 ' + ''.join(sorted(set(re.findall('[A-F]', answer.upper()))))
+        normalized = choice_answer(dict(question), dict(response))
+        return '选 ' + normalized if normalized else '选项未知'
     # Long written answers are grouped by outcome rather than creating one group per student.
     return LABELS[response['outcome']]
 
@@ -786,13 +789,25 @@ def _exam_response_distribution(question, rows, participants, rendered_rows):
         buckets['缺失作答'] = ['<tr><td data-label="学生">%s · %s</td><td colspan="3">尚未录入作答</td></tr>' %
                               (esc(p['display_name']), esc(p['class_name'] or '未分班')) for p in missing]
     total = len(participants)
-    out = ['<div class="answer-distribution"><p>作答分布 · %s 人。比例按所选班级实到学生计算；点击类别展开名单。多选题按完整选项组合统计，使用核对后的有效作答。</p>' % total]
+    stats = question_statistics(dict(question), [dict(r) for r in rows], total)
+    out = ['<div class="answer-distribution"><p>作答分布 · %s 人。选项比例按已确认且选项可辨识的作答计算（含确认空白）；待确认、缺失与选项未知另列覆盖情况。多选题同时展示各选项与完整组合。</p>' % total]
     if not total:
         return ''.join(out) + '<p class="teacher-empty-note">当前范围没有实到学生，请选择班级。</p></div>'
+    if stats['options']:
+        out.append('<p>选项统计分母 %s 人；已确认但选项未知 %s 人。多选题各选项比例之和可超过100%%。</p><ul>' % (stats['option_denominator'],stats['option_unknown_count']))
+        for option in stats['options']:
+            value='%.1f%%' % (100*option['rate']) if option['rate'] is not None else '—'
+            out.append('<li>%s：%s 人 · %s</li>' % (esc(option['key']),option['count'],value))
+        out.append('</ul>')
     for label, items in sorted(buckets.items()):
-        percent = 100 * len(items) / total
-        out.append('<details class="answer-category" name="answers-%s"><summary><span>%s</span><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><strong>%.1f%%</strong><span>%s 人</span></summary><div class="answer-students"><h5>%s · 学生名单</h5>' %
-                   (esc(question['id']), esc(label), percent, percent, len(items), esc(label)))
+        option_bucket=label.startswith('选 ') or label=='空白'
+        denominator=stats['option_denominator'] if option_bucket and stats['options'] else total
+        percent = 100 * len(items) / denominator if denominator else 0
+        value = ('%.1f%%' % percent) if denominator else '—'
+        if not option_bucket:
+            value += '（占实到）'
+        out.append('<details class="answer-category" name="answers-%s"><summary><span>%s</span><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><strong>%s</strong><span>%s 人</span></summary><div class="answer-students"><h5>%s · 学生名单</h5>' %
+                   (esc(question['id']), esc(label), percent, value, len(items), esc(label)))
         out.append('<table class="response-table"><tr><th>学生 / 班级</th><th>首次作答记录</th><th>当前有效结果</th><th>答题卡 / 复核</th></tr>' + ''.join(items) + '</table>' if items else '<p>暂无此类作答。</p>')
         out.append('</div></details>')
     return ''.join(out) + '</div>'
@@ -847,6 +862,9 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
     if not staff:
         body[0]=body[0].replace('class="panel learning"','class="panel learning student-exam-workspace"',1)
     body.append('<h2>%s</h2>'%esc(a['title']))
+    if staff:
+        from .exam_review_views import entry_panel as review_entry
+        body.append(review_entry(repo,user,aid,class_ids))
     qs=c.execute('''select s.*,q.original_question_number,
                            binding.revision_id as content_revision_id,
                            binding.child_key as content_child_key,
@@ -909,12 +927,11 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                 child=content.get('child_label','') if content else ''
                 label='第%s题%s' % (number,(' · '+child) if child else '')
                 question_rows=[r for r in rs if r['snapshot_id']==q['id'] and r['student_id'] in included]
-                confirmed=[r for r in question_rows if r['outcome'] in ('correct','wrong','blank')]
-                correct=sum(r['outcome']=='correct' for r in confirmed)
-                pending=sum(r['outcome']=='pending' for r in question_rows)
-                rate=100*correct/len(confirmed) if confirmed else 0
-                value='%.1f%%' % rate if confirmed else '—'
-                body.append('<a href="#exam-question-%s" data-exam-question><span>%s <small>作答序号 %s</small></span><strong>%s</strong><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><small>正确 %s / 已确认 %s · 待确认 %s · 缺失 %s</small></a>' % (q['position'],esc(label),q['position'],value,rate,correct,len(confirmed),pending,len(present)-len(question_rows)))
+                stats=question_statistics(dict(q),question_rows,len(present))
+                correct,pending=stats['correct_count'],stats['pending_count']
+                rate=100*stats['correct_rate'] if stats['correct_rate'] is not None else 0
+                value='%.1f%%' % rate if stats['correct_rate'] is not None else '—'
+                body.append('<a href="#exam-question-%s" data-exam-question><span>%s <small>作答序号 %s</small></span><strong>%s</strong><span class="exam-stat-track" aria-hidden="true"><span style="width:%.2f%%"></span></span><small>正确 %s / 已确认 %s · 待确认 %s · 缺失 %s</small></a>' % (q['position'],esc(label),q['position'],value,rate,correct,stats['confirmed_count'],pending,stats['missing_count']))
         body.append('</nav></aside><div class="exam-results-main">')
     if not staff:
         response_by_snapshot={r['snapshot_id']:r for r in rs}

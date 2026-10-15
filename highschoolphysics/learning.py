@@ -252,6 +252,9 @@ def _validate_complete_question_selection(repo, question_ids, school_id):
 def api(repo,user,action,p,base_path=""):
     c=repo.conn;actor=user['id']
     from . import response_workflow
+    if action.startswith('review-'):
+        from .exam_review import api as review_api
+        return review_api(repo,user,action,p)
     if action.startswith('graph-'):
         from .learning_graph import api as graph_api
         return graph_api(repo,user,action,p)
@@ -283,7 +286,19 @@ def api(repo,user,action,p,base_path=""):
             from .exam_import import staged_bundle
             p=staged_bundle(repo,actor,p['upload_id'])
         return {'csv':read_file(p)}
-    if action=='publish': return response_workflow.publish(repo,user,p)
+    if action=='publish':
+        result = response_workflow.publish(repo,user,p)
+        from .exam_review import create as create_review
+        try:
+            package = create_review(repo,user,dict(assessment_id=p['assessment_id'],
+                request_key='auto-review-'+p['assessment_id']))
+            result['review_package_id'] = package['id']
+        except Exception:
+            # Publication already committed; a review-material failure must not
+            # masquerade as a grading failure or roll back the published exam.
+            repo.conn.rollback()
+            result['message'] += '；讲评资料未自动建立，可在考试详情页重新生成'
+        return result
     if action=='response-history': return response_workflow.history(repo,user,p)
     if action=='missing-students-batch': return response_workflow.confirm_missing_students(repo,user,p)
     if action=='response-review-batch': return response_workflow.review_batch(repo,user,p)

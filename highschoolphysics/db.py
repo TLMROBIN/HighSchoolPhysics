@@ -286,6 +286,8 @@ def initialize_database(conn):
     migrate_adaptive(conn)
     from .learning_goals import install as install_shared_goals
     install_shared_goals(conn)
+    from .exam_review import migrate as migrate_exam_review
+    migrate_exam_review(conn)
 
 
 def _initialize_legacy_schema(conn):
