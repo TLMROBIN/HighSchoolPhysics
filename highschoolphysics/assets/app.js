@@ -964,23 +964,6 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
-  const passwordResetForm = event.target.closest("[data-password-reset-form]");
-  if (passwordResetForm) {
-    event.preventDefault();
-    try {
-      setStatus("正在重置临时密码...", "busy");
-      const response = await postJSON(
-        "api/password/reset",
-        formPayload(passwordResetForm, event.submitter)
-      );
-      passwordResetForm.reset();
-      setStatus(response.message || "临时密码已重置。", "success");
-    } catch (error) {
-      setStatus(`操作失败：${error.message}`, "error");
-    }
-    return;
-  }
-
   const studentForm = event.target.closest("[data-student-form]");
   if (studentForm) {
     event.preventDefault();
@@ -1047,20 +1030,14 @@ document.addEventListener("submit", async (event) => {
       const payload = formPayload(form, event.submitter);
       const username = String(payload.username || "").trim();
       const displayName = String(payload.display_name || "").trim();
-      const tempPassword = String(payload.temp_password || "");
-      if (!username || !displayName || !tempPassword) {
-        setStatus("账号、姓名和临时密码都不能为空。", "error");
-        return;
-      }
-      if (tempPassword.length < 10) {
-        setStatus("临时密码至少需要 10 位。", "error");
+      if (!username || !displayName) {
+        setStatus("账号和姓名不能为空。", "error");
         return;
       }
       setStatus("正在新建教师账号...", "busy");
       const response = await postJSON(ADMIN_FORM_ENDPOINTS["import-teacher"], {
         username,
-        display_name: displayName,
-        temp_password: tempPassword
+        display_name: displayName
       });
       form.reset();
       setStatus(
@@ -1408,8 +1385,7 @@ document.addEventListener("click", async (event) => {
         username: `stu_demo_${suffix}`,
         display_name: `导入学生${suffix}`,
         student_no: `${suffix}`,
-        class_id: "class-physics-1",
-        temp_password: "Temp123456"
+        class_id: "class-physics-1"
       });
       window.location.reload();
       return;

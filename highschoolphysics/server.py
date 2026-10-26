@@ -151,20 +151,7 @@ def render_login_page(error="", demo_mode=False):
 
 
 def render_change_password_page(user, error=""):
-    error_html = "<p class='form-error'>%s</p>" % escape(error) if error else ""
-    body = """
-<section class="login-shell">
-  <form class="login-panel" method="post" action="/change-password">
-    <h1>首次登录修改密码</h1>
-    <p class="explain">新密码至少 10 位，并同时包含字母和数字。</p>
-    {error_html}
-    <label>当前临时密码<input name="current_password" type="password" autocomplete="current-password" required></label>
-    <label>新密码<input name="new_password" type="password" minlength="10" autocomplete="new-password" required></label>
-    <label>确认新密码<input name="confirm_password" type="password" minlength="10" autocomplete="new-password" required></label>
-    <button type="submit">保存并继续</button>
-  </form>
-</section>""".format(error_html=error_html)
-    return render_layout("修改密码 - 高中物理闭环系统", user, body, "change-password")
+    return render_layout("账号管理", user, '<section class="panel"><p>本地密码已停用，请返回统一目录页管理统一账号。</p><a href="http://10.50.159.62/platform/">返回统一目录</a></section>', "account")
 
 
 def _pill_list(items, class_name="pill"):
@@ -2058,12 +2045,6 @@ def render_teacher_app(user, dashboard):
         <input type="hidden" name="assessment_id" value="{assessment_id}">
         <button type="submit">生成错题本 PDF</button>
       </form>
-      <form class="password-reset-form" data-password-reset-form>
-        <strong>重置本班学生密码</strong>
-        <label>学生<select name="target_user_id" required>{student_options}</select></label>
-        <label>临时密码<input name="temporary_password" type="password" minlength="10" placeholder="至少 10 位，含字母和数字" required></label>
-        <button type="submit">重置密码</button>
-      </form>
     </section>
     <section class="panel">
       <h2>LLM 候选审核</h2>
@@ -2755,10 +2736,9 @@ def render_admin_app(user, dashboard):
         </div>
         <form class="teacher-import-form" data-admin-form="import-teacher">
           <strong>新建教师</strong>
-          <p class="explain">创建教师账号并设置临时密码；首次登录将强制改密。</p>
+          <p class="explain">这里只创建教师本地档案；登录账号及密码在统一目录管理。</p>
           <label>账号<input name="username" required maxlength="64" autocomplete="off" placeholder="如 teacher.zhang"></label>
           <label>姓名<input name="display_name" required maxlength="64" placeholder="如 张老师"></label>
-          <label>临时密码<input name="temp_password" type="password" required minlength="10" autocomplete="new-password" placeholder="至少 10 位含字母数字"></label>
           <button type="submit">创建教师</button>
         </form>
         <div class="admin-user-toolbar">
@@ -2775,13 +2755,7 @@ def render_admin_app(user, dashboard):
           <span data-admin-user-page-info>第 1 页</span>
           <button class="secondary" type="button" data-admin-user-next>下一页</button>
         </div>
-        <form class="password-reset-form" data-password-reset-form>
-          <strong>重置同校账号密码</strong>
-          <label>账号<select name="target_user_id" required>{reset_user_options}</select></label>
-          <label>临时密码<input name="temporary_password" type="password" minlength="10" placeholder="至少 10 位，含字母和数字" required></label>
-          <button type="submit">重置密码</button>
-        </form>
-      </section>
+        </section>
       <section class="panel sso-settings-panel admin-panel-fit">
         <h2>OIDC SSO</h2>
         <p class="explain">统一身份预留已升级为 OIDC SSO：配置学校统一身份入口；client_secret 加密保存，回调按一次性 state 和本地账号绑定策略处理。</p>
@@ -3108,7 +3082,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             self._handle_logout()
             return
         if path == "/sso/change-password":
-            self._handle_sso_login(change_password=True)
+            self._redirect("http://10.50.159.62/platform/")
             return
         if path == "/sso/login":
             self._handle_sso_login()
@@ -3139,12 +3113,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 return
             user = self._current_user(conn)
             if path == "/change-password":
-                if not user:
-                    self._redirect("/login")
-                elif AuthService(conn).session_source(self._session_token()) == "sso":
-                    self._handle_sso_login(change_password=True)
-                else:
-                    self._send_html(render_change_password_page(user))
+                self._redirect("http://10.50.159.62/platform/")
             elif user and user["must_change_password"]:
                 self._redirect("/change-password")
             elif path in ('/question-bank','/question-bank/agent-guide'):
@@ -3444,40 +3413,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 return
             if learning.enabled(conn) and path in ("/api/exams/import", "/api/exams/upload-chunk", "/api/teacher/grade", "/api/student/redo-attempt", "/api/teacher/redo-attempt/review", "/api/teacher/grading-revision", "/api/teacher/ocr-import", "/api/teacher/resolve-review"):
                 raise InvalidRequest("请使用新的周测与学习记录入口；本系统不再记录分数")
-            if path in ("/change-password", "/api/password/change"):
-                if auth.session_source(self._session_token()) == "sso":
-                    self._send_json({"error": "请通过统一身份平台修改密码", "change_password_url": self._base_path() + "/sso/change-password"}, status=HTTPStatus.CONFLICT)
-                    return
-                if payload.get("new_password") != payload.get(
-                    "confirm_password",
-                    payload.get("new_password"),
-                ):
-                    raise InvalidRequest("New password confirmation does not match")
-                auth.change_password(
-                    actor_id=user["id"],
-                    user_id=user["id"],
-                    current_password=payload.get("current_password", ""),
-                    new_password=payload.get("new_password", ""),
-                )
-                if path == "/change-password":
-                    self._redirect(self._home_for(auth.user_by_id(user["id"])))
-                else:
-                    self._send_json({"ok": True})
+            if path in ("/change-password", "/api/password/change", "/api/password/reset"):
+                self._send_json({"error": "本地密码已停用，请在统一目录页管理统一密码"}, status=HTTPStatus.CONFLICT)
                 return
-            if path == "/api/password/reset":
-                auth.reset_password(
-                    user,
-                    payload["target_user_id"],
-                    payload["temporary_password"],
-                )
-                self._send_json(
-                    {
-                        "ok": True,
-                        "message": "临时密码已重置，旧会话已失效",
-                    }
-                )
-                return
-            repo = PhysicsRepository(conn)
+
             if path == "/api/exams/upload-chunk":
                 self._send_json({"ok": True, "result": stage_chunk(repo, user["id"], payload)})
             elif path == "/api/exams/import":
@@ -4111,7 +4050,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     payload.get("display_name", "新学生"),
                     payload.get("student_no", "1999"),
                     payload.get("class_id", "class-physics-1"),
-                    hash_password(payload.get("temp_password", "Temp123456")),
+                    "sso-managed",
                 )
                 self._send_json({"ok": True, "user_id": user_id})
             elif path == "/api/admin/import-teacher":
@@ -4119,13 +4058,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                     raise PermissionDenied("Admin role required")
                 username = payload["username"]
                 display_name = payload["display_name"]
-                temp_password = payload["temp_password"]
-                validate_password(temp_password)
                 user_id = repo.create_teacher(
                     user["id"],
                     username,
                     display_name,
-                    hash_password(temp_password),
+                    "sso-managed",
                 )
                 self._send_json({"ok": True, "user_id": user_id})
             elif path.startswith("/api/admin/teacher/") and path.endswith(

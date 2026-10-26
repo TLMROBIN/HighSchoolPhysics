@@ -27,10 +27,10 @@ class SsoPasswordHttpTests(unittest.TestCase):
             cookie = 'hsp_session=' + session.token
             status, headers, _ = server.request('GET', '/change-password', headers={'Cookie': cookie})
             self.assertEqual(status, 303)
-            query = parse_qs(urlparse(headers['Location']).query)
-            self.assertEqual(query['kc_action'], ['UPDATE_PASSWORD'])
-            self.assertEqual(query['code_challenge_method'], ['S256'])
+            self.assertEqual(headers['Location'], 'http://10.50.159.62/platform/')
             status, _, _ = server.post_json('/api/password/change', {'current_password':'anything','new_password':'NewPassword123'}, cookie)
+            self.assertEqual(status, 409)
+            status, _, _ = server.post_json('/api/password/reset', {'target_user_id':'user-admin','temporary_password':'NewPassword123'}, cookie)
             self.assertEqual(status, 409)
             status, _, _ = server.request('GET', '/', headers={'Cookie': cookie})
             self.assertEqual(status, 303)

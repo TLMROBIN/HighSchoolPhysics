@@ -5650,7 +5650,7 @@ class PhysicsRepository:
                 "2024",
                 "active",
                 temp_password_hash,
-                1,
+                int(temp_password_hash != "sso-managed"),
             ),
         )
         self.audit(actor_id, "student_imported", "user", user_id, {"username": username})
@@ -5683,7 +5683,7 @@ class PhysicsRepository:
                 None,
                 "active",
                 temp_password_hash,
-                1,
+                int(temp_password_hash != "sso-managed"),
             ),
         )
         self.audit(actor_id, "teacher_imported", "user", user_id, {"username": username})

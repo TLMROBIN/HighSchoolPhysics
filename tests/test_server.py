@@ -513,10 +513,10 @@ class ServerRenderingTests(unittest.TestCase):
 
         html = render_change_password_page(student)
 
-        self.assertIn("首次登录修改密码", html)
-        self.assertIn('name="current_password"', html)
-        self.assertIn('name="new_password"', html)
-        self.assertIn('name="confirm_password"', html)
+        self.assertIn("统一目录", html)
+        self.assertNotIn('name="current_password"', html)
+        self.assertNotIn('name="new_password"', html)
+        self.assertNotIn('name="confirm_password"', html)
 
     def test_teacher_app_has_graph_list_review_and_export_actions(self):
         teacher = self.auth.login("teacher_li", "teacher123", "unit-test").user
@@ -534,9 +534,9 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn('id="action-status"', html)
         self.assertIn('name="student_id"', html)
         self.assertIn("按学生筛选", html)
-        self.assertIn("重置本班学生密码", html)
+        self.assertNotIn("重置本班学生密码", html)
         self.assertIn("stu-1001", html)
-        self.assertIn('data-password-reset-form', html)
+        self.assertNotIn('data-password-reset-form', html)
 
     def test_teacher_app_exposes_phase_2d_assessment_revision_and_redo_tools(self):
         teacher = self.auth.login("teacher_li", "teacher123", "unit-test").user
@@ -624,8 +624,8 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("隐私与留存", html)
         self.assertIn("审计日志", html)
         self.assertIn("备份导出", html)
-        self.assertIn("重置同校账号密码", html)
-        self.assertIn('data-password-reset-form', html)
+        self.assertNotIn("重置同校账号密码", html)
+        self.assertNotIn('data-password-reset-form', html)
 
     def test_admin_user_management_is_compact_filterable_and_paginated(self):
         admin = self.auth.login("admin", "admin123", "unit-test").user
