@@ -3107,6 +3107,9 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         if path == "/logout":
             self._handle_logout()
             return
+        if path == "/sso/change-password":
+            self._handle_sso_login(change_password=True)
+            return
         if path == "/sso/login":
             self._handle_sso_login()
             return
@@ -3138,6 +3141,8 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             if path == "/change-password":
                 if not user:
                     self._redirect("/login")
+                elif AuthService(conn).session_source(self._session_token()) == "sso":
+                    self._handle_sso_login(change_password=True)
                 else:
                     self._send_html(render_change_password_page(user))
             elif user and user["must_change_password"]:
@@ -3440,6 +3445,9 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             if learning.enabled(conn) and path in ("/api/exams/import", "/api/exams/upload-chunk", "/api/teacher/grade", "/api/student/redo-attempt", "/api/teacher/redo-attempt/review", "/api/teacher/grading-revision", "/api/teacher/ocr-import", "/api/teacher/resolve-review"):
                 raise InvalidRequest("请使用新的周测与学习记录入口；本系统不再记录分数")
             if path in ("/change-password", "/api/password/change"):
+                if auth.session_source(self._session_token()) == "sso":
+                    self._send_json({"error": "请通过统一身份平台修改密码", "change_password_url": self._base_path() + "/sso/change-password"}, status=HTTPStatus.CONFLICT)
+                    return
                 if payload.get("new_password") != payload.get(
                     "confirm_password",
                     payload.get("new_password"),
@@ -4197,7 +4205,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         finally:
             conn.close()
 
-    def _handle_sso_login(self):
+    def _handle_sso_login(self, *, change_password=False):
         conn = connect(self.db_path)
         try:
             repo = PhysicsRepository(conn)
@@ -4211,7 +4219,10 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 "%s%s" % (self.headers.get("X-Forwarded-Host") or self.headers.get("Host"), forwarded_prefix),
             )
             login = repo.start_sso_login(provider["id"], redirect_uri)
-            self._redirect(login["authorization_url"])
+            target = login["authorization_url"]
+            if change_password:
+                target += "&kc_action=UPDATE_PASSWORD"
+            self._redirect(target)
         finally:
             conn.close()
 
@@ -4255,11 +4266,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                 self.headers.get("User-Agent", ""),
             )
             self.send_response(HTTPStatus.SEE_OTHER)
-            target = (
-                "/change-password"
-                if session.user["must_change_password"]
-                else self._home_for(session.user)
-            )
+            target = self._home_for(session.user)
             self.send_header("Location", target)
             self.send_header(
                 "Set-Cookie",
@@ -4285,7 +4292,13 @@ class PhysicsHandler(BaseHTTPRequestHandler):
         return self._current_user(conn), None
 
     def _current_user(self, conn):
-        return AuthService(conn).user_from_token(self._session_token())
+        auth = AuthService(conn)
+        token = self._session_token()
+        user = auth.user_from_token(token)
+        if user and auth.session_source(token) == "sso":
+            # Password requirements belong to the identity provider for SSO sessions.
+            user["must_change_password"] = False
+        return user
 
     def _session_token(self):
         cookie = self.headers.get("Cookie", "")
