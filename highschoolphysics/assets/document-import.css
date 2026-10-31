@@ -663,3 +663,9 @@
 .publication-selection label { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
 .publication-selection input[type="checkbox"] { width: 1.1rem; height: 1.1rem; margin: 0; }
 .publication-selection [data-publish-selection-count] { color: #52657b; }
+
+.question-preview .image-choice-lower-layout,
+.answer-question-comparison .image-choice-lower-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 6fr);
+  align-items: center;
+}

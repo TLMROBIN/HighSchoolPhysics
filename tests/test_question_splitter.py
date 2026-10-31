@@ -25,6 +25,39 @@ def fixture_ir():
 
 
 class QuestionSplitterTests(unittest.TestCase):
+    def test_word_heading_figure_and_repeated_print_header(self):
+        ir = fixture_ir()
+        base = ir['blocks'][0]
+        texts = ['高三物理限时训练题（五）', '![图](asset:asset_figure1)一、单选题',
+                 '1．根据图像判断运动。', '高三物理限时训练题（五）',
+                 '学校:____姓名：____班级：____考号：____', 'A．甲\nB．乙\nC．丙\nD．丁']
+        ir['blocks'] = [dict(base, id='word'+str(i), order=i+1, type='paragraph', markdown=t) for i, t in enumerate(texts)]
+        result = split_document_ir(ir)
+        doc = result['questions'][0]['document']
+        self.assertEqual(doc['asset_refs'], ['asset_figure1'])
+        self.assertNotIn('学校', doc['stem_md'])
+        self.assertNotIn('训练题', doc['stem_md'])
+        self.assertEqual(doc['kind'], 'single_choice')
+        self.assertEqual(len(doc['options']), 4)
+
+    def test_word_anchor_is_shared_and_inline_images_are_lettered_choices(self):
+        ir = fixture_ir()
+        base = ir['blocks'][0]
+        ids = ['asset_figure1'] + ['asset_plot_'+key.lower() for key in 'ABCD']
+        ir['assets'] += [dict(ir['assets'][0], id=aid) for aid in ids[1:]]
+        ir['blocks'] = [dict(base, id='q', markdown='3．请选择图样。'),
+                        dict(base, id='images', order=2, type='paragraph',
+                             markdown=' '.join('![图](asset:%s)' % aid for aid in ids), asset_ids=ids,
+                             source_locator={'kind': 'word', 'image_layout': ['anchor'] + ['inline'] * 4}),
+                        dict(base, id='labels', order=3, type='list_item', markdown='1. A． B． C． D．')]
+        doc = split_document_ir(ir)['questions'][0]['document']
+        self.assertIn('asset_figure1', doc['stem_md'])
+        self.assertEqual([o['markdown'] for o in doc['options']], ['![图](asset:asset_plot_%s)' % key.lower() for key in 'ABCD'])
+        # Unproven PDF/image rows must remain available for visual review.
+        ir['blocks'][1]['source_locator'] = {'kind': 'pdf', 'page': 1}
+        doc = split_document_ir(ir)['questions'][0]['document']
+        self.assertTrue(all(not o['markdown'] for o in doc['options']))
+
     def test_year_led_stems_and_scan_page_furniture(self):
         ir = fixture_ir()
         base = ir['blocks'][1]

@@ -105,6 +105,18 @@ def make_wps_shape_docx(path):
 
 
 class DocumentAdapterTests(unittest.TestCase):
+    def test_markitdown_numbered_option_chunk_does_not_create_extra_questions(self):
+        native = [dict(id='stem', markdown='10．请选择正确说法。', source_locator={}, issues=[])]
+        native += [dict(id=key, markdown=key+'．'+value, source_locator={}, issues=[])
+                   for key, value in zip('ABCD', ['投影匀加速', '飞行时间$\\frac{2{v}_{0}}{g}$', '长度相等', '长度之比大于1∶3'])]
+        chunk = '1. 投影匀加速\n2. 飞行时间$\\frac{2v\\_0}{g}$\n3. 长度相等\n4. 长度之比大于1∶3'
+        blocks, info, issues = _reconcile_markitdown_blocks(native, chunk)
+        self.assertEqual([b['id'] for b in blocks], ['stem', 'A', 'B', 'C', 'D'])
+        self.assertEqual(info['unmapped_text_block_count'], 0)
+        # A real numbered question with different content must not disappear.
+        blocks, _, _ = _reconcile_markitdown_blocks(native, chunk.replace('投影匀加速', '完全不同的新题目'))
+        self.assertTrue(any(b['id'].startswith('md') for b in blocks))
+
     def test_legacy_answer_scripts_restore_source_formatting_without_touching_math_or_ambiguous_text(self):
         from highschoolphysics.document_adapters.docx_native import restore_cached_docx_scripts
         source = io.BytesIO()
@@ -271,7 +283,7 @@ class DocumentAdapterTests(unittest.TestCase):
             self.assertEqual(issue["details"]["shape_name"], "矩形 6")
             self.assertEqual(issue["details"]["geometry"], "rect")
             self.assertEqual(issue["details"]["extent_emu"], {"cx": "6330950", "cy": "3599180"})
-            self.assertEqual(result["manifest"]["adapter_version"], "1.6.1")
+            self.assertEqual(result["manifest"]["adapter_version"], "1.6.2")
 
     def test_docx_counts_each_embedded_ole_object_once(self):
         with tempfile.TemporaryDirectory() as directory:

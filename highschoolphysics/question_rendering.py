@@ -182,6 +182,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
     title = html.escape(str(document.get("number", "")))
     parts = ['<article class="question-content%s" data-question-number="%s">' % (' question-structured' if document.get('children') or document.get('kind') in ('experiment','fill','structured','short_answer') else '', title)]
     stem_html = render_markdown(document.get("stem_md", ""), asset_url)
+    image_options = bool(document.get("options")) and all(re.fullmatch(r'\s*!\[[^\]]*\]\(asset:[^)]+\)\s*', option['markdown']) for option in document['options'])
     figures = []
     if compact_layout or (document.get("options") and include_options):
         def collect_figure(match):
@@ -197,7 +198,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
             child_html[child['key']] = re.sub(r'<p>\s*</p>', '', rendered)
     parts.append('<div class="question-stem">%s</div>' % stem_html)
     if figures:
-        parts.append('<div class="choice-lower-layout">')
+        parts.append('<div class="choice-lower-layout%s">' % (' image-choice-lower-layout' if image_options else ''))
         if compact_layout:
             parts.append('<div class="question-lower-text">')
 

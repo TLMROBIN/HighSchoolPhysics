@@ -81,6 +81,7 @@ def _starts_answer_card(block):
 
 def _is_section_heading(block):
     text = (block.get("markdown") or "").strip()
+    text = re.sub(r"!\[[^\]]*\]\(asset:[^)]+\)", "", text).strip()
     text = re.sub(r"^#{1,6}\s*", "", text)
     text = text.strip("*_ ")
     return bool(SECTION_HEADING_RE.fullmatch(text))
@@ -111,13 +112,25 @@ def _separate_numbered_questions(blocks):
     inline_boundaries = []
     section_kind = None
     choice_ranges = []
+    pending_heading_figures = []
+    preamble_text = set()
     for block in blocks:
         if block.get("type") in HEADER_TYPES:
             excluded = dict(block, _unassigned_reason="page_" + block["type"])
             leading.append(excluded)
             continue
         text = block.get("markdown", "")
+        plain = re.sub(r"!\[[^\]]*\]\(asset:[^)]+\)", "", text).strip()
+        # Some print masters repeat their title and identity line in the body.
+        # Only an exact preamble repeat or an explicit identity form is ignored.
+        identity_form = all(label in plain for label in ("学校", "姓名", "班级", "考号")) and "_" in plain
+        if current is not None and ((len(plain) >= 8 and plain in preamble_text) or identity_form):
+            leading.append(dict(block, _unassigned_reason="repeated_paper_header"))
+            continue
         if _is_section_heading(block):
+            images = re.findall(r"!\[[^\]]*\]\(asset:[^)]+\)", text)
+            if images:
+                pending_heading_figures.append(dict(block, type="figure", markdown="\n\n".join(images)))
             heading = re.split(r'[（(]', text, maxsplit=1)[0]
             section_kind = (None if "非选择" in heading else "multiple_choice" if "多选" in heading or "多项选择" in heading
                             else "single_choice" if "选择" in heading or "单选" in heading
@@ -131,6 +144,8 @@ def _separate_numbered_questions(blocks):
                 if _is_section_heading(block):
                     heading["_unassigned_reason"] = "section_heading"
                 leading.append(heading)
+                if current is None and not _is_section_heading(block):
+                    preamble_text.add(plain)
             else:
                 current["blocks"].append(block)
             continue
@@ -164,7 +179,8 @@ def _separate_numbered_questions(blocks):
                 body_block["markdown"] = body
                 body_block["source_locator"] = dict(block.get("source_locator") or {}, start=body_start, end=end)
             current_kind = next((kind for start, end, kind in choice_ranges if str(item['number']).isdigit() and start <= int(item['number']) <= end), section_kind)
-            current = {"number": item["number"], "blocks": [body_block], "section_kind": current_kind}
+            current = {"number": item["number"], "blocks": [body_block] + pending_heading_figures, "section_kind": current_kind}
+            pending_heading_figures = []
     if current is not None:
         segments.append(current)
     return leading, segments, inline_boundaries
@@ -255,13 +271,50 @@ def _promote_labeled_figure_choices(blocks):
     return promoted
 
 
+def _promote_word_image_choices(blocks):
+    """Associate four inline Word pictures with the following empty A-D row.
+
+    A separate floating picture, when present, remains the shared stem figure.
+    Without Word anchor evidence, leave ambiguous image rows for review.
+    """
+    result = []
+    index = 0
+    image_re = r"!\[[^\]]*\]\(asset:[A-Za-z0-9_-]+\)"
+    while index < len(blocks):
+        block = blocks[index]
+        text = block.get("markdown", "")
+        locator = block.get("source_locator", {})
+        layout = locator.get("image_layout", [])
+        images = re.findall(image_re, text)
+        if (index + 1 < len(blocks) and locator.get("kind") == "word"
+                and len(images) == len(layout) and layout.count("inline") == 4
+                and layout.count("anchor") <= 1 and not re.sub(image_re, "", text).strip()):
+            labels = blocks[index + 1]
+            label_text = LIST_NUMBERED_OPTION_PREFIX_RE.sub("", labels.get("markdown", ""), count=1)
+            matches = list(INLINE_OPTION_RE.finditer(label_text))
+            if ([match.group(1) for match in matches] == list("ABCD")
+                    and not INLINE_OPTION_RE.sub("", label_text).strip()):
+                shared = [image for image, kind in zip(images, layout) if kind == "anchor"]
+                if shared:
+                    result.append(dict(block, markdown="\n\n".join(shared)))
+                inline = [image for image, kind in zip(images, layout) if kind == "inline"]
+                # Keep both source spans attached to the new option row.
+                result.append(dict(block, markdown="\n".join("%s. %s" % pair for pair in zip("ABCD", inline))))
+                result.append(dict(labels, markdown=""))
+                index += 2
+                continue
+        result.append(block)
+        index += 1
+    return result
+
+
 def _option_parts(blocks):
     stem_blocks = []
     options = []
     active_option = None
     option_keys = []
     issues = []
-    blocks = _promote_labeled_figure_choices(blocks)
+    blocks = _promote_labeled_figure_choices(_promote_word_image_choices(blocks))
     for block in blocks:
         text = block.get("markdown", "")
         if block.get("type") == "figure":

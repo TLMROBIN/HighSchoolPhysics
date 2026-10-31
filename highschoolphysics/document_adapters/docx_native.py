@@ -37,7 +37,7 @@ MAX_OLE_OBJECTS = 512
 MAX_OLE_OBJECT_BYTES = 5 * 1024 * 1024
 MAX_OLE_TOTAL_BYTES = 32 * 1024 * 1024
 MAX_MTEF_OUTPUT_BYTES = 8 * 1024 * 1024
-DOCX_ADAPTER_VERSION = "1.6.1"
+DOCX_ADAPTER_VERSION = "1.6.2"
 
 
 def _run_markitdown(source_path):
@@ -94,6 +94,26 @@ def _reconcile_markitdown_blocks(native_blocks, markitdown_markdown):
 
 
     for chunk_index, chunk in enumerate(chunks, 1):
+        # MarkItDown renumbers Word's lettered lists and can put the entire
+        # option run in one chunk. Native numbering and formulas own this run.
+        numbered_lines = re.findall(r"(?m)^\s*(\d+)[.)．]\s+(.+)$", chunk)
+        if len(numbered_lines) >= 2 and len(numbered_lines) == len(chunk.splitlines()):
+            native_options = native_blocks[cursor:min(len(native_blocks), cursor + 40)]
+            def option_text(value):
+                return _visible_text(re.sub(r"\$[^$]*\$", "", value))
+            for start in range(len(native_options) - len(numbered_lines) + 1):
+                run = native_options[start:start + len(numbered_lines)]
+                if all(
+                    int(number) == offset + 1
+                    and re.match(r"^\s*%s[.．、)]\s*" % chr(65 + offset), block.get("markdown", ""))
+                    and option_text(value) == option_text(re.sub(r"^\s*[A-H][.．、)]\s*", "", block["markdown"]))
+                    for offset, ((number, value), block) in enumerate(zip(numbered_lines, run))
+                ):
+                    break
+            else:
+                run = None
+            if run:
+                continue
         visible = _visible_text(chunk)
         if len(visible) < 4:
             continue
@@ -942,7 +962,8 @@ def convert_docx(source_path, store, school_id, document_id, conversion_id, sour
                         "bbox": None,
                         "markdown": markdown,
                         "asset_ids": asset_ids,
-                        "source_locator": {"kind": "word", "part": "word/document.xml", "paragraph_index": paragraph_index},
+                        "source_locator": {"kind": "word", "part": "word/document.xml", "paragraph_index": paragraph_index,
+                                           "image_layout": [_local(node.tag) for node in child.iter() if node.tag in (_q(WP, "anchor"), _q(WP, "inline"))]},
                         "issues": paragraph_issues,
                     })
                 elif child.tag == _q(W, "tbl"):
