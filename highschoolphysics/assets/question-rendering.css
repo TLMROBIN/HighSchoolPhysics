@@ -77,4 +77,5 @@
   align-items: center;
 }
 .question-content .image-choice-lower-layout .choice-figures { order: -1; }
+.question-content .image-choice-lower-layout .choice-figures .question-content-image { max-height: 9rem; }
 .question-content .image-choice-lower-layout .question-image-options { min-width: 0; }
