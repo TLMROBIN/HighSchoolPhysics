@@ -123,35 +123,15 @@ class TeacherEmptyDashboardTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, "assign-classes should succeed")
 
-        # 4) 模拟教师首次登录(must_change_password=1 → 303 → /change-password)
-        status, change_cookie, _ = self.server.login(
-            "teacher_empty", "TempTeacher123"
+        # 4) 统一身份模式下为该教师创建 SSO 会话
+        from highschoolphysics.auth import AuthService
+        from highschoolphysics.db import connect
+        conn = connect(self.db_path)
+        session = AuthService(conn).session_for_user(
+            teacher_id, "unit-test"
         )
-        self.assertIn(status, (200, 303))
-
-        # 5) 教师改密
-        change_body = urlencode({
-            "current_password": "TempTeacher123",
-            "new_password": "NewTeacher123",
-            "confirm_password": "NewTeacher123",
-        })
-        status, _, _ = self.server.request(
-            "POST",
-            "/change-password",
-            change_body.encode("utf-8"),
-            {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Cookie": change_cookie,
-            },
-        )
-        self.assertEqual(status, 303, "change-password should redirect")
-
-        # 6) 教师再次登录(改密后)拿新 cookie
-        status, teacher_cookie, _ = self.server.login(
-            "teacher_empty", "NewTeacher123"
-        )
-        self.assertIn(status, (200, 303))
-        self.assertTrue(teacher_cookie, "teacher should have a session cookie")
+        conn.close()
+        teacher_cookie = "hsp_session=" + session.token
 
         # 7) GET /teacher —— 关键断言:200 而非 500
         status, _, body = self.server.request(

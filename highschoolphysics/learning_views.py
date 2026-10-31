@@ -559,18 +559,19 @@ def _teacher_learning_evidence(repo, assessments):
 def teacher(repo,user,params,document_import_enabled=False):
     c=repo.conn
     module=(params.get('module') or [''])[0]
-    titles={'intake':'题目入库','exams':'考试管理','progress':'学生复习进度','graph':'诊断与知识图谱','regions':'班级学习地图'}
-    body=['<section class="panel learning"><h1>%s</h1>' % titles.get(module,'教师工作台'), navigation(module if module in titles else '')]
-    if module=='regions':
-        from .learning_regions import teacher_page
+    titles={'intake':'题目入库','exams':'考试管理','progress':'学生复习进度','starmap':'知识星图','regions':'知识星图','graph':'诊断卡审核','review':'诊断卡审核'}
+    nav_module = 'starmap' if module == 'regions' else 'graph' if module == 'review' else module
+    body=['<section class="panel learning"><h1>%s</h1>' % titles.get(module,'教师工作台'), navigation(nav_module if nav_module in titles else '')]
+    if module in ('starmap', 'regions'):
+        from .starmap import page as starmap_page
         body[0] = body[0].replace('class="panel learning"', 'class="panel learning teacher-map-workspace"')
         body[1] = '<details class="map-module-switcher" open><summary>切换工作台模块</summary>' + body[1] + '</details>'
-        return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
-    if module=='graph':
-        from .learning_graph import teacher_page
-        body[0] = body[0].replace('class="panel learning"', 'class="panel learning teacher-graph-workspace"').replace('<h1>诊断与知识图谱</h1>', '<h1>物理知识地图</h1>')
+        return ''.join(body)+starmap_page(repo,user,params)+'</section>'+footer()
+    if module in ('graph', 'review'):
+        from .learning_graph import review_page
+        body[0] = body[0].replace('class="panel learning"', 'class="panel learning teacher-graph-workspace"')
         body[1] = '<details class="atlas-module-switcher" open><summary>切换工作台模块</summary>' + body[1] + '</details>'
-        return ''.join(body)+teacher_page(repo,user,params)+'</section>'+footer()
+        return ''.join(body)+review_page(repo,user,params)+'</section>'+footer()
     if module not in titles:
         return ''.join(body)+overview()+'</section>'+footer()
     school_classes={row[0] for row in c.execute('select id from class_groups where school_id=?',(user['school_id'],))}

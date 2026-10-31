@@ -243,15 +243,18 @@ class LearningRegionsHTTPTests(unittest.TestCase):
                 _, student, _ = server.login('stu_1001', 'student123')
                 _, teacher, _ = server.login('teacher_li', 'teacher123')
                 for url, cookie, expected in [('/app', student, '错题本'),
-                    ('/app?module=graph&window=all', student, '全部学习区域'),
-                    ('/teacher?module=regions&window=all', teacher, '班级问题分布')]:
+                    ('/app?module=starmap', student, '知识星图'),
+                    ('/app?module=graph&window=all', student, '知识星图'),
+                    ('/teacher?module=starmap&window=all', teacher, '知识星图'),
+                    ('/teacher?module=regions&window=all', teacher, '知识星图')]:
                     status, _, html = server.request('GET', url, headers={'Cookie':cookie,'X-Forwarded-Prefix':'/physics'})
                     self.assertEqual(200, status); self.assertIn(expected, html.decode())
                     if url == '/app':
-                        self.assertNotIn('app?module=graph', html.decode())
+                        self.assertIn('app?module=starmap', html.decode())
                         self.assertNotIn('我的学习地图', html.decode())
                     else:
-                        self.assertIn('assets/learning-regions.css', html.decode())
+                        self.assertIn('assets/starmap.css', html.decode())
                 self.assertEqual(403, server.request('GET', '/teacher?module=regions', headers={'Cookie':student})[0])
                 self.assertEqual(403, server.request('GET', '/app?student_id=stu-1002', headers={'Cookie':student})[0])
-                self.assertEqual(200, server.request('GET', '/assets/learning-regions.css')[0])
+                self.assertEqual(200, server.request('GET', '/assets/starmap.css')[0])
+                self.assertEqual(200, server.request('GET', '/assets/starmap.js')[0])

@@ -682,7 +682,7 @@ def page(repo,user,params,base_path=''):
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
     module=value('module') or 'wrong'
-    map_home = module == 'graph' and not wid and not value('trial')
+    map_home = module in ('starmap', 'graph') and not wid and not value('trial')
     out=['<section class="panel learning student-workspace%s"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>' % (' student-map-workspace' if map_home else '')]
     from .learning_views import form,hidden
     settings='<fieldset><legend>关注题型</legend>'+''.join('<label><input type="checkbox" name="types" value="%s"%s>%s</label>'%(k,' checked' if k in types else '',v) for k,v in TYPES.items())+'</fieldset>'
@@ -690,8 +690,9 @@ def page(repo,user,params,base_path=''):
     out.append(form('student-preferences',settings)+'</details>')
     review_link = '<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>' % len(due)
     out.append(review_link + '</header>' if map_home else '</header>' + review_link)
-    modules=(('wrong','错题本'),('history','历史测试'),('bank','题库'))
-    out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==module else '',v) for k,v in modules)+'</nav>')
+    modules=(('wrong','错题本'),('starmap','知识星图'),('history','历史测试'),('bank','题库'))
+    nav_module = 'starmap' if module == 'graph' else module
+    out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==nav_module else '',v) for k,v in modules)+'</nav>')
     if value('trial'):
         t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
     elif wid:
@@ -717,9 +718,9 @@ def page(repo,user,params,base_path=''):
         out.append(library_layout(filters(repo,user,'wrong',params),''.join(cards)))
     elif module=='history':
         out.append('<h2>历史测试</h2>'+('<p role="status">本轮复习已完成。</p>' if value('completed') else '')+history(repo,user))
-    elif module=='graph':
-        from .learning_regions import student_page
-        out.append(student_page(repo,user,params,wrong_groups=all_wrongs))
+    elif module in ('starmap', 'graph'):
+        from .starmap import page as starmap_page
+        out.append(starmap_page(repo, user, params))
     elif module=='bank':out.append('<h2>题库</h2>'+bank(repo,user,params,base_path))
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')

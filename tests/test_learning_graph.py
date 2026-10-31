@@ -153,7 +153,7 @@ class LearningGraphTests(unittest.TestCase):
             with LivePhysicsServer(path,seed=False) as server:
                 _,student,_=server.login('stu_1001','student123')
                 code,_,html=server.request('GET','/app?module=graph',headers={'Cookie':student,'X-Forwarded-Prefix':'/physics'})
-                self.assertEqual(200,code);self.assertIn('data-learning-graph',html.decode())
+                self.assertEqual(200,code);self.assertIn('data-starmap',html.decode())
                 code,_,_=server.request('GET','/teacher?module=graph',headers={'Cookie':student})
                 self.assertEqual(403,code)
                 _,teacher,_=server.login('teacher_li','teacher123')

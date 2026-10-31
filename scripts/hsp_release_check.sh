@@ -89,6 +89,7 @@ node_check() {
     highschoolphysics/assets/question-bank.js
     highschoolphysics/assets/learning-graph.js
     highschoolphysics/assets/learning-regions.js
+    highschoolphysics/assets/starmap.js
     highschoolphysics/assets/diagnosis.js
     highschoolphysics/assets/exam-review.js
     highschoolphysics/assets/exam-review-deck.js

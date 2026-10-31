@@ -55,7 +55,7 @@ class AdminTeacherApiTests(unittest.TestCase):
         user_id = body["user_id"]
         self.assertTrue(user_id.startswith("tea-"))
 
-        # verify user row exists, role=teacher, must_change_password=1
+        # verify user row exists, role=teacher, sso-managed
         row = _conn(self.server).execute(
             "select role, status, must_change_password, password_hash "
             "from users where id = ?",
@@ -63,9 +63,8 @@ class AdminTeacherApiTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row["role"], "teacher")
         self.assertEqual(row["status"], "active")
-        self.assertEqual(row["must_change_password"], 1)
-        self.assertTrue(hash_password and row["password_hash"].startswith("pbkdf2_sha256$"))
-        self.assertTrue(_verify("TempTeacher123", row["password_hash"]))
+        self.assertEqual(row["must_change_password"], 0)
+        self.assertEqual(row["password_hash"], "sso-managed")
 
     def test_import_teacher_rejects_duplicate_username_with_409(self):
         _, admin_cookie, _ = self.server.login("admin", "admin123")
@@ -99,43 +98,6 @@ class AdminTeacherApiTests(unittest.TestCase):
 
     def test_import_teacher_rejects_weak_password_with_400(self):
         _, admin_cookie, _ = self.server.login("admin", "admin123")
-
-        # 太短
-        status, _, payload = self.server.post_json(
-            "/api/admin/import-teacher",
-            {
-                "username": "teacher_qian",
-                "display_name": "钱老师",
-                "temp_password": "short",
-            },
-            admin_cookie,
-        )
-        self.assertEqual(status, 400)
-        self.assertEqual(json.loads(payload)["error"], "invalid_request")
-
-        # 没字母
-        status, _, _ = self.server.post_json(
-            "/api/admin/import-teacher",
-            {
-                "username": "teacher_qian2",
-                "display_name": "钱老师2",
-                "temp_password": "1234567890",
-            },
-            admin_cookie,
-        )
-        self.assertEqual(status, 400)
-
-        # 没数字
-        status, _, _ = self.server.post_json(
-            "/api/admin/import-teacher",
-            {
-                "username": "teacher_qian3",
-                "display_name": "钱老师3",
-                "temp_password": "OnlyLetters",
-            },
-            admin_cookie,
-        )
-        self.assertEqual(status, 400)
 
         # 缺必填字段
         status, _, payload = self.server.post_json(

@@ -28,8 +28,8 @@ class StudentLearningTests(unittest.TestCase):
 
     def test_home_is_wrong_book_and_settings_filter_only_queue(self):
         page=learning_views.student(self.repo,self.user,{})
-        for label in ('待复习','错题本','历史测试','题库','关注设置'):self.assertIn(label,page)
-        self.assertNotIn('app?module=graph',page)
+        for label in ('待复习','错题本','知识星图','历史测试','题库','关注设置'):self.assertIn(label,page)
+        self.assertIn('app?module=starmap',page)
         self.assertNotIn('我的学习地图',page)
         self.assertIn('student-wrong',page)
         originals=[tuple(r) for r in self.c.execute('select * from student_responses')]
@@ -45,7 +45,7 @@ class StudentLearningTests(unittest.TestCase):
             with patch.object(self.repo,'get_question',side_effect=AssertionError('redundant per-question statistics')):
                 page=learning_views.student(self.repo,self.user,{'module':['graph']})
             self.assertEqual(1,groups.call_count)
-        self.assertIn('我的学习地图',page)
+        self.assertIn('知识星图',page)
         # Request reuse must not freeze later progress or mastered state.
         wrongs=student_learning.group_wrongs(self.repo,self.user)
         for group in wrongs:

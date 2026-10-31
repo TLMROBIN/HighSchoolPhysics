@@ -284,14 +284,13 @@ def explorer(data,teacher=False):
 def select_nodes(nodes,kind,value=''):
     return ''.join('<option value="%s"%s>%s</option>'%(esc(n['id'],quote=True),' selected' if value==n['id'] else '',esc(n['name'])) for n in nodes if n['kind']==kind)
 
-def teacher_page(repo,user,params):
+def _review_section(repo,user,params):
     require_staff(user);c=repo.conn;release,graph=latest(c,user['school_id']);version=release['version'] if release else 0
     nodes=catalog(c,user['school_id'])+graph['nodes'];byid={n['id']:n for n in nodes}
     cards=c.execute('select * from diagnostic_cards where school_id=? order by question_id,created_at desc',(user['school_id'],)).fetchall()
     value=lambda k:(params.get(k) or [''])[0]
     card_id=value('card');selected=next((r for r in cards if r['id']==card_id),cards[0] if cards else None)
-    review_open=' open' if value('card') or value('edge') else ''
-    out=[explorer(curriculum_data(repo,user),teacher=True), f'<details class="atlas-review-disclosure"{review_open}><summary>诊断目标与关系审核 <span>编辑诊断卡、确认关系并发布</span></summary><section class="graph-review"><h2>诊断目标与关系审核</h2><p>当前图谱第 {version} 版。系统整理内容仍待教师确认；保存会发布新版本，学生既有诊断保留开始时的卡片和目标映射。</p><p data-graph-review-message role="status"></p><form method="get"><input type="hidden" name="module" value="graph"><label>选择诊断题目<select name="card">']
+    out=[f'<section class="graph-review"><h2>诊断目标与关系审核</h2><p>当前图谱第 {version} 版。系统整理内容仍待教师确认；保存会发布新版本，学生既有诊断保留开始时的卡片和目标映射。</p><p data-graph-review-message role="status"></p><form method="get"><input type="hidden" name="module" value="graph"><label>选择诊断题目<select name="card">']
     for r in cards:
         entry=graph['cards'].get(r['id']);content=entry['card'] if entry else json.loads(r['card_json'])
         out.append('<option value="%s"%s>%s · %s</option>'%(esc(r['id']),' selected' if selected and selected['id']==r['id'] else '',esc(content['title']),STATUS[entry['status']] if entry else '目标待补充'))
@@ -332,7 +331,15 @@ def teacher_page(repo,user,params):
         out.append('<label>'+label+'<select name="'+key+'" required>'+''.join('<option value="%s"%s>%s · %s</option>'%(esc(n['id']),' selected' if e.get(key)==n['id'] else '',KINDS[n['kind']],esc(n['name'])) for n in nodes)+'</select></label>')
     out.append('<label>关系类型<select name="kind">'+''.join('<option value="%s"%s>%s</option>'%(k,' selected' if e.get('kind')==k else '',v) for k,v in RELATIONS.items())+'</select></label>')
     for key,label in (('reason','教学依据'),('locator','来源位置'),('conditions','适用条件')):out.append('<label>'+label+'<textarea name="'+key+'" maxlength="1000"'+(' required' if key!='conditions' else '')+'>'+esc(e.get(key,''))+'</textarea></label>')
-    return ''.join(out)+'<button>确认关系并发布</button></form></section></details>'+assets()
+    return ''.join(out)+'<button>确认关系并发布</button></form></section>'
+
+def review_page(repo,user,params):
+    return _review_section(repo,user,params)+assets()
+
+def teacher_page(repo,user,params):
+    value=lambda k:(params.get(k) or [''])[0]
+    review_open=' open' if value('card') or value('edge') else ''
+    return explorer(curriculum_data(repo,user),teacher=True)+f'<details class="atlas-review-disclosure"{review_open}><summary>诊断目标与关系审核 <span>编辑诊断卡、确认关系并发布</span></summary>'+_review_section(repo,user,params)+'</details>'+assets()
 
 if __name__=='__main__':
     import argparse

@@ -1110,19 +1110,19 @@ class HttpIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(status, 303)
         self.assertEqual(headers["Location"], "/change-password")
-        status, _, payload = self.server.request(
+        status, headers, _ = self.server.request(
             "GET",
             "/change-password",
             headers={"Cookie": cookie},
         )
-        self.assertEqual(status, 200)
-        self.assertIn("首次登录修改密码", payload.decode("utf-8"))
+        self.assertEqual(status, 303)
+        self.assertEqual(headers["Location"], "http://10.50.159.62/platform/")
 
     def test_temporary_password_can_be_changed_with_form(self):
         self._import_temp_student()
         _, cookie, _ = self.server.login("stu_temp", "Temp123456")
 
-        status, headers, _ = self.server.request(
+        status, _, payload = self.server.request(
             "POST",
             "/change-password",
             urlencode(
@@ -1138,12 +1138,8 @@ class HttpIntegrationTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(status, 303)
-        self.assertEqual(headers["Location"], "/app")
-        old_status, _, _ = self.server.login("stu_temp", "Temp123456")
-        new_status, _, _ = self.server.login("stu_temp", "NewPhysics123")
-        self.assertEqual(old_status, 401)
-        self.assertEqual(new_status, 303)
+        self.assertEqual(status, 409)
+        self.assertIn("统一目录", json.loads(payload)["error"])
 
     def test_temporary_password_session_cannot_call_other_apis(self):
         self._import_temp_student()
@@ -1190,9 +1186,9 @@ class HttpIntegrationTests(unittest.TestCase):
             cookie,
         )
 
-        self.assertEqual(own_status, 200)
-        self.assertEqual(other_status, 403)
-        self.assertEqual(json.loads(payload)["error"], "forbidden")
+        self.assertEqual(own_status, 409)
+        self.assertEqual(other_status, 409)
+        self.assertIn("统一目录", json.loads(payload)["error"])
 
     def test_admin_can_reset_other_class_user_password(self):
         self._seed_other_class()
@@ -1207,8 +1203,8 @@ class HttpIntegrationTests(unittest.TestCase):
             cookie,
         )
 
-        self.assertEqual(status, 200)
-        self.assertTrue(json.loads(payload)["ok"])
+        self.assertEqual(status, 409)
+        self.assertIn("统一目录", json.loads(payload)["error"])
 
 
 if __name__ == "__main__":

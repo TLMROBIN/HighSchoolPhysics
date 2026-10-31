@@ -3416,6 +3416,7 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             if path in ("/change-password", "/api/password/change", "/api/password/reset"):
                 self._send_json({"error": "本地密码已停用，请在统一目录页管理统一密码"}, status=HTTPStatus.CONFLICT)
                 return
+            repo = PhysicsRepository(conn)
 
             if path == "/api/exams/upload-chunk":
                 self._send_json({"ok": True, "result": stage_chunk(repo, user["id"], payload)})
