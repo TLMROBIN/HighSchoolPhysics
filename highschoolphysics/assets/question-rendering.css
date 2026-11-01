@@ -36,7 +36,7 @@
 .question-content .question-image-options { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .6rem; padding-left: 0; }
 .question-content .question-image-options > li { display: flex; flex-direction: column-reverse; align-items: center; }
 .question-content .question-image-options .question-content-image { max-width: 100%; max-height: 9rem; margin: .25rem auto; }
-.question-content .figure-wide { width: 100%; max-width: 42rem; max-height: 20rem; }
+.question-content .figure-wide { width: auto; max-width: min(100%, 42rem); max-height: 13.5rem; }
 .question-content .figure-right { float: right; max-width: 40%; max-height: 15rem; margin: .3rem 0 .5rem 1rem; }
 .question-stem { display: flow-root; }
 .question-children > li { display: flow-root; }
@@ -79,3 +79,31 @@
 .question-content .image-choice-lower-layout .choice-figures { order: -1; }
 .question-content .image-choice-lower-layout .choice-figures .question-content-image { max-height: 9rem; }
 .question-content .image-choice-lower-layout .question-image-options { min-width: 0; }
+
+/* Horizontal row for multi-panel figures (e.g. 甲、乙、丙 or 图1、图2). */
+.question-content .question-figure-row,
+.question-content .choice-figures.multi-choice-figures {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  margin: 0.55rem 0;
+}
+.question-content .question-figure-row .question-content-image,
+.question-content .choice-figures.multi-choice-figures .question-content-image {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 48%;
+  max-height: 11.5rem;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+.question-content .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.question-content .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout) > .choice-figures.multi-choice-figures {
+  order: -1;
+}

@@ -13,3 +13,8 @@ data/
 .mavis/
 .opencode/
 references/
+
+# Generated review evidence, conversion outputs, and disposable local fixtures.
+# Durable conclusions should be copied into docs/ before committing.
+/output/
+/tmp/

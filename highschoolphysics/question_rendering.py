@@ -165,16 +165,54 @@ def _make_markdown_parser(asset_url):
     return parser
 
 
+def _normalize_inline_html_scripts(markdown):
+    text = re.sub(
+        r"([A-Za-z0-9]+)\s*<sub>\s*([^<>]+?)\s*</sub>",
+        lambda m: "$%s_{%s}$" % (m.group(1), m.group(2).strip()),
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"([A-Za-z0-9]+)\s*<sup>\s*([^<>]+?)\s*</sup>",
+        lambda m: "$%s^{%s}$" % (m.group(1), m.group(2).strip()),
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\$E\s*_\s*\{\s*\\?\s*:?\s*\\mathbb\s*\{\s*H\s*\}\s*\}\s*\$\s*([12])",
+        lambda m: r"$E_{\text{电}%s}$" % m.group(1),
+        text,
+    )
+    text = re.sub(
+        r"E\s*_\s*\{\s*(?:\\?\s*:?\s*\\mathbb\s*\{\s*H\s*\}\s*\}\s*([12])?|\\not\s*\\parallel\s*([12])?\s*\})",
+        lambda m: r"E_{\text{电}%s}" % (m.group(1) or m.group(2) or ""),
+        text,
+    )
+    return text
+
+
 def render_markdown(markdown, asset_url=None):
     if not isinstance(markdown, str):
         raise TypeError("Markdown content must be a string")
     parser = _make_markdown_parser(asset_url)
+    normalized = _normalize_inline_html_scripts(markdown)
     safe_headings = re.sub(
         r"(?m)^## (题干|选项|小问|答案|解析)\s*$",
         lambda match: "### " + match.group(1),
-        markdown,
+        normalized,
     )
-    return parser.render(safe_headings)
+    rendered = parser.render(safe_headings)
+    rendered = re.sub(
+        r"<p>\s*((?:<img\b[^>]*>\s*)+)</p>(?:\s*<p>\s*((?:<img\b[^>]*>\s*)+)</p>)+",
+        lambda m: '<p class="question-figure-row">' + "".join(re.findall(r"<img\b[^>]*>", m.group(0))) + "</p>",
+        rendered,
+    )
+    rendered = re.sub(
+        r"<p>\s*((?:<img\b[^>]*>\s*){2,})</p>",
+        r'<p class="question-figure-row">\1</p>',
+        rendered,
+    )
+    return rendered
 
 
 def render_question(document, asset_url=None, include_solution=False, child_key=None, include_options=True, compact_layout=False):
@@ -189,16 +227,17 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
             figures.append(match.group(0))
             return ""
         stem_html = re.sub(r'<img\b[^>]*class="question-content-image(?: figure-right)?"[^>]*>', collect_figure, stem_html)
-        stem_html = re.sub(r"<p>\s*</p>", "", stem_html)
+        stem_html = re.sub(r'<p(?:\s+class="question-figure-row")?>\s*</p>', "", stem_html)
     child_html = {}
     if compact_layout:
         for child in document.get('children', []):
             rendered = render_markdown(child['stem_md'], asset_url)
             rendered = re.sub(r'<img\b[^>]*class="question-content-image"[^>]*>', collect_figure, rendered)
-            child_html[child['key']] = re.sub(r'<p>\s*</p>', '', rendered)
+            child_html[child['key']] = re.sub(r'<p(?:\s+class="question-figure-row")?>\s*</p>', '', rendered)
     parts.append('<div class="question-stem">%s</div>' % stem_html)
+    multi_figures_class = " multi-choice-figures" if len(figures) > 1 else ""
     if figures:
-        parts.append('<div class="choice-lower-layout%s">' % (' image-choice-lower-layout' if image_options else ''))
+        parts.append('<div class="choice-lower-layout%s%s">' % (' image-choice-lower-layout' if image_options else '', multi_figures_class))
         if compact_layout:
             parts.append('<div class="question-lower-text">')
 
@@ -218,7 +257,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
         parts.append("</ol>")
 
     if figures and not compact_layout:
-        parts.append('<aside class="choice-figures">%s</aside></div>' % "".join(figures))
+        parts.append('<aside class="choice-figures%s">%s</aside></div>' % (multi_figures_class, "".join(figures)))
     children = document.get("children", [])
     selected = None
     if child_key is not None:
@@ -253,7 +292,7 @@ def render_question(document, asset_url=None, include_solution=False, child_key=
         parts.append("</ol>")
 
     if figures and compact_layout:
-        parts.append('</div><aside class="choice-figures">%s</aside></div>' % ''.join(figures))
+        parts.append('</div><aside class="choice-figures%s">%s</aside></div>' % (multi_figures_class, ''.join(figures)))
 
     if include_solution:
         answer_parts = []

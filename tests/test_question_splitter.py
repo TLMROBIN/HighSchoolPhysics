@@ -403,6 +403,60 @@ class QuestionSplitterTests(unittest.TestCase):
             {"b-section-4": "section_heading"},
         )
 
+    def test_weekly3_regressions_enumeration_undotted_options_and_inline_children(self):
+        document = fixture_ir()
+        document["assets"] = [
+            {"id": "asset_fig1", "sha256": "1" * 64, "mime_type": "image/png"},
+            {"id": "asset_fig2", "sha256": "2" * 64, "mime_type": "image/png"},
+        ]
+        base = document["blocks"][1]
+        document["blocks"] = [
+            # Q5: inline enumeration "依次为 1、2、3、4号猴子" must not split into two questions
+            dict(
+                base,
+                id="b-q5",
+                order=1,
+                markdown="5．如图所示，四只猴子将一树枝压弯倒挂在树梢上，从下到上依次为 1、2、3、4号猴子。假设静止。\nA．都为零\nB．$\\frac{13}{6}mg$\nC．$\\frac{14}{3}mg$\nD．$6mg$",
+            ),
+            # Q6: undotted options A-D before math and trailing D followed by figure + block math
+            dict(
+                base,
+                id="b-q6",
+                order=2,
+                markdown="6．手提袋两次静止，则 $\\frac{T_1}{T_2}$ 为（ ）A $\\frac{5}{4}$ B $\\frac{5}{3}$ C $\\frac{4}{3}$ D",
+            ),
+            dict(document["blocks"][2], id="b-q6-fig1", order=3, markdown="![图甲](asset:asset_fig1)", asset_ids=["asset_fig1"]),
+            dict(document["blocks"][2], id="b-q6-fig2", order=4, markdown="![图乙](asset:asset_fig2)", asset_ids=["asset_fig2"]),
+            dict(base, id="b-q6-opt-d", order=5, markdown="$$\n\\frac{2}{3}\n$$"),
+            # Q10: option B immediately after lowercase unit/symbol 'g'
+            dict(
+                base,
+                id="b-q10",
+                order=6,
+                markdown="10．空间存在匀强电场。\nA．滑块在AB 轨道下滑时的加速度大小为gB．滑块在轨道中最大压力为 $3mg$\nC．往复运动\nD．总路程为 $2R$",
+            ),
+            # Q14 & Q15: "E、G 间的水平距离" not an option, "求（1）...；（2）...；（3）..." splits children, trailing figure attaches to parent
+            dict(base, id="b-q14-p1", order=7, markdown="14．如图1所示，过山车轨道模型。"),
+            dict(
+                base,
+                id="b-q14-p2",
+                order=8,
+                markdown="E、G 间的水平距离 $l=40\\mathrm{m}$。求（1）最低点C时的速度大小；（2）最高点D时对轨道的作用力；（3）减速直轨道FG的长度x。",
+            ),
+            dict(document["blocks"][2], id="b-q14-fig", order=9, markdown="![图](asset:asset_fig1)", asset_ids=["asset_fig1"]),
+        ]
+        result = split_document_ir(document)
+        by_num = {item["document"]["number"]: item["document"] for item in result["questions"]}
+        self.assertEqual(list(by_num), ["5", "6", "10", "14"])
+        self.assertIn("1、2、3、4号猴子", by_num["5"]["stem_md"])
+        self.assertEqual([o["markdown"] for o in by_num["6"]["options"]], ["$\\frac{5}{4}$", "$\\frac{5}{3}$", "$\\frac{4}{3}$", "$\\frac{2}{3}$"])
+        self.assertEqual([o["key"] for o in by_num["10"]["options"]], ["A", "B", "C", "D"])
+        self.assertEqual(by_num["10"]["options"][0]["markdown"], "滑块在AB 轨道下滑时的加速度大小为g")
+        self.assertEqual(by_num["14"]["options"], [])
+        self.assertIn("E、G 间的水平距离", by_num["14"]["stem_md"])
+        self.assertIn("![图](asset:asset_fig1)", by_num["14"]["stem_md"])
+        self.assertEqual([c["label"] for c in by_num["14"]["children"]], ["(1)", "(2)", "(3)"])
+
 
 if __name__ == "__main__":
     unittest.main()

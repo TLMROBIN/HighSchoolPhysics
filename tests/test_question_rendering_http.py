@@ -69,6 +69,29 @@ class QuestionRenderingHTTPTests(unittest.TestCase):
         self.assertIn("/assets/question-rendering.js", scripts)
         self.assertNotIn("cdn.", head + scripts)
 
+    def test_multi_figure_questions_and_inline_html_subscripts_render_cleanly(self):
+        doc = {
+            "number": "3",
+            "stem_md": "题干\n\n![图甲](asset:fig1)\n\n![图乙](asset:fig2)",
+            "options": [{"key": k, "markdown": k} for k in "ABCD"],
+            "children": [],
+        }
+        rendered = render_question(doc, asset_url=lambda aid: "/assets/" + aid)
+        self.assertIn("choice-lower-layout multi-choice-figures", rendered)
+        self.assertIn("choice-figures multi-choice-figures", rendered)
+
+        structured = {
+            "number": "11",
+            "kind": "experiment",
+            "stem_md": "实验\n\n![图甲](asset:fig1)\n\n![图乙](asset:fig2)",
+            "options": [],
+            "children": [{"key": "c1", "label": "(1)", "stem_md": "用s<sub>1</sub>、s<sub>2</sub>表示，$E _ { \\not \\parallel 2 }$", "options": []}],
+        }
+        rendered_struct = render_question(structured, asset_url=lambda aid: "/assets/" + aid)
+        self.assertIn('<p class="question-figure-row">', rendered_struct)
+        self.assertIn("$s_{1}$", rendered_struct)
+        self.assertIn(r"$E_{\text{电}2}$", rendered_struct)
+
 
 if __name__ == "__main__":
     unittest.main()

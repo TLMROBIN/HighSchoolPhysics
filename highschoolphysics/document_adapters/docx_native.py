@@ -763,6 +763,8 @@ def _paragraph_text(paragraph, rels, archive, store, school_id, block_id, issues
             except (KeyError, DocumentStoreError) as exc:
                 issues.append({"code": "image_asset_unavailable", "severity": "blocking", "field": block_id, "message": str(exc)})
                 return
+            if not inside_ole_object and asset.get("width_px") == 1 and asset.get("height_px") == 1:
+                return
             asset_registry[asset["id"]] = asset
             if inside_ole_object:
                 if evidence_assets is not None:

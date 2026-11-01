@@ -453,6 +453,16 @@ content=[{"type":"text","text":"求 $\\\\sqrt{x}$","page_idx":0,"bbox":[0,0,32,3
             self.assertIn("![原卷插图](asset:", result["markdown"])
             self.assertEqual(result["document"]["blocks"][0]["bbox"], [0.0, 0.0, 0.32, 0.32])
 
+    def test_mineru_detects_missing_formula_layer_and_normalizes_html_subscripts_and_wrapped_clauses(self):
+        from highschoolphysics.document_adapters.mineru_pdf import _has_missing_formula_layer, _normalize_mineru_markdown
+        self.assertTrue(_has_missing_formula_layer("A．               B．             C．             D．"))
+        self.assertTrue(_has_missing_formula_layer("1 号猴子的质量为           ，其余 3 只猴子的质量均为   ，"))
+        self.assertFalse(_has_missing_formula_layer("1．正常文本包含公式 v = 2 m/s，选项 A．1 B．2 C．3 D．4"))
+        self.assertEqual(
+            _normalize_mineru_markdown("用s<sub>1</sub>、s<sub>2</sub>表示，消耗电能 $E _ { \\ : \\mathbb { H } }$ 1 和 $E _ { \\not \\parallel 2 }$"),
+            "用$s_{1}$、$s_{2}$表示，消耗电能 $E_{\\text{电}1}$ 和 $E_{\\text{电}2}$",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

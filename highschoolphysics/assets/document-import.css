@@ -639,7 +639,7 @@
 .choice-lower-layout .question-options { margin: 0; padding-left: 0; }
 .question-preview .choice-figures .question-content-image, .answer-question-comparison .choice-figures .question-content-image { max-width: 100%; width: auto; height: auto; max-height: 22rem; margin: .35rem auto; }
 .question-preview .question-content-image, .answer-question-comparison .question-content-image { max-width: 70%; max-height: 24rem; }
-.question-preview .question-content-image.figure-wide, .answer-question-comparison .question-content-image.figure-wide { max-width: 100%; max-height: 22rem; }
+.question-preview .question-content-image.figure-wide, .answer-question-comparison .question-content-image.figure-wide { width: auto; max-width: min(100%, 42rem); max-height: 13.5rem; }
 .question-preview .question-content-image.figure-tall, .answer-question-comparison .question-content-image.figure-tall { max-width: 55%; max-height: 30rem; }
 .question-preview .question-children > li > strong, .answer-question-comparison .question-children > li > strong { float: left; margin-right: .5rem; }
 .question-preview .question-children > li > div > p:first-child, .answer-question-comparison .question-children > li > div > p:first-child { margin-top: 0; }
@@ -668,4 +668,37 @@
 .answer-question-comparison .image-choice-lower-layout {
   grid-template-columns: minmax(0, 1fr) minmax(0, 6fr);
   align-items: center;
+}
+
+.question-preview .question-figure-row,
+.answer-question-comparison .question-figure-row,
+.question-preview .choice-figures.multi-choice-figures,
+.answer-question-comparison .choice-figures.multi-choice-figures {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.85rem;
+  margin: 0.55rem 0;
+}
+.question-preview .question-figure-row .question-content-image,
+.answer-question-comparison .question-figure-row .question-content-image,
+.question-preview .choice-figures.multi-choice-figures .question-content-image,
+.answer-question-comparison .choice-figures.multi-choice-figures .question-content-image {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 48%;
+  max-height: 11.5rem;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+.question-preview .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout),
+.answer-question-comparison .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.question-preview .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout) > .choice-figures.multi-choice-figures,
+.answer-question-comparison .choice-lower-layout.multi-choice-figures:not(.image-choice-lower-layout) > .choice-figures.multi-choice-figures {
+  order: -1;
 }

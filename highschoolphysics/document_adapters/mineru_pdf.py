@@ -60,6 +60,47 @@ def _run(command, timeout_seconds, env, cancel_event=None):
     return process.returncode, output
 
 
+MISSING_FORMULA_LAYER_RE = re.compile(
+    r"(?m)(?:[A-D][.．、][ \t]{2,}[B-D][.．、]"
+    r"|(?:大小为|质量为|半径为|速度为|功率为|做功为|表达式为|处在|初速度为)[ \t]{2,}(?:[，。、；]|$)"
+    r"|的[ \t]{2,}倍)"
+)
+
+
+def _has_missing_formula_layer(text):
+    if not text:
+        return False
+    return bool(MISSING_FORMULA_LAYER_RE.search(text))
+
+
+def _normalize_mineru_markdown(markdown):
+    if not isinstance(markdown, str) or not markdown:
+        return ""
+    text = re.sub(
+        r"([A-Za-z0-9]+)\s*<sub>\s*([^<>]+?)\s*</sub>",
+        lambda m: "$%s_{%s}$" % (m.group(1), m.group(2).strip()),
+        markdown,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"([A-Za-z0-9]+)\s*<sup>\s*([^<>]+?)\s*</sup>",
+        lambda m: "$%s^{%s}$" % (m.group(1), m.group(2).strip()),
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\$E\s*_\s*\{\s*\\?\s*:?\s*\\mathbb\s*\{\s*H\s*\}\s*\}\s*\$\s*([12])",
+        lambda m: r"$E_{\text{电}%s}$" % m.group(1),
+        text,
+    )
+    text = re.sub(
+        r"E\s*_\s*\{\s*(?:\\?\s*:?\s*\\mathbb\s*\{\s*H\s*\}\s*\}\s*([12])?|\\not\s*\\parallel\s*([12])?\s*\})",
+        lambda m: r"E_{\text{电}%s}" % (m.group(1) or m.group(2) or ""),
+        text,
+    )
+    return text
+
+
 def _select_method(source_path):
     override = os.environ.get("HSP_MINERU_METHOD", "").strip().lower()
     if override in ("auto", "ocr"):
@@ -77,7 +118,10 @@ def _select_method(source_path):
         )
     except (OSError, subprocess.TimeoutExpired):
         return "ocr"
-    return "auto" if result.returncode == 0 and len(result.stdout.decode("utf-8", "ignore").strip()) >= 40 else "ocr"
+    extracted = result.stdout.decode("utf-8", "ignore")
+    if result.returncode != 0 or len(extracted.strip()) < 40 or _has_missing_formula_layer(extracted):
+        return "ocr"
+    return "auto"
 
 
 def _safe_bbox(raw, width, height):
@@ -266,6 +310,7 @@ def convert_pdf(
             asset_ids = [asset_id] if asset_id else []
         else:
             markdown = item.get("text", "") if isinstance(item.get("text", ""), str) else ""
+            markdown = _normalize_mineru_markdown(markdown)
             if kind in ("footer", "page_number"):
                 block_type = "footer"
             elif item.get("text_level"):
@@ -285,6 +330,19 @@ def convert_pdf(
         if not markdown and block_type != "figure":
             continue
         page_number = page_idx + 1
+        if (
+            block_type == "paragraph"
+            and blocks
+            and blocks[-1]["type"] == "paragraph"
+            and blocks[-1]["page"] == page_number
+            and blocks[-1]["markdown"].rstrip().endswith("、")
+            and not re.match(r"^(?:\d{1,3}\s*[.．、]|[（(]\s*\d+\s*[）)]|\(?[A-H][).．、]|[①②③④⑤⑥])", markdown)
+        ):
+            blocks[-1]["markdown"] = blocks[-1]["markdown"].rstrip() + markdown.lstrip()
+            for bi in block_issues:
+                if bi not in blocks[-1]["issues"]:
+                    blocks[-1]["issues"].append(bi)
+            continue
         locator = {"kind": "pdf", "page": page_number, "pdf_page": page_number, "content_list_index": index}
         if source_locator:
             locator.update(source_locator)

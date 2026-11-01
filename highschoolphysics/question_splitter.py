@@ -12,8 +12,14 @@ from .document_models import validate_document_ir, validate_question_document
 QUESTION_RE = re.compile(
     r"(?m)(?:(?<=\n)|^|(?<=\s)|(?<=\)))[ \t]*(?:第\s*(?P<dnum>\d{1,3})\s*题|(?P<num>\d{1,3})\s*(?:[．、]|[.](?![ \t]*\d)|[.](?=[ \t]*20\d{2}年)))"
 )
-CHILD_RE = re.compile(r"(?m)(?:^|(?<=\n)|(?<=\)))[ \t]*[（(]\s*(?P<label>\d{1,2}|[一二三四五六七八九十])\s*[）)]\s*")
-INLINE_OPTION_RE = re.compile(r"(?<![A-Za-z])\(?([A-H])[).．、]\s*")
+ENUMERATION_SUFFIX_RE = re.compile(r"^\s*\d{1,3}\s*(?:[、，,．.~～\-—]|号|个|只|球|物|块|环|车|人)")
+INLINE_ENUMERATION_PREFIX_RE = re.compile(r"(?:依次为|分别为|标号为|编号为|记为|分为|有|第)[ \t]*$")
+CHILD_RE = re.compile(r"(?m)(?:^|(?<=\n)|(?<=[)）:：；;。？?求]))[ \t]*[（(]\s*(?P<label>\d{1,2}|[一二三四五六七八九十])\s*[）)]\s*")
+INLINE_OPTION_RE = re.compile(r"(?<![A-Z])\(?([A-H])[).．、]\s*")
+UNDOTTED_OPTION_TOKEN_RE = re.compile(
+    r"(?<![A-Z])(?:\(?([A-H])[).．、]\s*|(?:^|(?<=[\s$)）。]))([A-D])(?=[ \t]*\$|[ \t]*$))"
+)
+POINT_PAIR_PREFIX_RE = re.compile(r"^[A-Z]\s*(?:[、和与及]|间的|两点|两球|两板|两处|两物|两滑块|之间)")
 FIGURE_OPTION_LABEL_RE = re.compile(r"^\s*([A-D])\s*$")
 OPTION_AFTER_LIST_MARKER_RE = re.compile(r"^\s*\(?[A-H][).．、]\s*")
 LIST_NUMBERED_OPTION_PREFIX_RE = re.compile(r"^\s*\d{1,3}\s*[.．、]\s+(?=\(?[A-H][).．、])")
@@ -48,13 +54,16 @@ def _question_starts(text):
         number = match.group("dnum") or match.group("num")
         if not number:
             continue
-        if OPTION_AFTER_LIST_MARKER_RE.match(text[match.end():]):
+        suffix = text[match.end():]
+        if OPTION_AFTER_LIST_MARKER_RE.match(suffix):
             continue
         start = match.start()
         # Inline boundaries are useful for OCR paragraphs but are less certain than line starts.
         prefix = text[:start]
         inline = start > 0 and not prefix.endswith(("\n", "\r"))
         if inline and len(prefix.strip()) < 20:
+            continue
+        if match.group("num") and (ENUMERATION_SUFFIX_RE.match(suffix) or (inline and INLINE_ENUMERATION_PREFIX_RE.search(prefix))):
             continue
         matches.append({"match": match, "number": str(int(number)), "start": start, "body_start": match.end(), "inline": inline})
     return matches
@@ -183,6 +192,33 @@ def _separate_numbered_questions(blocks):
             pending_heading_figures = []
     if current is not None:
         segments.append(current)
+    anchor_image_re = re.compile(r"!\[[^\]]*\]\(asset:[A-Za-z0-9_-]+\)")
+    for idx in range(len(segments) - 1):
+        prev_blocks = segments[idx]["blocks"]
+        next_blocks = segments[idx + 1]["blocks"]
+        if len(prev_blocks) < 2 or not next_blocks:
+            continue
+        last_block = prev_blocks[-1]
+        locator = last_block.get("source_locator") or {}
+        if locator.get("kind") != "word" or locator.get("image_layout") != ["anchor"]:
+            continue
+        anchor_match = anchor_image_re.search(last_block.get("markdown", ""))
+        if not anchor_match:
+            continue
+        last_plain = anchor_image_re.sub("", last_block.get("markdown", ""), count=1).strip()
+        if (
+            "图" not in last_plain
+            and any("asset:" in b.get("markdown", "") for b in prev_blocks[:-1])
+            and "如图" in next_blocks[0].get("markdown", "")
+            and not any("asset:" in b.get("markdown", "") for b in next_blocks)
+        ):
+            updated_last = dict(last_block, markdown=last_plain)
+            prev_blocks[-1] = updated_last
+            updated_next = dict(
+                next_blocks[0],
+                markdown=next_blocks[0]["markdown"].rstrip() + "\n\n" + anchor_match.group(0),
+            )
+            next_blocks[0] = updated_next
     return leading, segments, inline_boundaries
 
 
@@ -308,6 +344,44 @@ def _promote_word_image_choices(blocks):
     return result
 
 
+def _option_line_matches(option_line, existing_option_keys):
+    matches = [
+        match for match in INLINE_OPTION_RE.finditer(option_line)
+        if not (
+            match.group(0).rstrip().endswith("、")
+            and POINT_PAIR_PREFIX_RE.match(option_line[match.end():])
+        )
+    ]
+    detected_keys = [match.group(1) for match in matches]
+    sequence_start = _complete_inline_option_start(detected_keys)
+    if sequence_start is not None:
+        return matches[sequence_start:], detected_keys[sequence_start:]
+    # Support OCR lines where MinerU dropped the dot after option letters before math
+    # (e.g. "A $\frac...$ B $\frac...$ C $\frac...$ D $\frac...$" or "C．... D $t=...$").
+    combined = [
+        match for match in UNDOTTED_OPTION_TOKEN_RE.finditer(option_line)
+        if not (
+            (match.group(1) and match.group(0).rstrip().endswith("、") and POINT_PAIR_PREFIX_RE.match(option_line[match.end():]))
+        )
+    ]
+    combined_keys = [match.group(1) or match.group(2) for match in combined]
+    combined_start = _complete_inline_option_start(combined_keys)
+    if combined_start is not None:
+        return combined[combined_start : combined_start + 4], combined_keys[combined_start : combined_start + 4]
+    if existing_option_keys == ["A", "B"] and detected_keys == ["C"]:
+        c_match = matches[0]
+        d_tail = re.search(r"(?<=\s)(D)(?=[ \t]*\$)", option_line[c_match.end():])
+        if d_tail is not None:
+            # Re-run with UNDOTTED_OPTION_TOKEN_RE from C's position
+            tail_matches = [m for m in UNDOTTED_OPTION_TOKEN_RE.finditer(option_line, c_match.start()) if (m.group(1) or m.group(2)) in ("C", "D")]
+            tail_keys = [m.group(1) or m.group(2) for m in tail_matches]
+            if tail_keys[:2] == ["C", "D"]:
+                return tail_matches[:2], ["C", "D"]
+    if not existing_option_keys and detected_keys and detected_keys[0] in ("E", "F", "G", "H"):
+        return [], []
+    return matches, detected_keys
+
+
 def _option_parts(blocks):
     stem_blocks = []
     options = []
@@ -330,7 +404,12 @@ def _option_parts(blocks):
                         "severity": "review",
                         "field": block.get("id", "figure"),
                     })
-                active_option = None
+                if not (
+                    active_option is not None
+                    and not active_option["markdown"].strip()
+                    and any(opt["markdown"].strip() for opt in options if opt is not active_option)
+                ):
+                    active_option = None
                 stem_blocks.append(block)
             continue
         lines = text.splitlines() or [text]
@@ -339,12 +418,7 @@ def _option_parts(blocks):
             option_line = line
             if block.get("type") == "list_item":
                 option_line = LIST_NUMBERED_OPTION_PREFIX_RE.sub("", option_line, count=1)
-            matches = list(INLINE_OPTION_RE.finditer(option_line))
-            detected_keys = [match.group(1) for match in matches]
-            sequence_start = _complete_inline_option_start(detected_keys)
-            if sequence_start is not None and sequence_start:
-                matches = matches[sequence_start:]
-                detected_keys = detected_keys[sequence_start:]
+            matches, detected_keys = _option_line_matches(option_line, option_keys)
             prefix = option_line[:matches[0].start()].strip() if matches else ""
             image_prefix = bool(prefix) and bool(MARKDOWN_IMAGE_PREFIX_RE.fullmatch(prefix))
             inline_option_sequence = bool(prefix) and _complete_inline_option_start(detected_keys) == 0
@@ -354,7 +428,7 @@ def _option_parts(blocks):
                     stem_lines.append(prefix)
                 for index, match in enumerate(matches):
                     end = matches[index + 1].start() if index + 1 < len(matches) else len(option_line)
-                    key = match.group(1)
+                    key = match.group(1) or match.group(2)
                     body = option_line[match.end():end].strip()
                     if not option_keys and key != "A":
                         issues.append({"code": "option_sequence_does_not_start_with_a", "severity": "review", "field": block["id"]})
@@ -369,8 +443,16 @@ def _option_parts(blocks):
                         active_option["markdown"] += ("\n" if body else "") + body
                         active_option["_blocks"].append(block)
                 continue
-            if active_option is not None and any(option.get("_blocks", []) and option["_blocks"][-1] is block for option in options):
+            if active_option is not None and (
+                any(option.get("_blocks", []) and option["_blocks"][-1] is block for option in options)
+                or (
+                    not active_option["markdown"].strip()
+                    and any(opt["markdown"].strip() for opt in options if opt is not active_option)
+                )
+            ):
                 active_option["markdown"] += ("\n" if active_option["markdown"] else "") + option_line.strip()
+                if not active_option.get("_blocks") or active_option["_blocks"][-1] is not block:
+                    active_option.setdefault("_blocks", []).append(block)
                 continue
             active_option = None
             stem_lines.append(option_line)
@@ -388,7 +470,16 @@ def _split_children(blocks, document_id, question_number, conversion_id):
         text = block.get("markdown", "")
         matches = list(CHILD_RE.finditer(text))
         if not matches:
-            (children[-1]["blocks"] if children else parent).append(block)
+            if (
+                children
+                and block.get("type") == "figure"
+                and any("图" in b.get("markdown", "") for b in parent)
+                and not any(b.get("type") == "figure" or "asset:" in b.get("markdown", "") for b in parent)
+                and not any("图" in b.get("markdown", "") for b in children[-1]["blocks"])
+            ):
+                parent.append(block)
+            else:
+                (children[-1]["blocks"] if children else parent).append(block)
             continue
         if matches[0].start() > 0 and text[:matches[0].start()].strip():
             prefix = dict(block)
@@ -436,7 +527,13 @@ def _candidate(segment, document, conversion_id, parent_spans, inline_boundary=F
     parent_blocks, children_raw = _split_children(blocks, document["document_id"], number, conversion_id)
     stem_blocks, options_raw, option_issues = _option_parts(parent_blocks)
     stem_md = _markdown(stem_blocks)
-    options = [{"key": item["key"], "markdown": item["markdown"]} for item in options_raw]
+    options = [
+        {
+            "key": item["key"],
+            "markdown": re.sub(r"^\$\$\s*([\s\S]+?)\s*\$\$$", lambda m: "$" + m.group(1).strip() + "$", item["markdown"].strip()),
+        }
+        for item in options_raw
+    ]
     children = []
     issues = list(option_issues)
     for block in blocks:
