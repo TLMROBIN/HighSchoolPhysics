@@ -28,6 +28,7 @@ from . import document_ingestion as ingestion, question_bank
 from .db import connect
 from .document_models import canonical_sha256, validate_question_document, ASSET_URI_RE
 from .repository import PhysicsRepository
+from .errors import DomainError
 from . import ingestion_model
 
 VERSION = 1
@@ -306,7 +307,8 @@ class Pipeline:
             raise Halt('source_blocks_missing')
         result = {'source': blocks, 'document': item['document'],
                   'issues': [{'id': canonical_sha256(i)[:20], 'issue': i} for i in item['document']['issues']],
-                  'conversion_issues': manifest.get('issues', []), 'visual_evidence_available': False}
+                  'conversion_issues': [issue for issue in manifest.get('issues', []) if issue.get('field') in ids or issue.get('field') in (None, 'source', 'document')],
+                  'visual_evidence_available': False}
         result['original_ooxml'] = raw_question_xml(self.state['paper']['files']['paper']['path'], item['document']['number'])
         if include_answers:
             result['answer_original_ooxml'] = raw_question_xml(self.state['paper']['files']['answers']['path'], item['document']['number'])
@@ -459,7 +461,12 @@ class Pipeline:
             packet = self.packet(item, True)
             if tags:
                 packet['tag_proposals'] = {qid: self.state['tag_proposals'][qid] for qid in item['published_question_ids']}
-                packet['taxonomy'] = question_bank.taxonomy(self.repo, self.actor)
+                catalog = question_bank.taxonomy(self.repo, self.actor)
+                # Only selected IDs with their authoritative names/paths. Passing the
+                # whole ontology led a real watchdog to confuse Newton's law with momentum.
+                packet['tag_catalog'] = {family: [{k: t[k] for k in ('id','name','path_text')} for t in values
+                    if any(t['id'] in proposal[family] for proposal in packet['tag_proposals'].values())]
+                    for family, values in catalog.items()}
             # Producer opinions are deliberately absent. Raw source, current result only.
             verdict = self.call_model(cache_name, packet, cache_name+'-'+item['id'])
             required = ['number','stem','options','formulas','children','answer']+(['tags'] if tags else [])
@@ -722,7 +729,7 @@ def main():
                 return 2
             finally:
                 pipeline.close()
-    except (Halt, OSError, ValueError, KeyError, IndexError) as exc:
+    except (Halt, DomainError, OSError, ValueError, KeyError, IndexError) as exc:
         print(json.dumps({'error': str(exc) if isinstance(exc, Halt) else type(exc).__name__}, ensure_ascii=False)); return 2
     return 0
 

@@ -187,6 +187,38 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(workflow.Halt):
             p.adopt(payload)
 
+    def test_tag_watchdog_receives_only_selected_authoritative_names(self):
+        self.advance('watchdog_tags')
+        packets = []
+        def capture(*args, **kwargs):
+            packets.append(args[3])
+            return good_review(*args, **kwargs)
+        p = workflow.Pipeline(self.run, reviewer=capture); self.addCleanup(p.close)
+        p.tick()
+        packet = packets[0]
+        self.assertNotIn('taxonomy', packet)
+        self.assertEqual([t['id'] for t in packet['tag_catalog']['knowledge']], [self.knowledge])
+        self.assertTrue(packet['tag_catalog']['knowledge'][0]['name'])
+        self.assertTrue(packet['tag_catalog']['knowledge'][0]['path_text'])
+        self.assertNotIn('reviews', packet)
+
+    def test_independent_watchdog_detects_completed_content_drift(self):
+        self.advance('complete')
+        p = workflow.Pipeline(self.run); self.addCleanup(p.close)
+        qid = p.items()[0]['published_question_ids'][0]
+        binding = question_bank.content(p.conn, qid, p.actor['school_id'])
+        d = binding['document']; d['stem_md'] += ' changed after completion'
+        p.conn.execute('update question_content_revisions set document_json=? where id=?',
+                       (json.dumps(d), binding['current_revision_id'])); p.conn.commit()
+        result = workflow.monitor(self.run)
+        self.assertTrue(result['stopped'])
+        self.assertTrue(result['reason'].startswith('published_content_drift'))
+
+    def test_text_provider_cannot_grant_visual_receipt(self):
+        p = workflow.Pipeline(self.run, reviewer=good_review); self.addCleanup(p.close)
+        with self.assertRaisesRegex(workflow.Halt, 'visual_review_required'):
+            p.visual_receipt({'id':'item-figure'})
+
     def test_watchdog_sample_is_frozen_and_covers_risks_and_ends(self):
         items = [{'id':str(i),'document':{'issues':[], 'asset_refs':[], 'children':[]}} for i in range(20)]
         items[8]['document']['asset_refs'] = ['figure']
