@@ -379,6 +379,26 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result['review_revision'],item['review_revision']+1)
         self.assertEqual(p.state['reviewed_paper'][item['id']],workflow.canonical_sha256(p.items()[0]['document']))
 
+    def test_agent_answer_review_is_source_bound_and_cannot_edit_stem(self):
+        self.advance('review_answers')
+        p=workflow.Pipeline(self.run);self.addCleanup(p.close);item=p.items()[0]
+        receipt={'item_id':item['id'],'reviewer':'agent','page':1,'page_image_sha256':'a'*64,
+                 'note':'已逐项对照答案原件第一页答案及解析，题号与答案一致。',
+                 'paper_sha256':p.state['paper']['files']['paper']['sha256'],
+                 'answers_sha256':p.state['paper']['files']['answers']['sha256'],
+                 'preview_sha256':hashlib.sha256(b'%PDF-1.7 preview fixture').hexdigest(),
+                 'document_sha256':workflow.canonical_sha256(item['document']),'review_revision':item['review_revision'],
+                 'resolved_issue_ids':[workflow.canonical_sha256(i)[:20] for i in item['document']['issues'] if i.get('severity') in ('blocking','review') and i.get('state')!='resolved'],
+                 'patches':[{'target':'parent','field':'answer_md','value':'A'}, {'target':'parent','field':'analysis_md','value':'根据答案文件选A。'}]}
+        with self.assertRaisesRegex(workflow.Halt,'visual_receipt_hash_or_revision_mismatch'):
+            p.accept_agent_answer_review(dict(receipt,answers_sha256='0'*64))
+        with self.assertRaisesRegex(workflow.Halt,'patch_outside_stage'):
+            p.accept_agent_answer_review(dict(receipt,patches=[{'target':'parent','field':'stem_md','value':'changed'}]))
+        saved=p.accept_agent_answer_review(receipt)
+        self.assertEqual(saved['review_revision'],item['review_revision']+1)
+        self.assertEqual(p.items()[0]['document']['answer_md'],'A')
+        self.assertEqual(p.items()[0]['document']['stem_md'],item['document']['stem_md'])
+
     def test_text_provider_cannot_grant_visual_receipt(self):
         p = workflow.Pipeline(self.run, reviewer=good_review); self.addCleanup(p.close)
         with self.assertRaisesRegex(workflow.Halt, 'visual_review_required'):
