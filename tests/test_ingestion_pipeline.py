@@ -225,6 +225,12 @@ class PipelineTests(unittest.TestCase):
             p.tick()
         self.assertEqual(p.conn.execute('select count(*) from questions').fetchone()[0], self.initial_count)
 
+    def test_question_number_detection_ignores_decimal_inside_math(self):
+        from highschoolphysics.question_splitter import _question_starts
+        text = r"【详解】A．根据题意由图可知，$ t=0 $时，质点$ b $在波峰，$ 1.{ \rm{ 2 } }{ \rm{ s } } $时$ b $第一次回到波峰。"
+        self.assertEqual(_question_starts(text), [])
+        self.assertEqual([x['number'] for x in _question_starts('1. 小车速度为 $ 1.2 $ m/s')], ['1'])
+
     def test_tag_watchdog_requires_completed_content_audit(self):
         self.advance('watchdog_content')
         p = workflow.Pipeline(self.run, reviewer=good_review); self.addCleanup(p.close)

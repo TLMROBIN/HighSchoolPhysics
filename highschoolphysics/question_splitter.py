@@ -60,6 +60,9 @@ def _question_starts(text):
         start = match.start()
         # Inline boundaries are useful for OCR paragraphs but are less certain than line starts.
         prefix = text[:start]
+        # A decimal inside inline/display math is never a question-number marker.
+        if len(re.findall(r'(?<!\\)\$', prefix)) % 2:
+            continue
         inline = start > 0 and not prefix.endswith(("\n", "\r"))
         if inline and len(prefix.strip()) < 20:
             continue
