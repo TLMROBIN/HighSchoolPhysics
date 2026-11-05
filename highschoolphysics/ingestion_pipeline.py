@@ -693,7 +693,7 @@ class Pipeline:
             else:
                 preview = ingestion.attach_answers(self.conn, self.actor, self.state['paper_task'], {'answer_task_id': self.state['answers_task']}, self.state['db'])
                 deferred_numbers = {entry['number'] for entry in self.state.get('deferred_items', {}).values()}
-                unresolved = [issue for issue in preview['issues'] if not (issue.get('code') == 'question_match_not_unique' and issue.get('count') == 0 and issue.get('answer_number') in deferred_numbers)]
+                unresolved = [issue for issue in preview['issues'] if not (issue.get('answer_number') in deferred_numbers and (issue.get('code') == 'duplicate_answer_number' or (issue.get('code') == 'question_match_not_unique' and issue.get('count') == 0)))]
                 if unresolved or len(preview['matches']) != len(self.items()):
                     raise Halt('answer_mapping_incomplete_or_ambiguous')
                 payload = {'answer_task_id': self.state['answers_task'], 'request_key': self.key(stage),

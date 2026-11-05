@@ -142,6 +142,25 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(p.state['report']['partial'])
         self.assertGreaterEqual(len([k for k in p.state['actions'] if k.startswith('confirm_paper')]),2)
 
+    def test_duplicate_answer_only_ignored_for_deferred_question(self):
+        self.advance('review_paper')
+        p=workflow.Pipeline(self.run); item=p.items()[1]
+        p.defer_item(item['id'],'答案有重复编号，暂缓整题保留源文件')
+        p.close();self.advance('attach_answers')
+        p=workflow.Pipeline(self.run);self.addCleanup(p.close)
+        original=workflow.ingestion._answer_groups
+        def duplicate_active(*args,**kwargs):
+            groups=original(*args,**kwargs);groups['1'].append(copy.deepcopy(groups['1'][0]));return groups
+        with patch.object(workflow.ingestion,'_answer_groups',side_effect=duplicate_active):
+            with self.assertRaisesRegex(workflow.Halt,'answer_mapping_incomplete_or_ambiguous'):
+                p.tick()
+        self.assertEqual(p.items()[0]['document']['answer_state'],'missing')
+        def duplicate_deferred(*args,**kwargs):
+            groups=original(*args,**kwargs);groups['2'].append(copy.deepcopy(groups['2'][0]));return groups
+        with patch.object(workflow.ingestion,'_answer_groups',side_effect=duplicate_deferred):
+            self.assertEqual(p.tick(),'review_answers')
+        self.assertEqual(p.items()[0]['document']['answer_state'],'needs_review')
+
     def test_deferral_recovers_commit_before_checkpoint(self):
         self.advance('review_paper')
         p=workflow.Pipeline(self.run);item=p.items()[1];original_save=p.save
