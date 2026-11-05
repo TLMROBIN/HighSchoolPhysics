@@ -481,6 +481,9 @@ class Pipeline:
             raise Halt('visual_page_required')
         if not isinstance(receipt.get('page_image_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', receipt['page_image_sha256']):
             raise Halt('visual_page_image_hash_required')
+        additional = receipt.get('additional_pages', [])
+        if not isinstance(additional, list) or any(not isinstance(v, dict) or type(v.get('page')) is not int or v['page'] < 1 or not isinstance(v.get('page_image_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', v['page_image_sha256']) for v in additional):
+            raise Halt('invalid_additional_page_evidence')
         task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
         row = self.conn.execute('select layout_key from document_conversions where id=?', (task['conversion_id'],)).fetchone()
         preview = self.store.read(str(Path(row['layout_key']).parent/'preview.pdf'), max_bytes=100*1024*1024)
