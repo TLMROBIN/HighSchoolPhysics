@@ -1,0 +1,10 @@
+[Unit]
+Description=Check ingestion watchdog independently of runner (%i)
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec=60
+Unit=highschoolphysics-ingestion-watchdog@%i.service
+
+[Install]
+WantedBy=timers.target

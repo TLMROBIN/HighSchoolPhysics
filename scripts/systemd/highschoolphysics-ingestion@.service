@@ -1,0 +1,10 @@
+[Unit]
+Description=HighSchoolPhysics fixed ingestion runner (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/trae_projects/HighSchoolPhysics
+ExecStart=/usr/bin/python3 -m highschoolphysics.ingestion_pipeline run --run %h/.local/state/highschoolphysics-ingestion/%i --steps 1
+TimeoutStartSec=240
+UMask=0077

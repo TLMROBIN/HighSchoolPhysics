@@ -1,0 +1,10 @@
+[Unit]
+Description=Advance one bounded ingestion step (%i)
+
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=15
+Unit=highschoolphysics-ingestion@%i.service
+
+[Install]
+WantedBy=timers.target

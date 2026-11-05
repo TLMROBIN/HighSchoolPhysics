@@ -1,0 +1,9 @@
+[Unit]
+Description=Independent ingestion liveness and source-integrity watchdog (%i)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/trae_projects/HighSchoolPhysics
+ExecStart=/usr/bin/python3 -m highschoolphysics.ingestion_pipeline watchdog --run %h/.local/state/highschoolphysics-ingestion/%i
+TimeoutStartSec=60
+UMask=0077
