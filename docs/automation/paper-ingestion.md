@@ -70,7 +70,7 @@ systemctl --user enable --now highschoolphysics-ingestion@gaokao-sample.timer
 systemctl --user enable --now highschoolphysics-ingestion-watchdog@gaokao-sample.timer
 ```
 
-runner 每次执行一步，结束 15 秒后再推进；watchdog 为独立进程，每分钟检查。日志保留在 user journal；详细质量证据保留在 run 目录，文件权限默认 0600。`complete` 后 tick 不再调用模型或写题。暂停后不自动清除 STOP。
+runner 每次执行一步，结束 15 秒后再推进；watchdog 为独立进程，每分钟检查。日志保留在 user journal；详细质量证据保留在 run 目录，文件权限默认 0600。`complete` 后 tick 不再调用模型或写题。暂停后不自动清除 STOP。systemd 在存在 STOP 时跳过重复执行，首次失败原因保留，不反复调用模型。
 
 排除问题后显式恢复：
 
@@ -110,3 +110,5 @@ python3 -m highschoolphysics.ingestion_pipeline visual-receipt \
 - `report.json`：只有全部流程完成才生成。记录题数、小问数、抽查范围、残卷属性和核验范围。
 - 本地测试含重启恢复、提交后断电、重复采纳、并发锁、教师修改、样本错漏、恶意模型输出、watchdog 中途叫停、失败阻止入库。模拟模型测试不等于真实识别质量验收。
 - 发布仍须执行 `REQUIRE_REMOTE_HEAD_MATCH=1 bash scripts/hsp_release_check.sh`，不能用系统健康检查代替真实试卷审查。
+
+本轮真实样本与模型闭环结果见 [2026-11-05 验收记录](2026-11-05-ingestion-acceptance.md)。
