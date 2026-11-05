@@ -691,10 +691,14 @@ class Pipeline:
                     'document_sha256': receipt['document_sha256'],
                     'paper_observation': self.state.get('agent_visual_paper_receipts', {}).get(item['id'], {}).get('note', ''),
                     'answer_observation': self.state.get('agent_visual_answer_receipts', {}).get(item['id'], {}).get('note', '')}
+            if tags and item['id'] not in self.state.get('watchdog_content_done', []):
+                raise Halt('watchdog_content_not_complete_for_tags')
             packet.pop('issues', None)
             packet['response_contract'] = {'audit_only': True, 'patches': [], 'resolved_issue_ids': [],
                 'instruction': '本阶段只读核对，已有告警状态由前序步骤处理；这两个数组必须为空。'}
             if tags:
+                packet['response_contract']['instruction'] += (' 内容及视觉审核已经通过；本阶段只独立核对标签与设问是否匹配。'
+                    '不得声称看过图片；发现明确内容矛盾仍须阻断，但不能仅因未向文字模型提供原图而重复阻断。')
                 packet['tag_proposals'] = {qid: self.state['tag_proposals'][qid] for qid in item['published_question_ids']}
                 catalog = question_bank.taxonomy(self.repo, self.actor)
                 # Only selected IDs with their authoritative names/paths. Passing the
@@ -704,7 +708,7 @@ class Pipeline:
                     for family, values in catalog.items()}
             # Producer opinions are deliberately absent. Raw source, current result only.
             verdict = self.call_model(cache_name, packet, cache_name+'-'+item['id'])
-            required = ['number','stem','options','formulas','children','answer']+(['tags'] if tags else [])
+            required = ['tags'] if tags else ['number','stem','options','formulas','children','answer']
             if verdict.get('verdict') != 'pass':
                 raise Halt('watchdog_quality_failure: '+str(verdict.get('reason', 'missing verdict')))
             if verdict.get('patches') != [] or verdict.get('resolved_issue_ids') != []:

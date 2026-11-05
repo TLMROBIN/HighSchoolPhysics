@@ -225,6 +225,14 @@ class PipelineTests(unittest.TestCase):
             p.tick()
         self.assertEqual(p.conn.execute('select count(*) from questions').fetchone()[0], self.initial_count)
 
+    def test_tag_watchdog_requires_completed_content_audit(self):
+        self.advance('watchdog_content')
+        p = workflow.Pipeline(self.run, reviewer=good_review); self.addCleanup(p.close)
+        item = p.items()[0]; p.state['sample'] = [item['id']]
+        p.state['watchdog_content_done'] = []
+        with self.assertRaisesRegex(workflow.Halt, 'watchdog_content_not_complete_for_tags'):
+            p.watchdog_one(tags=True)
+
     def test_watchdog_visually_bound_evidence_does_not_override_text_failure(self):
         self.advance('watchdog_content')
         seen = []

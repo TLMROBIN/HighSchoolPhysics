@@ -4,7 +4,7 @@ from urllib import request, error
 
 from .llm import LLMProviderError, _chat_completions_endpoint, _response_json
 
-PROMPT_VERSION = 'paper-ingestion-review-v3'
+PROMPT_VERSION = 'paper-ingestion-review-v4'
 MAX_OUTPUT = 6000
 
 
@@ -31,6 +31,8 @@ def review(repo, actor, purpose, packet, provider_id=None):
         'visual阶段必须对照source_page_images中的原件整页图定位当前题号，逐一核对图示、公式、选项，'
         '同时核对答案文件中的原图与答案解析；看不清或有歧义返回blocked。'
         'checks只将本阶段适用且实际核对无误的项目设为true。能力和素养无依据可空，知识点不得空。'
+        'watchdog_tags仅审查标签与当前题目的相关性，内容和视觉门禁此前已经分别通过；'
+        '不可声称自己看到了图片，如发现明确内容矛盾仍须blocked，但仅看不到图片不应重复阻断标签审核。'
         '标签抽查必须读取tag_proposals实际选择的ID，用tag_catalog提供的名称/路径解释；'
         '不得混淆其他ID。必须独立核对标签与实际设问的关系。'
         'watchdog如收到external_visual_evidence，该证据是审核者对原图的实际观察，原图未提供给你；'
