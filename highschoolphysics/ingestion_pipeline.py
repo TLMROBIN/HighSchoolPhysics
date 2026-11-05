@@ -388,8 +388,11 @@ class Pipeline:
 
     def defer_item(self, item_id, reason):
         """Keep an incomplete source item for later without publishing it."""
-        if self.state['stage'] != 'review_paper' or len(reason.strip()) < 8:
+        initial_stage = self.state['stage']
+        if initial_stage not in ('review_paper', 'attach_answers') or len(reason.strip()) < 8:
             raise Halt('deferral_requires_paper_review_and_reason')
+        if initial_stage == 'attach_answers' and 'attach_answers' in self.state.get('actions', {}):
+            raise Halt('cannot_defer_after_answer_attachment_started')
         name = 'defer-'+item_id
         action = self.state.get('actions', {}).get(name)
         if action:
@@ -432,6 +435,8 @@ class Pipeline:
         result=self.operation(name,payload,apply)
         self.state.setdefault('deferred_items',{})[item_id]=payload
         self.state['paper']['partial']=True
+        if initial_stage == 'attach_answers':
+            self.state['stage'] = 'confirm_paper'
         self.state.get('reviewed_paper',{}).pop(item_id,None)
         self.save()
         return result
@@ -678,7 +683,8 @@ class Pipeline:
         elif stage == 'confirm_paper':
             items = self.validate_inventory()
             refs = [{'id': i['id'], 'expected_revision': i['review_revision']} for i in items]
-            self.operation(stage, {'request_key': self.key(stage), 'items': refs}, lambda p: ingestion.confirm_paper_review(self.conn, self.actor, self.state['paper_task'], p))
+            operation_name = stage if not self.state.get('deferred_items') else stage+'-'+canonical_sha256(refs)[:16]
+            self.operation(operation_name, {'request_key': self.key(operation_name), 'items': refs}, lambda p: ingestion.confirm_paper_review(self.conn, self.actor, self.state['paper_task'], p))
         elif stage == 'attach_answers':
             self.state.pop('reviewed_paper', None)
             action = self.state.get('actions', {}).get(stage)

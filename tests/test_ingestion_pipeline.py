@@ -129,6 +129,19 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(workflow.Halt,'blocking_conversion_issue'):
                 p.validate_inventory()
 
+    def test_answer_mapping_deferral_reconfirms_remaining_items(self):
+        self.advance('attach_answers')
+        p=workflow.Pipeline(self.run); item=p.items()[1]
+        self.assertNotIn('attach_answers',p.state.get('actions',{}))
+        p.defer_item(item['id'],'答案编号存在重复，整题暂缓以免错误匹配')
+        self.assertEqual(p.state['stage'],'confirm_paper')
+        p.close()
+        self.advance('complete')
+        p=workflow.Pipeline(self.run); self.addCleanup(p.close)
+        self.assertEqual(p.state['report']['main_questions'],1)
+        self.assertTrue(p.state['report']['partial'])
+        self.assertGreaterEqual(len([k for k in p.state['actions'] if k.startswith('confirm_paper')]),2)
+
     def test_deferral_recovers_commit_before_checkpoint(self):
         self.advance('review_paper')
         p=workflow.Pipeline(self.run);item=p.items()[1];original_save=p.save
