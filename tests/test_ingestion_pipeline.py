@@ -37,7 +37,7 @@ def converter(source_path, original_name, store, school_id, document_id, convers
         'source_sha256':hashlib.sha256(source_path.read_bytes()).hexdigest(),
         'pages':[{'page':1,'width':100,'height':100,'rotation_applied':0}], 'blocks':blocks,'assets':[],'issues':[]},
         'markdown':'\n\n'.join(texts), 'manifest': {'method':'synthetic','issues':[],'formula_count':0},
-        'assets':[], 'adapter_name':'test','adapter_version':'1'}
+        'assets':[], 'adapter_name':'test','adapter_version':'1', 'preview_pdf':b'%PDF-1.7 preview fixture', 'preview_converter':'test'}
 
 
 class PipelineTests(unittest.TestCase):
@@ -263,6 +263,25 @@ class PipelineTests(unittest.TestCase):
         result = workflow.monitor(self.run)
         self.assertTrue(result['stopped'])
         self.assertTrue(result['reason'].startswith('published_content_drift'))
+
+    def test_agent_visual_review_binds_source_document_and_preview(self):
+        self.advance('review_paper')
+        p = workflow.Pipeline(self.run); self.addCleanup(p.close)
+        item = p.items()[0]
+        receipt = {'item_id':item['id'], 'reviewer':'agent', 'page':1,
+                   'note':'已逐项对照原卷第一页的题干、全部选项和公式。', 'page_image_sha256':'a'*64,
+                   'paper_sha256':p.state['paper']['files']['paper']['sha256'],
+                   'preview_sha256':hashlib.sha256(b'%PDF-1.7 preview fixture').hexdigest(),
+                   'document_sha256':workflow.canonical_sha256(item['document']),
+                   'review_revision':item['review_revision'],
+                   'resolved_issue_ids':[workflow.canonical_sha256(i)[:20] for i in item['document']['issues'] if i.get('severity') in ('blocking','review') and i.get('state') != 'resolved' and 'answer' not in i.get('code','')]}
+        wrong = dict(receipt,preview_sha256='0'*64)
+        with self.assertRaisesRegex(workflow.Halt,'visual_receipt_hash_or_revision_mismatch'):
+            p.accept_agent_paper_review(wrong)
+        self.assertEqual(p.items()[0]['review_revision'], item['review_revision'])
+        result = p.accept_agent_paper_review(receipt)
+        self.assertEqual(result['review_revision'],item['review_revision']+1)
+        self.assertEqual(p.state['reviewed_paper'][item['id']],workflow.canonical_sha256(p.items()[0]['document']))
 
     def test_text_provider_cannot_grant_visual_receipt(self):
         p = workflow.Pipeline(self.run, reviewer=good_review); self.addCleanup(p.close)

@@ -456,6 +456,54 @@ class Pipeline:
             return False
         return True
 
+    def accept_agent_paper_review(self, receipt):
+        """Record a source-bound visual review by an external authorized agent."""
+        if self.state['stage'] != 'review_paper':
+            raise Halt('paper_review_stage_required')
+        items = self.validate_inventory()
+        item = next((entry for entry in items if entry['id'] == receipt.get('item_id')), None)
+        if not item or item['published_question_ids']:
+            raise Halt('invalid_review_item')
+        if item['id'] in self.state.get('reviewed_paper', {}):
+            raise Halt('item_already_reviewed')
+        name = 'paper-'+item['id']
+        existing = self.state.get('actions', {}).get(name)
+        if existing is not None:
+            if self.state.get('agent_visual_paper_receipts', {}).get(item['id']) != receipt:
+                raise Halt('visual_receipt_changed')
+            saved = self.operation(name, existing['payload'], lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
+            self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
+            self.save()
+            return {'item_id':item['id'], 'review_revision':saved['review_revision']}
+        if not isinstance(receipt.get('reviewer'), str) or not receipt['reviewer'].strip() or len(receipt.get('note', '').strip()) < 20:
+            raise Halt('visual_evidence_note_required')
+        if type(receipt.get('page')) is not int or receipt['page'] < 1:
+            raise Halt('visual_page_required')
+        if not isinstance(receipt.get('page_image_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', receipt['page_image_sha256']):
+            raise Halt('visual_page_image_hash_required')
+        task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
+        row = self.conn.execute('select layout_key from document_conversions where id=?', (task['conversion_id'],)).fetchone()
+        preview = self.store.read(str(Path(row['layout_key']).parent/'preview.pdf'), max_bytes=100*1024*1024)
+        expected = {'paper_sha256': self.state['paper']['files']['paper']['sha256'],
+                    'preview_sha256': hashlib.sha256(preview).hexdigest(),
+                    'document_sha256': canonical_sha256(item['document']),
+                    'review_revision': item['review_revision']}
+        if any(receipt.get(k) != v for k,v in expected.items()):
+            raise Halt('visual_receipt_hash_or_revision_mismatch')
+        issues = [i for i in item['document']['issues'] if i.get('severity') in ('blocking','review') and i.get('state') != 'resolved' and 'answer' not in i.get('code','')]
+        ids = [canonical_sha256(issue)[:20] for issue in issues]
+        if sorted(receipt.get('resolved_issue_ids', [])) != sorted(ids):
+            raise Halt('visual_issue_evidence_incomplete')
+        payload = {'request_key': self.key(name), 'expected_revision': item['review_revision'],
+                   'document': item['document'], 'resolved_issue_ids': ids,
+                   'resolution_note': '外部视觉核验：'+receipt['note'][:900]}
+        self.state.setdefault('agent_visual_paper_receipts', {})[item['id']] = receipt
+        self.save()
+        saved = self.operation(name, payload, lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
+        self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
+        self.save()
+        return {'item_id':item['id'], 'review_revision':saved['review_revision']}
+
     def visual_receipt(self, item):
         if not self.state.get('vision_provider_id'):
             raise Halt('visual_review_required: '+item['id'])
@@ -728,6 +776,7 @@ def main():
     p = sub.add_parser('status'); p.add_argument('--run', required=True)
     p = sub.add_parser('resume'); p.add_argument('--run', required=True); p.add_argument('--reason', required=True)
     p = sub.add_parser('visual-receipt'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
+    p = sub.add_parser('agent-paper-review'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     args = parser.parse_args()
     try:
         if args.command == 'inventory':
@@ -762,6 +811,9 @@ def main():
                     pipeline.save()
                     (Path(args.run)/'STOP.json').unlink(missing_ok=True)
                     print('resumed'); return
+                if args.command == 'agent-paper-review':
+                    receipt = json.loads(Path(args.receipt).read_text())
+                    print(json.dumps(pipeline.accept_agent_paper_review(receipt), ensure_ascii=False)); return
                 if args.command == 'visual-receipt':
                     receipt = json.loads(Path(args.receipt).read_text())
                     item = next((i for i in pipeline.items() if i['id'] == receipt.get('item_id')), None)

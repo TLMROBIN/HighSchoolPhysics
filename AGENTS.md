@@ -43,3 +43,12 @@ VERIFY_TARGET=local bash scripts/hsp_release_check.sh
 - `highschoolphysics-auto-update.service`
 
 服务脚本为 `scripts/hsp_remote_auto_update.sh`，通过 GitHub HTTPS 拉取 `main`，更新 checkout，必要时重启 `python3 -m highschoolphysics.server`，并做 HTTP 健康检查。
+
+## 外部 AI Agent 批量试题录入
+
+用户已明确采用“提供文件夹和范围，由外部 AI Agent 代办”的工作方式，不要求新增系统内批量导入页面。涉及整卷批量入库、解析纠错、答案核对和标签采纳时，先读 `docs/automation/external-agent-ingestion.md`，再按现有持久流水线执行。
+
+- 用户负责提供原卷/答案、范围与目标；Agent 负责配对、创建逐卷任务、纠错、抽查、恢复和汇总，不要求用户执行 CLI 或编辑状态文件。
+- 完整批次指令覆盖其范围内正常步骤，不逐步重复索要确认；事实不明的题文、答案及图片归属保留待核对，不猜测放行。
+- 从任务清单和逐卷状态恢复现场，不依赖长对话记忆，不用新增网页入口作为完成前提。
+- 当前接入使用受控后台 CLI 与现有身份/权限。现有标签 Agent token 不能冒充上传、改题或答案纠错权限。

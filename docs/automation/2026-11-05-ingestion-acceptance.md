@@ -2,7 +2,7 @@
 
 ## 已实现与范围
 
-固定状态机、逐题纠错、上传和答案匹配、标签生成与采纳、断点恢复、独立质量请求、后台 watchdog 已实现。入口为 `python3 -m highschoolphysics.ingestion_pipeline`，操作说明见 [paper-ingestion.md](paper-ingestion.md)。本轮为 CLI 与后台服务，不含新增教师网页操作面板。
+固定状态机、逐题纠错、上传和答案匹配、标签生成与采纳、断点恢复、独立质量请求、后台 watchdog 已实现。入口为 `python3 -m highschoolphysics.ingestion_pipeline`，操作说明见 [paper-ingestion.md](paper-ingestion.md)。本轮为 CLI 与后台服务。用户随后明确选择外部 AI Agent 代办；系统内批量导入页面不属于交付目标。
 
 测试目标是部署机上的独立数据库：
 
