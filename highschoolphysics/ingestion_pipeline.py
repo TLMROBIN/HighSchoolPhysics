@@ -11,6 +11,8 @@ import base64
 import copy
 import fcntl
 import hashlib
+import io
+import posixpath
 import json
 import math
 import os
@@ -349,19 +351,58 @@ class Pipeline:
                         'data_base64': base64.b64encode(chunk).decode()}, self.state['db'])
         return ingestion.complete_upload(self.conn, self.actor, upload['upload_id'], self.state['db'])['task_id']
 
+    def blank_original_preamble_asset(self, task, asset_id):
+        """Only ignore a visually blank asset when its original DOCX pixels match."""
+        from PIL import Image
+        row = self.conn.execute("""select a.storage_key,a.sha256,r.source_locator_json from document_assets a
+            join conversion_asset_refs r on r.asset_id=a.id where r.conversion_id=? and a.id=? and a.school_id=?""",
+            (task['conversion_id'], asset_id, self.actor['school_id'])).fetchall()
+        if len(row) != 1:
+            return False
+        locator = json.loads(row[0]['source_locator_json'])
+        relid = locator.get('relationship_id')
+        path = self.state['paper']['files']['paper']['path']
+        if not relid or Path(path).suffix.lower() != '.docx':
+            return False
+        with zipfile.ZipFile(path) as archive:
+            rels = ET.fromstring(archive.read('word/_rels/document.xml.rels'))
+            matches = [x for x in rels if x.get('Id') == relid and x.get('TargetMode') != 'External']
+            if len(matches) != 1 or not matches[0].get('Type', '').endswith('/image'):
+                return False
+            target = posixpath.normpath('word/'+matches[0].get('Target', ''))
+            if not target.startswith('word/media/') or not target.lower().endswith('.png'):
+                return False
+            raw = archive.read(target)
+        original = Image.open(io.BytesIO(raw)).convert('RGBA')
+        converted = Image.open(io.BytesIO(self.store.read(row[0]['storage_key'],row[0]['sha256'],max_bytes=25*1024*1024))).convert('RGBA')
+        if original.size != converted.size or original.tobytes() != converted.tobytes():
+            return False
+        ranges = original.getextrema()
+        if any(low < 254 for low,high in ranges[:3]) or ranges[3] != (255,255):
+            return False
+        evidence = {'asset_id':asset_id,'asset_sha256':row[0]['sha256'],
+                    'original_sha256':hashlib.sha256(raw).hexdigest(),'original_part':target,
+                    'rgba_extrema':ranges,'reason':'原卷标题段落的源图与转换图像素一致且全白'}
+        self.state.setdefault('blank_preamble_evidence', {})[asset_id] = evidence
+        return True
+
     def validate_inventory(self):
         items = self.items()
         numbers = [i['document']['number'] for i in items]
         if not numbers or numbers != self.state['paper']['expected_numbers'] or len(numbers) != len(set(numbers)):
             raise Halt('question_number_or_order_mismatch: '+','.join(numbers))
         layout, manifest = self.layout(self.state['paper_task'])
+        task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
         if any(i.get('severity') == 'blocking' and i.get('state') != 'resolved' for i in manifest.get('issues', [])):
             raise Halt('blocking_conversion_issue')
         assigned = {s['block_id'] for item in items for s in item['document']['source_spans']}
         # Source figures must not silently disappear from all candidates.
         for block in layout['blocks']:
             if block.get('asset_ids') and block['id'] not in assigned:
-                raise Halt('unassigned_source_figure: '+block['id'])
+                is_first_title = (block is layout['blocks'][0] and block.get('source_locator', {}).get('paragraph_index') == 1
+                                  and bool(re.search(r'2026.{0,30}(?:考试|物理)',block.get('markdown', ''))))
+                if not is_first_title or not all(self.blank_original_preamble_asset(task, aid) for aid in block['asset_ids']):
+                    raise Halt('unassigned_source_figure: '+block['id'])
         for item in items:
             d = validate_question_document(item['document'])
             for aid in d['asset_refs']:

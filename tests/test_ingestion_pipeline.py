@@ -1,4 +1,7 @@
 import copy
+import io
+import sqlite3
+import zipfile
 import hashlib
 import json
 from pathlib import Path
@@ -197,6 +200,32 @@ class PipelineTests(unittest.TestCase):
         question_bank.save_tags(p.repo,p.actor,{'entries':[e]})
         with self.assertRaises(workflow.Halt):
             p.adopt(payload)
+
+    def test_blank_preamble_requires_matching_original_pixels(self):
+        from PIL import Image
+        from types import SimpleNamespace
+        def png(color):
+            out = io.BytesIO(); Image.new('RGBA', (3,3), color).save(out, format='PNG'); return out.getvalue()
+        original = png((255,255,255,255)); changed = png((0,0,0,255))
+        source = self.root/'original.docx'
+        with zipfile.ZipFile(source,'w') as z:
+            z.writestr('word/_rels/document.xml.rels','<Relationships><Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>')
+            z.writestr('word/media/image1.png',original)
+        c = sqlite3.connect(':memory:'); c.row_factory=sqlite3.Row; self.addCleanup(c.close)
+        c.execute('create table document_assets(id,school_id,storage_key,sha256)')
+        c.execute('create table conversion_asset_refs(conversion_id,asset_id,source_locator_json)')
+        c.execute('insert into document_assets values(?,?,?,?)',('asset','school','key','a'*64))
+        c.execute('insert into conversion_asset_refs values(?,?,?)',('conversion','asset',json.dumps({'relationship_id':'rId6'})))
+        p = object.__new__(workflow.Pipeline); p.conn=c; p.actor={'school_id':'school'}
+        p.state={'paper':{'files':{'paper':{'path':str(source)}}}}
+        p.store=SimpleNamespace(read=lambda *a,**k:original)
+        self.assertTrue(p.blank_original_preamble_asset({'conversion_id':'conversion'},'asset'))
+        p.store=SimpleNamespace(read=lambda *a,**k:changed)
+        self.assertFalse(p.blank_original_preamble_asset({'conversion_id':'conversion'},'asset'))
+        with zipfile.ZipFile(source,'w') as z:
+            z.writestr('word/_rels/document.xml.rels','<Relationships><Relationship Id="rId6" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/></Relationships>')
+            z.writestr('word/media/image1.png',changed)
+        self.assertFalse(p.blank_original_preamble_asset({'conversion_id':'conversion'},'asset'))
 
     def test_first_stop_reason_is_preserved_across_watchdog_and_runner(self):
         p = workflow.Pipeline(self.run); self.addCleanup(p.close)
