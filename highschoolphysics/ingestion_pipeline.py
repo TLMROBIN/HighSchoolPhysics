@@ -450,10 +450,14 @@ class Pipeline:
             raise Halt('question_number_or_order_mismatch: '+','.join(numbers))
         layout, manifest = self.layout(self.state['paper_task'])
         task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
-        if any(i.get('severity') == 'blocking' and i.get('state') != 'resolved' for i in manifest.get('issues', [])):
-            raise Halt('blocking_conversion_issue')
-        assigned = {s['block_id'] for item in items for s in item['document']['source_spans']}
-        assigned.update(span['block_id'] for entry in deferred.values() for span in entry['source_spans'])
+        active_blocks = {span['block_id'] for item in items for span in item['document']['source_spans']}
+        deferred_blocks = {span['block_id'] for entry in deferred.values() for span in entry['source_spans']}
+        for issue in manifest.get('issues', []):
+            if issue.get('severity') == 'blocking' and issue.get('state') != 'resolved':
+                field = issue.get('field')
+                if not field or field not in deferred_blocks or field in active_blocks:
+                    raise Halt('blocking_conversion_issue')
+        assigned = active_blocks | deferred_blocks
         # Source figures must not silently disappear from all candidates.
         for block in layout['blocks']:
             if block.get('asset_ids') and block['id'] not in assigned:

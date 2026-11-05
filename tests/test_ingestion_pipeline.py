@@ -114,6 +114,21 @@ class PipelineTests(unittest.TestCase):
         title=p.conn.execute('select title from papers where id=?',(p.state['publication']['paper_id'],)).fetchone()[0]
         self.assertIn('部分导入，待补第2题',title)
 
+    def test_only_exclusively_deferred_block_can_bypass_conversion_blocker(self):
+        self.advance('review_paper')
+        p=workflow.Pipeline(self.run); self.addCleanup(p.close)
+        first,second=p.items();p.defer_item(second['id'],'原卷该题公式无法转换，暂缓并保留原件')
+        layout,manifest=p.layout(p.state['paper_task'])
+        deferred_block=second['document']['source_spans'][0]['block_id']
+        active_block=first['document']['source_spans'][0]['block_id']
+        manifest['issues']=[{'severity':'blocking','code':'formula','field':deferred_block}]
+        with patch.object(p,'layout',return_value=(layout,manifest)):
+            self.assertEqual(len(p.validate_inventory()),1)
+        manifest['issues'].append({'severity':'blocking','code':'formula','field':active_block})
+        with patch.object(p,'layout',return_value=(layout,manifest)):
+            with self.assertRaisesRegex(workflow.Halt,'blocking_conversion_issue'):
+                p.validate_inventory()
+
     def test_deferral_recovers_commit_before_checkpoint(self):
         self.advance('review_paper')
         p=workflow.Pipeline(self.run);item=p.items()[1];original_save=p.save
