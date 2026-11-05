@@ -399,8 +399,9 @@ class Pipeline:
         # Source figures must not silently disappear from all candidates.
         for block in layout['blocks']:
             if block.get('asset_ids') and block['id'] not in assigned:
+                title_context = block.get('markdown', '') + (layout['blocks'][1].get('markdown', '') if len(layout['blocks']) > 1 else '')
                 is_first_title = (block is layout['blocks'][0] and block.get('source_locator', {}).get('paragraph_index') == 1
-                                  and bool(re.search(r'2026.{0,30}(?:考试|物理)',block.get('markdown', ''))))
+                                  and bool(re.search(r'2026.{0,30}(?:考试|物理)',title_context)))
                 if not is_first_title or not all(self.blank_original_preamble_asset(task, aid) for aid in block['asset_ids']):
                     raise Halt('unassigned_source_figure: '+block['id'])
         for item in items:
