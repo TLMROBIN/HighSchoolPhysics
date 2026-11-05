@@ -115,6 +115,17 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(workflow.Halt, 'review_checks_incomplete'):
             workflow.apply_patches(doc,result,'paper')
 
+    def test_watchdog_cannot_resolve_issues_even_with_pass_verdict(self):
+        self.advance('watchdog_content')
+        def invalid(*args, **kwargs):
+            result = good_review(*args, **kwargs)
+            result['resolved_issue_ids'] = ['not-authorized']
+            return result
+        p = workflow.Pipeline(self.run, reviewer=invalid); self.addCleanup(p.close)
+        with self.assertRaisesRegex(workflow.Halt, 'watchdog_contract_failure'):
+            p.tick()
+        self.assertEqual(p.conn.execute('select count(*) from questions').fetchone()[0], self.initial_count)
+
     def test_stop_arriving_during_model_call_blocks_mutation(self):
         self.advance('review_paper')
         def stop(*args, **kwargs):
@@ -187,6 +198,14 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(workflow.Halt):
             p.adopt(payload)
 
+    def test_first_stop_reason_is_preserved_across_watchdog_and_runner(self):
+        p = workflow.Pipeline(self.run); self.addCleanup(p.close)
+        p.halt('first_quality_failure')
+        p.halt('later_generic_stop')
+        p.state['updated_at'] = time.time()-700
+        workflow.atomic_json(p.path,p.state)
+        self.assertEqual(workflow.monitor(self.run)['reason'], 'first_quality_failure')
+
     def test_tag_watchdog_receives_only_selected_authoritative_names(self):
         self.advance('watchdog_tags')
         packets = []
@@ -201,6 +220,8 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(packet['tag_catalog']['knowledge'][0]['name'])
         self.assertTrue(packet['tag_catalog']['knowledge'][0]['path_text'])
         self.assertNotIn('reviews', packet)
+        self.assertNotIn('issues', packet)
+        self.assertEqual(packet['response_contract']['resolved_issue_ids'], [])
 
     def test_independent_watchdog_detects_completed_content_drift(self):
         self.advance('complete')

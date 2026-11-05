@@ -43,7 +43,7 @@ class Halt(RuntimeError):
     pass
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, exclusive=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, name = tempfile.mkstemp(dir=path.parent, prefix='.pipeline-')
@@ -52,7 +52,13 @@ def atomic_json(path, value):
             json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        if exclusive:
+            try:
+                os.link(name, path)
+            except FileExistsError:
+                pass
+        else:
+            os.replace(name, path)
         directory = os.open(str(path.parent), os.O_RDONLY)
         try:
             os.fsync(directory)
@@ -253,7 +259,7 @@ class Pipeline:
             raise Halt('watchdog_stop: inspect STOP.json; explicit resume required')
 
     def halt(self, reason):
-        atomic_json(self.directory/'STOP.json', {'reason': reason, 'at': time.time(), 'stage': self.state['stage']})
+        atomic_json(self.directory/'STOP.json', {'reason': reason, 'at': time.time(), 'stage': self.state['stage']}, exclusive=True)
 
     def key(self, name):
         return 'pipeline-'+canonical_sha256([self.state['run_id'], name])[:48]
@@ -459,6 +465,9 @@ class Pipeline:
             if item['id'] not in sample or item['id'] in done:
                 continue
             packet = self.packet(item, True)
+            packet.pop('issues', None)
+            packet['response_contract'] = {'audit_only': True, 'patches': [], 'resolved_issue_ids': [],
+                'instruction': '本阶段只读核对，已有告警状态由前序步骤处理；这两个数组必须为空。'}
             if tags:
                 packet['tag_proposals'] = {qid: self.state['tag_proposals'][qid] for qid in item['published_question_ids']}
                 catalog = question_bank.taxonomy(self.repo, self.actor)
@@ -470,8 +479,12 @@ class Pipeline:
             # Producer opinions are deliberately absent. Raw source, current result only.
             verdict = self.call_model(cache_name, packet, cache_name+'-'+item['id'])
             required = ['number','stem','options','formulas','children','answer']+(['tags'] if tags else [])
-            if verdict.get('verdict') != 'pass' or not isinstance(verdict.get('checks'), dict) or any(verdict['checks'].get(k) is not True for k in required) or verdict.get('patches') or verdict.get('resolved_issue_ids'):
-                raise Halt('watchdog_quality_failure: '+str(verdict.get('reason', 'incomplete checks')))
+            if verdict.get('verdict') != 'pass':
+                raise Halt('watchdog_quality_failure: '+str(verdict.get('reason', 'missing verdict')))
+            if verdict.get('patches') != [] or verdict.get('resolved_issue_ids') != []:
+                raise Halt('watchdog_contract_failure: read_only_arrays_must_be_empty')
+            if not isinstance(verdict.get('checks'), dict) or any(verdict['checks'].get(k) is not True for k in required):
+                raise Halt('watchdog_checks_incomplete')
             raw = packet.get('original_ooxml') or []
             if item['document']['asset_refs'] or '$' in json.dumps(item['document'], ensure_ascii=False) or any(b['embedded_objects'] or b['math_xml'] for b in raw):
                 # A text model cannot grant a visual pass. An independently recorded
@@ -655,8 +668,11 @@ def monitor(directory, stale_seconds=600):
         finally:
             conn.close()
     if reason:
-        atomic_json(directory/'STOP.json', {'reason': reason, 'at': time.time(), 'stage': state['stage']})
-    return {'stage': state['stage'], 'stopped': (directory/'STOP.json').exists(), 'reason': reason}
+        atomic_json(directory/'STOP.json', {'reason': reason, 'at': time.time(), 'stage': state['stage']}, exclusive=True)
+    stopped = (directory/'STOP.json').exists()
+    if stopped:
+        reason = json.loads((directory/'STOP.json').read_text()).get('reason')
+    return {'stage': state['stage'], 'stopped': stopped, 'reason': reason}
 
 
 def main():
@@ -694,7 +710,9 @@ def main():
                         raise Halt('resume_reason_required')
                     pipeline.state.setdefault('resumes', []).append({'at': time.time(), 'reason': args.reason})
                     reviews = pipeline.state.get('reviews', {})
-                    failed = {k: v for k,v in reviews.items() if v['result'].get('verdict') != 'pass'}
+                    prefix = {'review_paper': 'paper-', 'review_answers': 'answers-',
+                        'watchdog_content': 'watchdog_content-', 'watchdog_tags': 'watchdog_tags-'}.get(pipeline.state['stage'])
+                    failed = {k: v for k,v in reviews.items() if v['result'].get('verdict') != 'pass' or (prefix and k.startswith(prefix))}
                     if failed:
                         pipeline.state.setdefault('rejected_reviews', []).append(failed)
                         for key in failed:
