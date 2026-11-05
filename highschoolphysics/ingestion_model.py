@@ -4,7 +4,7 @@ from urllib import request, error
 
 from .llm import LLMProviderError, _chat_completions_endpoint, _response_json
 
-PROMPT_VERSION = 'paper-ingestion-review-v2'
+PROMPT_VERSION = 'paper-ingestion-review-v3'
 MAX_OUTPUT = 6000
 
 
@@ -33,6 +33,9 @@ def review(repo, actor, purpose, packet, provider_id=None):
         'checks只将本阶段适用且实际核对无误的项目设为true。能力和素养无依据可空，知识点不得空。'
         '标签抽查必须读取tag_proposals实际选择的ID，用tag_catalog提供的名称/路径解释；'
         '不得混淆其他ID。必须独立核对标签与实际设问的关系。'
+        'watchdog如收到external_visual_evidence，该证据是审核者对原图的实际观察，原图未提供给你；'
+        '结合其具体观察与原始OOXML、转换块和当前内容独立检查文字、公式和答案，矛盾或证据不足仍须blocked。'
+        '转换告警是原始记录，不代表审核后仍未解决；应结合证据逐项判断。'
         '不能看到图的文字模型不得声称做过视觉核验，figures应为false；仅缺视觉能力而无其他缺陷时，'
         '可对本阶段文字核对给pass，流程另有不可跳过的视觉门禁。'
     )

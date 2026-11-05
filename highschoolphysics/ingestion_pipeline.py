@@ -674,6 +674,23 @@ class Pipeline:
             if item['id'] not in sample or item['id'] in done:
                 continue
             packet = self.packet(item, True)
+            raw = packet.get('original_ooxml') or []
+            needs_visual = bool(item['document']['asset_refs'] or '$' in json.dumps(item['document'], ensure_ascii=False) or any(b['embedded_objects'] or b['math_xml'] for b in raw))
+            if needs_visual:
+                receipt = self.state.get('visual_receipts', {}).get(item['id'])
+                expected = {'paper_sha256': self.state['paper']['files']['paper']['sha256'],
+                            'answers_sha256': self.state['paper']['files']['answers']['sha256'],
+                            'document_sha256': canonical_sha256(item['document'])}
+                if not receipt or any(receipt.get(k) != v for k,v in expected.items()):
+                    receipt = self.visual_receipt(item)
+                # This is external evidence, not an image supplied to the text model.
+                # The independent text audit must still identify contradictions itself.
+                packet['external_visual_evidence'] = {
+                    'reviewer': receipt.get('reviewer'), 'note': receipt.get('note'),
+                    'paper_sha256': receipt['paper_sha256'], 'answers_sha256': receipt['answers_sha256'],
+                    'document_sha256': receipt['document_sha256'],
+                    'paper_observation': self.state.get('agent_visual_paper_receipts', {}).get(item['id'], {}).get('note', ''),
+                    'answer_observation': self.state.get('agent_visual_answer_receipts', {}).get(item['id'], {}).get('note', '')}
             packet.pop('issues', None)
             packet['response_contract'] = {'audit_only': True, 'patches': [], 'resolved_issue_ids': [],
                 'instruction': '本阶段只读核对，已有告警状态由前序步骤处理；这两个数组必须为空。'}
@@ -694,16 +711,6 @@ class Pipeline:
                 raise Halt('watchdog_contract_failure: read_only_arrays_must_be_empty')
             if not isinstance(verdict.get('checks'), dict) or any(verdict['checks'].get(k) is not True for k in required):
                 raise Halt('watchdog_checks_incomplete')
-            raw = packet.get('original_ooxml') or []
-            if item['document']['asset_refs'] or '$' in json.dumps(item['document'], ensure_ascii=False) or any(b['embedded_objects'] or b['math_xml'] for b in raw):
-                # A text model cannot grant a visual pass. An independently recorded
-                # visual receipt must bind BOTH source hashes and the reviewed document.
-                receipt = self.state.get('visual_receipts', {}).get(item['id'])
-                expected = {'paper_sha256': self.state['paper']['files']['paper']['sha256'],
-                            'answers_sha256': self.state['paper']['files']['answers']['sha256'],
-                            'document_sha256': canonical_sha256(item['document'])}
-                if not receipt or any(receipt.get(k) != v for k,v in expected.items()):
-                    self.visual_receipt(item)
             done.append(item['id'])
             self.save()
             return False

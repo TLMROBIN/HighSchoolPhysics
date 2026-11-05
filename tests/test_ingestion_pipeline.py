@@ -225,6 +225,43 @@ class PipelineTests(unittest.TestCase):
             p.tick()
         self.assertEqual(p.conn.execute('select count(*) from questions').fetchone()[0], self.initial_count)
 
+    def test_watchdog_visually_bound_evidence_does_not_override_text_failure(self):
+        self.advance('watchdog_content')
+        seen = []
+        def reject(repo, actor, purpose, packet, provider_id=None):
+            seen.append(packet)
+            return {'verdict':'blocked', 'reason':'答案与源文件不一致'}
+        p = workflow.Pipeline(self.run, reviewer=reject); self.addCleanup(p.close)
+        item = p.items()[0]; p.state['sample'] = [item['id']]
+        p.state['visual_receipts'] = {item['id']: {
+            'paper_sha256':p.state['paper']['files']['paper']['sha256'],
+            'answers_sha256':p.state['paper']['files']['answers']['sha256'],
+            'document_sha256':workflow.canonical_sha256(item['document']),
+            'reviewer':'visual examiner', 'note':'图中坐标和公式已与原件对照。'}}
+        packet = p.packet
+        def with_formula(item, include_answers=False):
+            value = packet(item, include_answers); value['original_ooxml'] = [{'embedded_objects':[], 'math_xml':['x']}]; return value
+        with patch.object(p, 'packet', side_effect=with_formula):
+            with self.assertRaisesRegex(workflow.Halt, 'watchdog_quality_failure'):
+                p.watchdog_one()
+        self.assertFalse(seen[0]['visual_evidence_available'])
+        self.assertEqual(seen[0]['external_visual_evidence']['reviewer'], 'visual examiner')
+        self.assertEqual(p.state.get('watchdog_content_done', []), [])
+
+    def test_watchdog_stale_visual_receipt_cannot_reach_text_audit(self):
+        self.advance('watchdog_content')
+        seen=[]
+        p = workflow.Pipeline(self.run, reviewer=lambda *args: seen.append(args)); self.addCleanup(p.close)
+        item=p.items()[0]; p.state['sample']=[item['id']]
+        p.state['visual_receipts']={item['id']:{'document_sha256':'stale'}}
+        packet=p.packet
+        def with_formula(item, include_answers=False):
+            value=packet(item, include_answers); value['original_ooxml']=[{'embedded_objects':[], 'math_xml':['x']}]; return value
+        with patch.object(p, 'packet', side_effect=with_formula):
+            with self.assertRaisesRegex(workflow.Halt, 'visual_review_required'):
+                p.watchdog_one()
+        self.assertEqual(seen, [])
+
     def test_stop_arriving_during_model_call_blocks_mutation(self):
         self.advance('review_paper')
         def stop(*args, **kwargs):

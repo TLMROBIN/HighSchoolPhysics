@@ -51,3 +51,7 @@
 ## Agent 直接视觉核验答案
 
 解析文件存在公式图或 OCR 隐患时，Agent 对照解析文件的完整页图、题号和原题，确认答案及解析后，可用 `agent-answer-review --run <任务目录> --receipt <回执JSON>` 保存。回执除 item_id、reviewer、note、page、page_image_sha256、preview_sha256、document_sha256、review_revision、resolved_issue_ids 外，还需 paper_sha256、answers_sha256 及仅能修改答案/解析字段的 patches；跨页记录 additional_pages。只允许对答案文件中唯一匹配的题号进行复核，图片引用不得被补丁移除或改动。修改经已有候选版本锁与审计路径保存；后续仍需独立 watchdog。
+
+## 视觉证据与文字 watchdog 的衔接
+
+watchdog 先检查当前题目的视觉回执是否同时绑定原卷、答案和当前题文哈希；无有效回执时必须先完成视觉审核。随后独立文字请求可读取审核者的具体观察，但 `visual_evidence_available` 仍为 false：文字模型没有看到图片，不能宣称自己做过视觉核验。它仍须对照原始 OOXML、转换块、答案和当前题文独立检查，发现矛盾或证据不足时继续阻断。视觉观察与独立文字抽查分别记录；如果同一个人同时生产和视觉复核，不能称为视觉独立复核。
