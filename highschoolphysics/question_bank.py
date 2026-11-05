@@ -83,7 +83,11 @@ def sync_import_paper(conn, batch_id, actor):
         return None
     paper_id = entry['paper_id'] or 'paper-' + uuid.uuid4().hex[:16]
     if not entry['paper_id']:
-        conn.execute("insert into papers(id,school_id,title,source,status) values(?,?,?,'导入试卷','reviewed')", (paper_id, actor['school_id'], entry['title']))
+        deferred = conn.execute("select question_number from parsed_question_items where import_batch_id=? and school_id=? and disposition='deferred' order by item_index,id", (batch_id, actor['school_id'])).fetchall()
+        title = entry['title']
+        if deferred:
+            title += '（部分导入，待补第%s题）' % '、'.join(str(row['question_number'] or '?') for row in deferred)
+        conn.execute("insert into papers(id,school_id,title,source,status) values(?,?,?,'导入试卷','reviewed')", (paper_id, actor['school_id'], title))
         conn.execute('update question_bank_imports set paper_id=? where batch_id=?', (paper_id, batch_id))
     # A later partial publication may extend the reusable paper. Assessment snapshots stay frozen.
     conn.execute('delete from paper_questions where paper_id=?', (paper_id,))

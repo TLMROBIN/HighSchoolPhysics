@@ -386,16 +386,74 @@ class Pipeline:
         self.state.setdefault('blank_preamble_evidence', {})[asset_id] = evidence
         return True
 
+    def defer_item(self, item_id, reason):
+        """Keep an incomplete source item for later without publishing it."""
+        if self.state['stage'] != 'review_paper' or len(reason.strip()) < 8:
+            raise Halt('deferral_requires_paper_review_and_reason')
+        name = 'defer-'+item_id
+        action = self.state.get('actions', {}).get(name)
+        if action:
+            payload = action['payload']
+            if payload['reason'] != reason:
+                raise Halt('deferral_reason_changed')
+        else:
+            item = next((i for i in self.items() if i['id'] == item_id), None)
+            if not item or item['published_question_ids']:
+                raise Halt('deferral_item_unavailable')
+            if len(self.items()) < 2:
+                raise Halt('cannot_defer_every_item')
+            payload = {'item_id':item_id, 'expected_revision':item['review_revision'],
+                       'number':item['document']['number'], 'document_sha256':canonical_sha256(item['document']),
+                       'source_spans':item['document']['source_spans'], 'reason':reason,
+                       'request_key':self.key(name)}
+        def apply(value):
+            conn=self.conn
+            fingerprint=canonical_sha256(value)
+            cached=ingestion._operation_result(conn,self.actor,'defer_import_item',value['request_key'],fingerprint)
+            if cached is not None:
+                return cached
+            conn.execute('begin immediate')
+            try:
+                row=conn.execute("select * from parsed_question_items where id=? and parse_task_id=? and school_id=? and disposition='active'",(value['item_id'],self.state['paper_task'],self.actor['school_id'])).fetchone()
+                if row is None or row['review_revision'] != value['expected_revision'] or canonical_sha256(json.loads(row['document_json'])) != value['document_sha256']:
+                    raise Halt('deferral_revision_conflict')
+                ingestion._task_for_actor(conn,self.actor,self.state['paper_task'],allow_admin=False)
+                if conn.execute('select 1 from import_item_publications where parsed_item_id=?',(value['item_id'],)).fetchone():
+                    raise Halt('cannot_defer_published_item')
+                conn.execute("update parsed_question_items set disposition='deferred',updated_by=?,updated_at=? where id=?",(self.actor['id'],ingestion._now(),value['item_id']))
+                conn.execute("update question_import_batches set item_count=(select count(*) from parsed_question_items where import_batch_id=question_import_batches.id and disposition='active') where id=?",(row['import_batch_id'],))
+                result={'item_id':value['item_id'],'number':value['number'],'status':'deferred'}
+                conn.execute("insert into content_operation_keys(school_id,actor_id,operation,request_key,request_hash,result_json) values(?,?,'defer_import_item',?,?,?)",(self.actor['school_id'],self.actor['id'],value['request_key'],fingerprint,json.dumps(result,ensure_ascii=False)))
+                ingestion._audit(conn,self.actor,'document_item_deferred','parsed_question_item',value['item_id'],{'number':value['number'],'reason':value['reason'],'document_sha256':value['document_sha256']})
+                conn.commit()
+                return result
+            except Exception:
+                conn.rollback();raise
+        result=self.operation(name,payload,apply)
+        self.state.setdefault('deferred_items',{})[item_id]=payload
+        self.state['paper']['partial']=True
+        self.state.get('reviewed_paper',{}).pop(item_id,None)
+        self.save()
+        return result
+
     def validate_inventory(self):
         items = self.items()
         numbers = [i['document']['number'] for i in items]
-        if not numbers or numbers != self.state['paper']['expected_numbers'] or len(numbers) != len(set(numbers)):
+        deferred = self.state.get('deferred_items', {})
+        for item_id, entry in deferred.items():
+            row = self.conn.execute("select disposition,document_json from parsed_question_items where id=? and parse_task_id=? and school_id=?",(item_id,self.state['paper_task'],self.actor['school_id'])).fetchone()
+            if row is None or row['disposition'] != 'deferred' or canonical_sha256(json.loads(row['document_json'])) != entry['document_sha256']:
+                raise Halt('deferred_item_changed')
+        deferred_numbers = {entry['number'] for entry in deferred.values()}
+        expected_numbers = [n for n in self.state['paper']['expected_numbers'] if n not in deferred_numbers]
+        if not numbers or numbers != expected_numbers or len(numbers) != len(set(numbers)):
             raise Halt('question_number_or_order_mismatch: '+','.join(numbers))
         layout, manifest = self.layout(self.state['paper_task'])
         task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
         if any(i.get('severity') == 'blocking' and i.get('state') != 'resolved' for i in manifest.get('issues', [])):
             raise Halt('blocking_conversion_issue')
         assigned = {s['block_id'] for item in items for s in item['document']['source_spans']}
+        assigned.update(span['block_id'] for entry in deferred.values() for span in entry['source_spans'])
         # Source figures must not silently disappear from all candidates.
         for block in layout['blocks']:
             if block.get('asset_ids') and block['id'] not in assigned:
@@ -624,7 +682,9 @@ class Pipeline:
                 payload = action['payload']
             else:
                 preview = ingestion.attach_answers(self.conn, self.actor, self.state['paper_task'], {'answer_task_id': self.state['answers_task']}, self.state['db'])
-                if preview['issues'] or len(preview['matches']) != len(self.items()):
+                deferred_numbers = {entry['number'] for entry in self.state.get('deferred_items', {}).values()}
+                unresolved = [issue for issue in preview['issues'] if not (issue.get('code') == 'question_match_not_unique' and issue.get('count') == 0 and issue.get('answer_number') in deferred_numbers)]
+                if unresolved or len(preview['matches']) != len(self.items()):
                     raise Halt('answer_mapping_incomplete_or_ambiguous')
                 payload = {'answer_task_id': self.state['answers_task'], 'request_key': self.key(stage),
                            'mappings': [{k: m[k] for k in ('item_id','answer_number','expected_revision')} for m in preview['matches']]}
@@ -681,7 +741,7 @@ class Pipeline:
                         raise Halt('final_tag_readback_mismatch')
             self.state['report'] = {'main_questions': len(items), 'answer_units': sum(len(i['published_question_ids']) for i in items),
                 'sample': self.state['sample'], 'partial': self.state['paper'].get('partial', False),
-                'scope': 'question_bank_only', 'visual_receipts': len(self.state.get('visual_receipts', {})),
+                'scope': 'question_bank_only', 'deferred_items': [{'number':v['number'],'reason':v['reason']} for v in self.state.get('deferred_items',{}).values()], 'visual_receipts': len(self.state.get('visual_receipts', {})),
                 'watchdog_independence': 'separate_stateless_request; same provider unless explicitly configured'}
             atomic_json(self.directory/'report.json', self.state['report'])
         elif stage == 'complete':
@@ -778,6 +838,7 @@ def main():
     p = sub.add_parser('watchdog'); p.add_argument('--run', required=True); p.add_argument('--stale-seconds', type=int, default=600)
     p = sub.add_parser('status'); p.add_argument('--run', required=True)
     p = sub.add_parser('resume'); p.add_argument('--run', required=True); p.add_argument('--reason', required=True)
+    p = sub.add_parser('defer-item'); p.add_argument('--run', required=True); p.add_argument('--item-id', required=True); p.add_argument('--reason', required=True)
     p = sub.add_parser('visual-receipt'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     p = sub.add_parser('agent-paper-review'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     args = parser.parse_args()
@@ -814,6 +875,8 @@ def main():
                     pipeline.save()
                     (Path(args.run)/'STOP.json').unlink(missing_ok=True)
                     print('resumed'); return
+                if args.command == 'defer-item':
+                    print(json.dumps(pipeline.defer_item(args.item_id, args.reason), ensure_ascii=False)); return
                 if args.command == 'agent-paper-review':
                     receipt = json.loads(Path(args.receipt).read_text())
                     print(json.dumps(pipeline.accept_agent_paper_review(receipt), ensure_ascii=False)); return

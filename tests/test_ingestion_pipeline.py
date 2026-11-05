@@ -94,6 +94,55 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(report['scope'], 'question_bank_only')
         self.assertEqual(self.tick(), 'complete')
 
+    def test_explicit_deferral_completes_other_questions_and_preserves_source(self):
+        self.advance('review_paper')
+        p=workflow.Pipeline(self.run); item=p.items()[1]
+        original=copy.deepcopy(item['document'])
+        p.defer_item(item['id'],'原始题目缺失一部分，暂不导入并保留原件')
+        row=p.conn.execute('select disposition,document_json from parsed_question_items where id=?',(item['id'],)).fetchone()
+        self.assertEqual(row['disposition'],'deferred')
+        self.assertEqual(json.loads(row['document_json']),original)
+        self.assertEqual(p.defer_item(item['id'],'原始题目缺失一部分，暂不导入并保留原件')['status'],'deferred')
+        p.close()
+        self.advance('complete')
+        p=workflow.Pipeline(self.run); self.addCleanup(p.close)
+        self.assertEqual(p.conn.execute('select count(*) from questions').fetchone()[0],self.initial_count+1)
+        report=json.loads((self.run/'report.json').read_text())
+        self.assertTrue(report['partial'])
+        self.assertEqual(report['deferred_items'][0]['number'],'2')
+        self.assertEqual(report['main_questions'],1)
+        title=p.conn.execute('select title from papers where id=?',(p.state['publication']['paper_id'],)).fetchone()[0]
+        self.assertIn('部分导入，待补第2题',title)
+
+    def test_deferral_recovers_commit_before_checkpoint(self):
+        self.advance('review_paper')
+        p=workflow.Pipeline(self.run);item=p.items()[1];original_save=p.save
+        def crash_after_commit():
+            action=p.state.get('actions',{}).get('defer-'+item['id'],{})
+            if 'result' in action:
+                raise RuntimeError('simulated crash')
+            original_save()
+        p.save=crash_after_commit
+        with self.assertRaisesRegex(RuntimeError,'simulated crash'):
+            p.defer_item(item['id'],'原卷此题缺失，保存证据并暂缓后续导入')
+        p.close()
+        p=workflow.Pipeline(self.run);self.addCleanup(p.close)
+        p.defer_item(item['id'],'原卷此题缺失，保存证据并暂缓后续导入')
+        self.assertEqual(p.validate_inventory()[0]['document']['number'],'1')
+        count=p.conn.execute("select count(*) from content_operation_keys where operation='defer_import_item'").fetchone()[0]
+        self.assertEqual(count,1)
+
+    def test_deferral_refuses_last_item_or_stale_source(self):
+        self.advance('review_paper')
+        p=workflow.Pipeline(self.run);self.addCleanup(p.close)
+        first,second=p.items()
+        p.defer_item(first['id'],'题文不完整需要暂缓处理和后续核对')
+        with self.assertRaisesRegex(workflow.Halt,'cannot_defer_every_item'):
+            p.defer_item(second['id'],'题文不完整需要暂缓处理和后续核对')
+        p.conn.execute("update parsed_question_items set document_json='{}' where id=?",(first['id'],));p.conn.commit()
+        with self.assertRaisesRegex(workflow.Halt,'deferred_item_changed'):
+            p.validate_inventory()
+
     def test_number_mismatch_stops_before_review_or_publication(self):
         self.advance('review_paper')
         p = workflow.Pipeline(self.run, reviewer=lambda *a,**k: self.fail('must not call model'))

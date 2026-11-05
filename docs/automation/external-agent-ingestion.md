@@ -43,3 +43,7 @@
 当文字模型不能核对图片或 MathType 公式时，Agent 应从系统保存的原卷预览生成清晰页面图并亲自查看，逐题对照全部题干、选项、公式及题图；跨页题需看全涉及页面，并在 additional_pages 记录其他页码与页面图 SHA-256。记录原卷 SHA-256、预览 PDF SHA-256、页面图 SHA-256、页码、题目文档 SHA-256 和 review revision，逐项说明核对内容。
 
 仅在已实际看清并核对全部对应告警时，使用 `agent-paper-review --run <任务目录> --receipt <回执JSON>` 保存核验；回执需包含 item_id、reviewer、note、page、page_image_sha256、paper_sha256、preview_sha256、document_sha256、review_revision 和该题全部已核实的 resolved_issue_ids。先暂停该 run 的 runner timer，记录原因并执行 resume，再提交回执，最后恢复 timer。不得用该回执替代答案审核、标签抽查或入库后的 watchdog 视觉抽查。无法看清、跨页未检查、题图不一致或公式无法转换时，保持暂停并修复。
+
+## 缺题时的处理
+
+用户已授权允许部分题目缺失。来源不完整或无法唯一核对的整题，可由 Agent 在原卷复核阶段通过 `defer-item --run <任务目录> --item-id <候选ID> --reason <具体原因>` 暂缓；保留原始题文、来源、哈希和审计，不删除或编造。其余已核验题目按原有答案、视觉、标签和 watchdog 门禁继续，正式保存的试卷标题和验收报告标明部分导入与待补题号。题号重复、答案歧义或其他题的图片公式未核实依然阻断对应流程。暂缓整题不等于已经完成其余小问的导入。
