@@ -13,6 +13,8 @@ def classify(correct_count, response_count):
 
 
 def statistics(conn, question_ids):
+    from .exam_statistics import multiple_choice_credit
+    from .repository import loads
     ids = list(dict.fromkeys(question_ids))
     result = {qid: dict(label='未分级', correct_count=0, response_count=0, correct_rate=None) for qid in ids}
     if not ids:
@@ -21,8 +23,7 @@ def statistics(conn, question_ids):
     outcome = 'r.outcome' if outcome_mode else "case when r.score is null then 'pending' when r.score=r.max_score then 'correct' else 'wrong' end"
     for start in range(0, len(ids), 400):
         batch = ids[start:start + 400]
-        rows = conn.execute('''select r.question_id,count(*) response_count,
-                   sum(case when %s='correct' then 1 else 0 end) correct_count
+        rows = conn.execute('''select r.question_id,r.final_answer,r.review_status,s.grading_rule_json,s.options_json,%s effective_outcome
             from student_responses r
             join questions q on q.id=r.question_id and q.school_id=r.school_id
             join assessment_sessions a on a.id=r.assessment_id and a.school_id=r.school_id
@@ -32,21 +33,33 @@ def statistics(conn, question_ids):
             where r.question_id in (%s) and a.grading_status='published'
                 and p.status='present' and r.review_status in ('not_required','resolved','confirmed','reviewed')
                 and %s in ('correct','wrong','blank')
-            group by r.question_id''' % (outcome, ','.join('?' for _ in batch), outcome), batch).fetchall()
-        for row in rows:
-            correct, total = row['correct_count'], row['response_count']
-            result[row['question_id']] = dict(label=classify(correct, total), correct_count=correct,
-                                            response_count=total, correct_rate=correct / total)
+            ''' % (outcome, ','.join('?' for _ in batch), outcome), batch).fetchall()
+        aggregates = {}
+        for source in rows:
+            row = dict(source)
+            row['outcome'] = row['effective_outcome']
+            is_multiple = loads(row['grading_rule_json'], {}).get('type') == 'multiple_choice'
+            credit = multiple_choice_credit(row, row) if is_multiple else float(row['outcome'] == 'correct')
+            if credit is None:
+                continue
+            item = aggregates.setdefault(row['question_id'], dict(correct=0, total=0, credit=0))
+            item['correct'] += row['outcome'] == 'correct'
+            item['total'] += 1
+            item['credit'] += credit
+        for qid, item in aggregates.items():
+            correct, total, credit = item['correct'], item['total'], item['credit']
+            result[qid] = dict(label=classify(credit, total), correct_count=correct,
+                               response_count=total, correct_rate=credit / total)
     return result
 
 
 def badge(stats, label=''):
     level = stats['label']
     colors = {'挑战': 'challenge', '拔高': 'advanced', '巩固': 'consolidate', '基础': 'basic', '送分': 'easy', '未分级': 'unrated'}
-    detail = ('正确率 %.1f%% · %s/%s 次考试作答' %
+    detail = ('正确率 %.1f%% · 全对 %s / 有效 %s 次考试作答' %
               (stats['correct_rate'] * 100, stats['correct_count'], stats['response_count'])) if stats['response_count'] else '暂无已确认的考试作答'
     return '<span class="question-difficulty difficulty-%s" title="%s">%s难度：%s <small>%s</small></span>' % (
-        colors[level], escape('按本校已发布考试首次作答统计；空白计入，待复核与重做不计入。' + detail),
+        colors[level], escape('按本校已发布考试首次作答统计；多选按全对1、漏选0.5、错选及空白0，未知选项不计入；待复核与重做不计入。' + detail),
         escape(label + ' · ' if label else ''), level, detail)
 
 

@@ -45,6 +45,7 @@ def migrate(conn):
             raise StateConflict("不支持的作答证据版本")
         migrate_exam(conn)
         _migrate_unmatched_answer_cards(conn)
+        _migrate_choice_statistics(conn)
         return
     conn.commit()
     conn.execute("begin immediate")
@@ -75,6 +76,7 @@ def migrate(conn):
         conn.commit()
         migrate_exam(conn)
         _migrate_unmatched_answer_cards(conn)
+        _migrate_choice_statistics(conn)
     except Exception:
         conn.rollback()
         raise
@@ -112,6 +114,38 @@ def _migrate_unmatched_answer_cards(conn):
         raise
 
 
+def _migrate_choice_statistics(conn):
+    """Audited policy correction; answer evidence and published snapshots stay fixed."""
+    feature = 'uniform_multiple_choice_statistics'
+    if conn.execute('select 1 from app_schema_migrations where feature=?', (feature,)).fetchone():
+        return
+    conn.commit()
+    conn.execute('begin immediate')
+    try:
+        if conn.execute('select 1 from app_schema_migrations where feature=?', (feature,)).fetchone():
+            conn.rollback()
+            return
+        for row in conn.execute("select * from assessment_sessions where grading_status='published'").fetchall():
+            if not any(loads(s[0], {}).get('type') == 'multiple_choice' for s in conn.execute(
+                    'select grading_rule_json from question_version_snapshots where assessment_id=?', (row['id'],))):
+                continue
+            scope = loads(row['scope_json'], {})
+            previous = scope.get('choice_rate_policy')
+            scope['choice_rate_policy'] = 'full_half_zero'
+            conn.execute('update assessment_sessions set scope_json=? where id=?', (dumps(scope), row['id']))
+            conn.execute("""insert into audit_events(id,school_id,actor_id,action,resource_type,resource_id,detail_json)
+                values(?,?,null,'choice_statistics_corrected','assessment',?,?)""",
+                (identifier('audit'), row['school_id'], row['id'], dumps(dict(
+                    previous_policy=previous, policy='full_half_zero',
+                    reason='教师要求统一已发布考试：全对1、非空漏选且无错选0.5、错选及空白0；未知和待确认不推断',
+                    rule_version=feature))))
+        conn.execute('insert into app_schema_migrations(feature,version) values(?,1)', (feature,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def assessment(repo, user, aid):
     if user["role"] not in ("teacher", "admin"):
         raise PermissionDenied("需要教师身份")
@@ -138,7 +172,7 @@ def context_hash(conn, aid):
 
 def set_choice_rate_policy(repo, user, aid, policy, reason):
     """Set an explicit exam statistics policy without inventing choice points."""
-    if policy not in ('exact', 'full_half_zero') or not str(reason).strip():
+    if policy != 'full_half_zero' or not str(reason).strip():
         raise InvalidRequest('请选择明确的多选统计口径并填写依据')
     conn = repo.conn
     conn.execute('begin immediate')
@@ -865,7 +899,9 @@ def publish(repo,user,p):
                 rows.append(r)
         for r in rows:
             _sync_wrong(conn,r)
-        conn.execute("update assessment_sessions set grading_status='published',status='published' where id=?",(a["id"],))
+        scope = loads(a.get('scope_json'), {})
+        scope['choice_rate_policy'] = 'full_half_zero'
+        conn.execute("update assessment_sessions set grading_status='published',status='published',scope_json=? where id=?",(dumps(scope),a["id"]))
         conn.execute("update response_import_batches set status='published' where assessment_id=? and status='saved'",(a["id"],))
         _publication(conn,user,a["id"],"initial")
         _audit(conn,user,"response_published",a["id"],{"count":len(rows)})

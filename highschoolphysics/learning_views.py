@@ -14,7 +14,7 @@ from .question_difficulty import statistics, badge, badges
 from .fill_rules import UNITS, instructions, reference_answer
 from .teacher_workspace import navigation, overview
 from .exam_workflow import classes as exam_classes, scope_label
-from .exam_statistics import question_statistics, is_confirmed, choice_answer
+from .exam_statistics import question_statistics, is_confirmed, choice_answer, choice_result_label
 
 
 QUESTION_TYPE_LABELS = {
@@ -920,9 +920,9 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         body.append('<div class="exam-results-layout"><aside class="exam-results-sidebar" aria-label="题目正确率">'+tag_nav+'<h3>题目正确率</h3><form method="get" action="exams" class="exam-stat-filter">'+hidden('id',aid)+hidden('classes','__none__')+'<fieldset><legend>统计班级（可多选）</legend><div class="exam-class-picker">')
         for cls in classes:
             body.append('<label><input type="checkbox" name="classes" value="%s"%s>%s</label>' % (esc(cls['id']),' checked' if cls['id'] in selected else '',esc(cls['name'])))
-        body.append('</div></fieldset><div class="exam-filter-actions"><button type="button" data-exam-select-all>全选班级</button><button type="submit">更新统计</button></div></form><p>当前实到 %s 人。正确率＝正确 / 已确认作答（含空白）；缺失、待确认不计入。</p><nav class="exam-question-nav" aria-label="按题目查看作答">' % len(present))
+        body.append('</div></fieldset><div class="exam-filter-actions"><button type="button" data-exam-select-all>全选班级</button><button type="submit">更新统计</button></div></form><p>当前实到 %s 人。多选题正确率按全对1、漏选0.5、错选和空白0统计；其他题按正确人数 / 已确认作答统计。缺失、待确认不计入。</p><nav class="exam-question-nav" aria-label="按题目查看作答">' % len(present))
         included={p['student_id'] for p in present}
-        if loads(a.get('scope_json'),{}).get('choice_rate_policy') == 'full_half_zero':
+        if any(loads(q['grading_rule_json'],{}).get('type') == 'multiple_choice' for q in qs):
             body.append('<p>本次多选题按得分率统计：全对1、漏选且无错选0.5、错选及空白0；下方“正确人数”为全对人数。选择题不计入卷面分。</p>')
 
         for question_group in question_groups:
@@ -957,10 +957,14 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                     result='缺失记录'
                 elif loads(q['grading_rule_json'],{}).get('type') in ('single_choice','multiple_choice'):
                     result={'correct':'正确','wrong':'错误','blank':'空白','pending':'待确认'}.get(r['outcome'],LABELS[r['outcome']])
-                    evidence=c.execute('select imported_score from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
-                    score=evidence['imported_score'] if evidence and evidence['imported_score'] is not None else r['score']
-                    if r['outcome']=='wrong' and score is not None and score>0:
-                        result='部分正确'
+                    normalized_result=choice_result_label(dict(q),dict(r))
+                    if normalized_result:
+                        result=normalized_result
+                    elif loads(q['grading_rule_json'],{}).get('type') == 'single_choice':
+                        evidence=c.execute('select imported_score from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
+                        score=evidence['imported_score'] if evidence and evidence['imported_score'] is not None else r['score']
+                        if r['outcome']=='wrong' and score is not None and score>0:
+                            result='部分正确'
                 else:
                     evidence=c.execute('select imported_score,imported_max_score from response_evidence where response_id=? order by rowid desc limit 1',(r['id'],)).fetchone()
                     score=evidence['imported_score'] if evidence and evidence['imported_score'] is not None else r['score']
@@ -1008,7 +1012,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                     latest=c.execute('select method,reason from response_decisions where id=?',(r['effective_decision_id'],)).fetchone()
                     if latest and latest['method']=='teacher_correction':
                         correction_note += '<p>教师更正说明：%s</p>' % esc(latest['reason'])
-                rendered_rows[r['id']]='<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="答题卡 / 复核">%s</td></tr>'%(esc(r['display_name'] + (' · '+(r['class_name'] or '未分班') if staff else '')),(first_answer_label(c,r['id'],r['initial_answer']) if staff or loads(q['grading_rule_json'],{}).get('type') in ('single_choice','multiple_choice') else ''),correction_note,LABELS[r['outcome']],operations)
+                rendered_rows[r['id']]='<tr><td data-label="学生">%s</td><td data-label="首次作答记录">%s%s</td><td data-label="当前有效结果">%s</td><td data-label="答题卡 / 复核">%s</td></tr>'%(esc(r['display_name'] + (' · '+(r['class_name'] or '未分班') if staff else '')),(first_answer_label(c,r['id'],r['initial_answer']) if staff or loads(q['grading_rule_json'],{}).get('type') in ('single_choice','multiple_choice') else ''),correction_note,choice_result_label(dict(q),dict(r)) or LABELS[r['outcome']],operations)
                 if r['outcome']=='pending': continue
                 seen=set()
                 for t in loads(q['tag_snapshot_json'],[]):

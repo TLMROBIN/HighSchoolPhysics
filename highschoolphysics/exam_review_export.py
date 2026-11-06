@@ -30,7 +30,9 @@ def _stats_markdown(source, show_answer=True):
                   x['count'], percent(x['rate'])) for x in stats['options']]
         lines += ['', '完整组合：' + '；'.join('%s：%s人（%s）' % (x['answer'], x['count'], percent(x['rate'])) for x in stats['combinations']),
                   '', '确认空白计入分母。多选题各选项选择率之和可以超过100%。']
-    if stats['score_count']:
+    if stats.get('choice_score_rate') is not None:
+        lines += ['', '以上为归一化得分率，不代表卷面分。']
+    elif stats['score_count']:
         lines += ['', '得分率：%s（有效得分记录 %s 条，得分之和 %s / 满分之和 %s）。' %
                   (percent(stats['score_rate']), stats['score_count'], stats['score_sum'], stats['max_score_sum'])]
     lines += ['', '| 班级 | 实到 | 已确认 | 正确率 | 待复核 | 缺失 |', '| --- | ---: | ---: | ---: | ---: | ---: |']

@@ -34,7 +34,8 @@ class ExamStatisticsTests(unittest.TestCase):
         stats = question_statistics(self.question, rows, 7)
         self.assertEqual((5, 2, 1, 1), (stats['confirmed_count'], stats['correct_count'], stats['pending_count'], stats['missing_count']))
         self.assertEqual((3, 2), (stats['option_denominator'], stats['option_unknown_count']))
-        self.assertEqual(.4, stats['correct_rate'])
+        self.assertEqual(.5, stats['correct_rate'])
+        self.assertEqual(.4, stats['strict_correct_rate'])
         self.assertEqual([2/3, 1/3, 0], [x['rate'] for x in stats['options']])
         self.assertEqual({'AB', 'A', '空白'}, {x['answer'] for x in stats['combinations']})
         all_selected = question_statistics(self.question, [response('a', 'ABC'), response('b', 'ABC')], 2)
@@ -55,6 +56,7 @@ class ExamStatisticsTests(unittest.TestCase):
         self.assertEqual((2, 1, 1), (stats['recorded_count'], stats['option_denominator'], stats['option_unknown_count']))
 
     def test_score_rate_uses_only_effective_finite_complete_scores(self):
+        self.question['grading_rule']['type'] = 'short_answer'
         rows = [response('1', '', 'correct', imported_score=5, imported_max_score=5),
                 response('2', '', 'wrong', imported_score=1, imported_max_score=5),
                 response('3', '', 'pending', imported_score=5, imported_max_score=5),
