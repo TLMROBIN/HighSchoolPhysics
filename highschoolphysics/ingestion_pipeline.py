@@ -696,6 +696,7 @@ class Pipeline:
         }
         reviewed_document = apply_patches(item['document'], paper_result, 'paper')
         payload = {'request_key': self.key(name), 'expected_revision': item['review_revision'],
+                   'source_document_sha256': canonical_sha256(item['document']),
                    'document': reviewed_document, 'resolved_issue_ids': ids,
                    'resolution_note': '外部视觉核验：'+receipt['note'][:900]}
         self.state.setdefault('agent_visual_paper_receipts', {})[item['id']] = receipt
@@ -815,8 +816,12 @@ class Pipeline:
         paper_action = self.state.get('actions', {}).get('paper-'+item_id, {})
         paper_payload = paper_action.get('payload', {})
         paper_document = paper_payload.get('document')
+        source_document_sha256 = paper_payload.get('source_document_sha256')
+        if source_document_sha256 is None and isinstance(paper_document, dict):
+            # Compatibility for receipts created before the controlled visual patch path.
+            source_document_sha256 = canonical_sha256(paper_document)
         if (not isinstance(paper_document, dict)
-                or paper.get('document_sha256') != canonical_sha256(paper_document)
+                or paper.get('document_sha256') != source_document_sha256
                 or paper.get('review_revision') != paper_payload.get('expected_revision')
                 or paper_content_sha256(paper_document) != paper_content_sha256(item['document'])):
             return None
