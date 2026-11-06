@@ -8,7 +8,9 @@ from urllib.parse import urlsplit, urlunsplit
 
 PROMPT_VERSION = "physics-tri-family-tags-v1"
 MODEL_VERSION = "rules-only"
-LLM_TIMEOUT_SECONDS = 60
+# Model providers can take longer to complete long-context tagging and review
+# requests. Keep a bounded request window below the ingestion stale watchdog.
+LLM_TIMEOUT_SECONDS = 180
 LLM_MAX_OUTPUT_TOKENS = 1200
 
 

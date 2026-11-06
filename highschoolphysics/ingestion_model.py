@@ -2,7 +2,7 @@
 import json
 from urllib import request, error
 
-from .llm import LLMProviderError, _chat_completions_endpoint, _response_json
+from .llm import LLMProviderError, LLM_TIMEOUT_SECONDS, _chat_completions_endpoint, _response_json
 
 PROMPT_VERSION = 'paper-ingestion-review-v4'
 MAX_OUTPUT = 6000
@@ -63,7 +63,7 @@ def review(repo, actor, purpose, packet, provider_id=None):
             raise LLMProviderError('missing_secret', '模型凭证不可用')
         req = request.Request(_chat_completions_endpoint(provider['api_endpoint']), data=raw,
                               headers={'Content-Type': 'application/json', 'Authorization': 'Bearer '+secret})
-        with request.urlopen(req, timeout=90) as response:
+        with request.urlopen(req, timeout=LLM_TIMEOUT_SECONDS) as response:
             data = response.read(4*1024*1024+1)
         if len(data) > 4*1024*1024:
             raise LLMProviderError('response_too_large', '模型输出超过上限')
