@@ -42,7 +42,7 @@
 
 当文字模型不能核对图片或 MathType 公式时，Agent 应从系统保存的原卷预览生成清晰页面图并亲自查看，逐题对照全部题干、选项、公式及题图；跨页题需看全涉及页面，并在 additional_pages 记录其他页码与页面图 SHA-256。记录原卷 SHA-256、预览 PDF SHA-256、页面图 SHA-256、页码、题目文档 SHA-256 和 review revision，逐项说明核对内容。
 
-仅在已实际看清并核对全部对应告警时，使用 `agent-paper-review --run <任务目录> --receipt <回执JSON>` 保存核验；回执需包含 item_id、reviewer、note、page、page_image_sha256、paper_sha256、preview_sha256、document_sha256、review_revision 和该题全部已核实的 resolved_issue_ids。先暂停该 run 的 runner timer，记录原因并执行 resume，再提交回执，最后恢复 timer。不得用该回执替代答案审核、标签抽查或入库后的 watchdog 视觉抽查。无法看清、跨页未检查、题图不一致或公式无法转换时，保持暂停并修复。
+仅在已实际看清并核对全部对应告警时，使用 `agent-paper-review --run <任务目录> --receipt <回执JSON>` 保存核验；回执需包含 item_id、reviewer、note、page、page_image_sha256、paper_sha256、preview_sha256、document_sha256、review_revision 和该题全部已核实的 resolved_issue_ids。原卷预览中无法自动转换的 MathType 公式可逐式人工核对后，在 `resolved_conversion_issue_ids` 中列出本题 source block 对应的转换清单 issue ID；流水线只接受 `embedded_formula_unconverted` / `formula_unconverted`，并将回执锁定到原卷、预览、题文哈希和保存后的 review revision。公式图片仍作为题目内容保留，视觉回执只解除该条受控转换阻断，不得据此忽略其他阻断。先暂停该 run 的 runner timer，记录原因并执行 resume，再提交回执，最后恢复 timer。不得用该回执替代答案审核、标签抽查或入库后的 watchdog 视觉抽查。无法看清、跨页未检查、题图不一致或公式无法转换时，保持暂停并修复。
 
 ## 缺题时的处理
 

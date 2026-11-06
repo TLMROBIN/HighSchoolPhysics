@@ -523,11 +523,33 @@ class Pipeline:
         task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
         active_blocks = {span['block_id'] for item in items for span in item['document']['source_spans']}
         deferred_blocks = {span['block_id'] for entry in deferred.values() for span in entry['source_spans']}
+        conversion_receipts = self.state.get('conversion_issue_resolutions', {})
+        conversion_preview = None
+        if any(i.get('severity') == 'blocking' and i.get('state') != 'resolved' for i in manifest.get('issues', [])):
+            row = self.conn.execute('select layout_key from document_conversions where id=?', (task['conversion_id'],)).fetchone()
+            preview = self.store.read(str(Path(row['layout_key']).parent/'preview.pdf'), max_bytes=100*1024*1024)
+            conversion_preview = hashlib.sha256(preview).hexdigest()
         for issue in manifest.get('issues', []):
             if issue.get('severity') == 'blocking' and issue.get('state') != 'resolved':
                 field = issue.get('field')
-                if not field or field not in deferred_blocks or field in active_blocks:
-                    raise Halt('blocking_conversion_issue')
+                if field and field in deferred_blocks and field not in active_blocks:
+                    continue
+                consumers = [i for i in items if field and field in {s.get('block_id') for s in i['document']['source_spans']}]
+                issue_id = canonical_sha256(issue)[:20]
+                if len(consumers) == 1:
+                    item = consumers[0]
+                    receipt = conversion_receipts.get(item['id'], {})
+                    expected_ids = receipt.get('issue_ids', [])
+                    valid_receipt = (
+                        issue_id in expected_ids
+                        and receipt.get('paper_sha256') == self.state['paper']['files']['paper']['sha256']
+                        and receipt.get('preview_sha256') == conversion_preview
+                        and receipt.get('document_sha256') == canonical_sha256(item['document'])
+                        and receipt.get('review_revision') == item['review_revision']
+                    )
+                    if valid_receipt:
+                        continue
+                raise Halt('blocking_conversion_issue')
         assigned = active_blocks | deferred_blocks
         # Source figures must not silently disappear from all candidates.
         for block in layout['blocks']:
@@ -593,7 +615,7 @@ class Pipeline:
         """Record a source-bound visual review by an external authorized agent."""
         if self.state['stage'] != 'review_paper':
             raise Halt('paper_review_stage_required')
-        items = self.validate_inventory()
+        items = self.items()
         item = next((entry for entry in items if entry['id'] == receipt.get('item_id')), None)
         if not item or item['published_question_ids']:
             raise Halt('invalid_review_item')
@@ -606,6 +628,15 @@ class Pipeline:
                 raise Halt('visual_receipt_changed')
             saved = self.operation(name, existing['payload'], lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
             self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
+            conversion_ids = receipt.get('resolved_conversion_issue_ids', [])
+            if conversion_ids:
+                self.state.setdefault('conversion_issue_resolutions', {})[item['id']] = {
+                    'issue_ids': conversion_ids,
+                    'paper_sha256': receipt['paper_sha256'],
+                    'preview_sha256': receipt['preview_sha256'],
+                    'document_sha256': canonical_sha256(saved['document']),
+                    'review_revision': saved['review_revision'],
+                }
             self.save()
             return {'item_id':item['id'], 'review_revision':saved['review_revision']}
         if not isinstance(receipt.get('reviewer'), str) or not receipt['reviewer'].strip() or len(receipt.get('note', '').strip()) < 20:
@@ -626,6 +657,17 @@ class Pipeline:
                     'review_revision': item['review_revision']}
         if any(receipt.get(k) != v for k,v in expected.items()):
             raise Halt('visual_receipt_hash_or_revision_mismatch')
+        source_blocks = {span['block_id'] for span in item['document']['source_spans']}
+        _, manifest = self.layout(self.state['paper_task'])
+        conversion_issues = [i for i in manifest.get('issues', [])
+            if i.get('severity') == 'blocking' and i.get('state') != 'resolved'
+            and i.get('field') in source_blocks]
+        conversion_ids = [canonical_sha256(i)[:20] for i in conversion_issues]
+        allowed_conversion_codes = {'embedded_formula_unconverted', 'formula_unconverted'}
+        if any(i.get('code') not in allowed_conversion_codes for i in conversion_issues):
+            raise Halt('unsupported_blocking_conversion_issue')
+        if sorted(receipt.get('resolved_conversion_issue_ids', [])) != sorted(conversion_ids):
+            raise Halt('visual_conversion_issue_evidence_incomplete')
         issues = [i for i in item['document']['issues'] if i.get('severity') in ('blocking','review') and i.get('state') != 'resolved' and 'answer' not in i.get('code','')]
         ids = [canonical_sha256(issue)[:20] for issue in issues]
         if sorted(receipt.get('resolved_issue_ids', [])) != sorted(ids):
@@ -637,6 +679,14 @@ class Pipeline:
         self.save()
         saved = self.operation(name, payload, lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
         self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
+        if conversion_ids:
+            self.state.setdefault('conversion_issue_resolutions', {})[item['id']] = {
+                'issue_ids': conversion_ids,
+                'paper_sha256': expected['paper_sha256'],
+                'preview_sha256': expected['preview_sha256'],
+                'document_sha256': canonical_sha256(saved['document']),
+                'review_revision': saved['review_revision'],
+            }
         self.save()
         return {'item_id':item['id'], 'review_revision':saved['review_revision']}
 
