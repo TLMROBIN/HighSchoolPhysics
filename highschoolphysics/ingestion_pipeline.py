@@ -815,8 +815,7 @@ class Pipeline:
         # The answer receipt is accepted only through agent-answer-review. Confirm its
         # audited patches are the answer fields currently saved by that operation.
         answer_action = self.state.get('actions', {}).get('answers-'+item_id, {})
-        answer_payload = answer_action.get('payload', {})
-        patched_document = answer_payload.get('document')
+        patched_document = answer_action.get('result', {}).get('document')
         if (not isinstance(patched_document, dict)
                 or answer_action.get('result', {}).get('review_revision') != item['review_revision']
                 or canonical_sha256(patched_document) != canonical_sha256(item['document'])
