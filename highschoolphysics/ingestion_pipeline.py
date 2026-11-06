@@ -686,8 +686,17 @@ class Pipeline:
         ids = [canonical_sha256(issue)[:20] for issue in issues]
         if sorted(receipt.get('resolved_issue_ids', [])) != sorted(ids):
             raise Halt('visual_issue_evidence_incomplete')
+        paper_result = {
+            'verdict': 'pass',
+            'reason': receipt['note'][:1000],
+            'checks': {'number': True, 'stem': True, 'options': True,
+                       'formulas': True, 'children': True},
+            'patches': receipt.get('patches', []),
+            'resolved_issue_ids': ids,
+        }
+        reviewed_document = apply_patches(item['document'], paper_result, 'paper')
         payload = {'request_key': self.key(name), 'expected_revision': item['review_revision'],
-                   'document': item['document'], 'resolved_issue_ids': ids,
+                   'document': reviewed_document, 'resolved_issue_ids': ids,
                    'resolution_note': '外部视觉核验：'+receipt['note'][:900]}
         self.state.setdefault('agent_visual_paper_receipts', {})[item['id']] = receipt
         self.save()
