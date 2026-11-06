@@ -441,6 +441,72 @@ class Pipeline:
         self.save()
         return result
 
+    def accept_agent_tag_review(self, receipt):
+        """Correct pending tag selections under version locks, then rerun the tag watchdog."""
+        if self.state.get('stage') != 'watchdog_tags':
+            raise Halt('agent_tag_review_wrong_stage')
+        required = ('question_id', 'expected_version', 'expected_revision',
+                    'expected_proposal_sha256', 'knowledge', 'ability', 'literacy',
+                    'reviewer', 'note')
+        if any(key not in receipt for key in required):
+            raise Halt('invalid_agent_tag_review')
+        qid = receipt['question_id']
+        proposal = self.state.get('tag_proposals', {}).get(qid)
+        if proposal is None:
+            raise Halt('tag_proposal_missing')
+        if len(str(receipt.get('reviewer', '')).strip()) < 2 or len(str(receipt.get('note', '')).strip()) < 12:
+            raise Halt('agent_tag_review_note_required')
+        if canonical_sha256(proposal) != receipt['expected_proposal_sha256']:
+            raise Halt('tag_proposal_changed')
+        question = self.repo.get_question(qid)
+        if (question is None or question['version'] != receipt['expected_version']
+                or proposal['question_version'] != receipt['expected_version']):
+            raise Halt('question_version_conflict')
+        actual_revision = question_bank.tag_revision(self.conn, qid)
+        if (actual_revision != receipt['expected_revision']
+                or proposal['expected_revision'] != receipt['expected_revision']):
+            raise Halt('tag_revision_conflict')
+        item = next((i for i in self.items() if qid in i.get('published_question_ids', [])), None)
+        if item is None:
+            raise Halt('tag_question_item_missing')
+        before = copy.deepcopy(proposal)
+        selected = {}
+        for family in ('knowledge', 'ability', 'literacy'):
+            ids = receipt[family]
+            if (not isinstance(ids, list) or len(ids) > 3
+                    or any(not isinstance(tag_id, str) for tag_id in ids)
+                    or len(ids) != len(set(ids))):
+                raise Halt('invalid_tag_selection:'+family)
+            self.repo._assert_active_tags(self.actor['school_id'], family, ids)
+            selected[family] = list(ids)
+        if any(selected[family] != before[family] for family in ('ability', 'literacy')):
+            raise Halt('agent_tag_review_scope_exceeded')
+        if not selected['knowledge']:
+            raise Halt('knowledge_tags_required')
+        key = 'watchdog_tags-'+item['id']
+        reviews = self.state.get('reviews', {})
+        prior = reviews.get(key)
+        if prior and prior.get('result', {}).get('verdict') == 'pass':
+            raise Halt('tag_watchdog_already_passed')
+        if prior:
+            archived = {key: reviews.pop(key)}
+            self.state.setdefault('rejected_reviews', []).append(archived)
+        else:
+            rejected = self.state.get('rejected_reviews', [])
+            if not any(key in batch and batch[key].get('result', {}).get('verdict') != 'pass' for batch in rejected):
+                raise Halt('failed_tag_watchdog_evidence_missing')
+        proposal.update(selected)
+        self.state.setdefault('tag_corrections', []).append({
+            'question_id': qid, 'item_id': item['id'], 'reviewer': receipt['reviewer'],
+            'note': receipt['note'], 'before': before, 'after': copy.deepcopy(proposal),
+            'expected_version': receipt['expected_version'],
+            'expected_revision': receipt['expected_revision'], 'at': time.time(),
+            'kind': 'agent_tag_review'})
+        self.state['watchdog_tags_done'] = [value for value in self.state.get('watchdog_tags_done', []) if value != item['id']]
+        self.save()
+        return {'question_id': qid, 'item_id': item['id'], 'watchdog_required': True,
+                'knowledge': selected['knowledge']}
+
     def validate_inventory(self):
         items = self.items()
         numbers = [i['document']['number'] for i in items]
@@ -912,6 +978,7 @@ def main():
     p = sub.add_parser('visual-receipt'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     p = sub.add_parser('agent-paper-review'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     p = sub.add_parser('agent-answer-review'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
+    p = sub.add_parser('agent-tag-review'); p.add_argument('--run', required=True); p.add_argument('--receipt', required=True)
     args = parser.parse_args()
     try:
         if args.command == 'inventory':
@@ -951,6 +1018,9 @@ def main():
                 if args.command == 'agent-answer-review':
                     receipt = json.loads(Path(args.receipt).read_text())
                     print(json.dumps(pipeline.accept_agent_answer_review(receipt), ensure_ascii=False)); return
+                if args.command == 'agent-tag-review':
+                    receipt = json.loads(Path(args.receipt).read_text())
+                    print(json.dumps(pipeline.accept_agent_tag_review(receipt), ensure_ascii=False)); return
                 if args.command == 'agent-paper-review':
                     receipt = json.loads(Path(args.receipt).read_text())
                     print(json.dumps(pipeline.accept_agent_paper_review(receipt), ensure_ascii=False)); return

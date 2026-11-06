@@ -103,6 +103,17 @@ python3 -m highschoolphysics.ingestion_pipeline visual-receipt \
 
 回执哈希不匹配会拒绝；正文再变动会使已核验记录失效。
 
+## 标签纠错回执
+
+标签 watchdog 发现明确错配时，不得直接编辑 run 的 `state.json` 或覆盖模型候选。先核对题目与学校启用的知识点目录，再通过版本锁定的纠错回执更新待采纳提案；该操作保留模型原始候选、失败 watchdog 结果和前后标签，并强制重新运行独立标签 watchdog。只有 watchdog 通过后，流水线才能采纳。
+
+回执包含 `question_id`、`expected_version`、`expected_revision`、`expected_proposal_sha256`、`knowledge`、`ability`、`literacy`、`reviewer` 和具体 `note`。知识点必须属于当前学校启用目录；当前入口只允许修正知识标签，不允许顺带改动能力和素养标签。
+
+```bash
+python3 -m highschoolphysics.ingestion_pipeline agent-tag-review \
+  --run /path/run --receipt /path/tag-review.json
+```
+
 ## 验收证据
 
 - `state.json`：逐题改动请求、原始模型结果、来源指纹、抽查名单和各步骤回执。
