@@ -53,7 +53,7 @@ def choice_answer(question, row):
     return answer
 
 
-def question_statistics(question, rows, present_count):
+def question_statistics(question, rows, present_count, choice_rate_policy=None):
     # Defend against accidental join fan-out. Responses are unique per student/unit.
     rows = list({row.get('student_id', 'row-%s' % i): dict(row) for i, row in enumerate(rows)}.values())
     confirmed = [r for r in rows if is_confirmed(r)]
@@ -63,6 +63,18 @@ def question_statistics(question, rows, present_count):
     answers = [choice_answer(question, r) for r in confirmed] if choice else []
     answers = [a for a in answers if a is not None]
     combinations = Counter(a or '空白' for a in answers)
+    strict_rate = fraction(counts['correct'], len(confirmed))
+    rate = strict_rate
+    partial_count = 0
+    weighted = None
+    if choice_rate_policy == 'full_half_zero' and rule.get('type') == 'multiple_choice':
+        expected = choice_answer(question, dict(final_answer=rule.get('answer', ''), outcome='correct'))
+        if expected:
+            target = set(expected)
+            full_count = sum(set(a) == target for a in answers)
+            partial_count = sum(bool(a) and set(a) < target for a in answers)
+            weighted = fraction(full_count + .5 * partial_count, len(answers))
+            rate = weighted
     total_score = total_max = score_count = 0
     for row in confirmed:
         score, maximum = row.get('imported_score'), row.get('imported_max_score')
@@ -77,7 +89,8 @@ def question_statistics(question, rows, present_count):
         'confirmed_count': len(confirmed), 'correct_count': counts['correct'],
         'wrong_count': counts['wrong'], 'blank_count': counts['blank'],
         'pending_count': len(rows) - len(confirmed), 'missing_count': max(0, present_count - len(rows)),
-        'correct_rate': fraction(counts['correct'], len(confirmed)),
+        'correct_rate': rate, 'strict_correct_rate': strict_rate,
+        'partial_count': partial_count, 'choice_score_rate': weighted,
         'option_denominator': len(answers),
         'option_unknown_count': len(confirmed) - len(answers) if choice else 0,
         'options': [{'key': key, 'count': sum(key in a for a in answers),

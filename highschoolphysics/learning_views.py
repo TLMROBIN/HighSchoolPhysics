@@ -777,7 +777,7 @@ def _exam_answer_category(question, response):
     return LABELS[response['outcome']]
 
 
-def _exam_response_distribution(question, rows, participants, rendered_rows):
+def _exam_response_distribution(question, rows, participants, rendered_rows, choice_rate_policy=None):
     buckets = defaultdict(list)
     if loads(question['grading_rule_json'],{}).get('type') == 'single_choice':
         options = loads(question['options_json'], {})
@@ -792,11 +792,13 @@ def _exam_response_distribution(question, rows, participants, rendered_rows):
         buckets['缺失作答'] = ['<tr><td data-label="学生">%s · %s</td><td colspan="3">尚未录入作答</td></tr>' %
                               (esc(p['display_name']), esc(p['class_name'] or '未分班')) for p in missing]
     total = len(participants)
-    stats = question_statistics(dict(question), [dict(r) for r in rows], total)
+    stats = question_statistics(dict(question), [dict(r) for r in rows], total, choice_rate_policy)
     out = ['<div class="answer-distribution"><p>作答分布 · %s 人。选项比例按已确认且选项可辨识的作答计算（含确认空白）；待确认、缺失与选项未知另列覆盖情况。多选题同时展示各选项与完整组合。</p>' % total]
     if not total:
         return ''.join(out) + '<p class="teacher-empty-note">当前范围没有实到学生，请选择班级。</p></div>'
     if stats['options']:
+        if stats['choice_score_rate'] is not None:
+            out.append('<p>多选得分率 %.1f%%：全对按1、漏选且无错选按0.5、错选和空白按0；半对 %s 人。待确认、缺失及选项未知不计入分母。</p>' % (100*stats['choice_score_rate'], stats['partial_count']))
         out.append('<p>选项统计分母 %s 人；已确认但选项未知 %s 人。多选题各选项比例之和可超过100%%。</p><ul>' % (stats['option_denominator'],stats['option_unknown_count']))
         for option in stats['options']:
             value='%.1f%%' % (100*option['rate']) if option['rate'] is not None else '—'
@@ -920,6 +922,8 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
             body.append('<label><input type="checkbox" name="classes" value="%s"%s>%s</label>' % (esc(cls['id']),' checked' if cls['id'] in selected else '',esc(cls['name'])))
         body.append('</div></fieldset><div class="exam-filter-actions"><button type="button" data-exam-select-all>全选班级</button><button type="submit">更新统计</button></div></form><p>当前实到 %s 人。正确率＝正确 / 已确认作答（含空白）；缺失、待确认不计入。</p><nav class="exam-question-nav" aria-label="按题目查看作答">' % len(present))
         included={p['student_id'] for p in present}
+        if loads(a.get('scope_json'),{}).get('choice_rate_policy') == 'full_half_zero':
+            body.append('<p>本次多选题按得分率统计：全对1、漏选且无错选0.5、错选及空白0；下方“正确人数”为全对人数。选择题不计入卷面分。</p>')
 
         for question_group in question_groups:
             first=question_group[0]
@@ -930,7 +934,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                 child=content.get('child_label','') if content else ''
                 label='第%s题%s' % (number,(' · '+child) if child else '')
                 question_rows=[r for r in rs if r['snapshot_id']==q['id'] and r['student_id'] in included]
-                stats=question_statistics(dict(q),question_rows,len(present))
+                stats=question_statistics(dict(q),question_rows,len(present),loads(a.get('scope_json'),{}).get('choice_rate_policy'))
                 correct,pending=stats['correct_count'],stats['pending_count']
                 rate=100*stats['correct_rate'] if stats['correct_rate'] is not None else 0
                 value='%.1f%%' % rate if stats['correct_rate'] is not None else '—'
@@ -1013,7 +1017,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                     seen.add(key);g=groups[key];g['name']=t['name'];g['total']+=1;g['wrong']+=r['outcome']=='wrong';g['blank']+=r['outcome']=='blank';g['students'].add(r['student_id'])
                     if r['outcome']!='correct':g['affected'].add(r['student_id'])
             if staff:
-                body.append(_exam_response_distribution(q,rows,present,rendered_rows))
+                body.append(_exam_response_distribution(q,rows,present,rendered_rows,loads(a.get('scope_json'),{}).get('choice_rate_policy')))
             else:
                 body.append('<table class="response-table"><tr><th>学生</th><th>首次作答记录</th><th>当前有效结果</th><th>答题卡</th></tr>'+''.join(rendered_rows.values())+'</table>')
             body.append('</section>')

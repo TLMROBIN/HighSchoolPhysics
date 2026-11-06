@@ -136,6 +136,26 @@ def context_hash(conn, aid):
     })
 
 
+def set_choice_rate_policy(repo, user, aid, policy, reason):
+    """Set an explicit exam statistics policy without inventing choice points."""
+    if policy not in ('exact', 'full_half_zero') or not str(reason).strip():
+        raise InvalidRequest('请选择明确的多选统计口径并填写依据')
+    conn = repo.conn
+    conn.execute('begin immediate')
+    try:
+        a = assessment(repo, user, aid)
+        if a['grading_status'] == 'published':
+            raise StateConflict('已发布考试不可修改统计口径')
+        scope = loads(a.get('scope_json'), {})
+        scope['choice_rate_policy'] = policy
+        conn.execute('update assessment_sessions set scope_json=? where id=?', (dumps(scope), aid))
+        _audit(conn, user, 'choice_rate_policy_set', aid, dict(policy=policy, reason=str(reason)))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def snapshot_decision(conn, s, school_id, answer):
     content = snapshot_content(conn, s["id"], school_id)
     result=decide(loads(s["grading_rule_json"],{}), answer, loads(s["options_json"],{}),

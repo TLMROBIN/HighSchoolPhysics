@@ -22,6 +22,8 @@ def _stats_markdown(source, show_answer=True):
              '', '正确率：**%s**（%s/%s，含确认空白 %s 人）。' %
              (percent(stats['correct_rate']), stats['correct_count'], stats['confirmed_count'], stats['blank_count'])]
     if stats['options']:
+        if stats.get('choice_score_rate') is not None:
+            lines += ['', '本题按多选得分率统计：全对1、漏选无错选0.5、错选和空白0；半对%s人。正确人数指全对人数，待复核、缺失和选项未知不计入得分率分母。' % stats['partial_count']]
         lines += ['', '选项统计分母：%s 人；已确认但选项未知：%s 人。' % (stats['option_denominator'], stats['option_unknown_count']),
                   '', '| 选项 | 人数 | 选择率 |', '| --- | ---: | ---: |']
         lines += ['| %s%s | %s | %s |' % (x['key'], '（正确）' if show_answer and x['key'] in source.get('correct_options', []) else '',

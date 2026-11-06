@@ -249,11 +249,12 @@ def collect_source(repo, user, aid, class_ids=None):
     for row in repo.conn.execute('''select s.*,q.original_question_number from question_version_snapshots s
         join questions q on q.id=s.question_id where s.assessment_id=? order by s.position''', (aid,)):
         source = _source_question(repo.conn, dict(row), user['school_id'])
+        source['choice_rate_policy'] = loads(exam.get('scope_json'), {}).get('choice_rate_policy')
         unit_rows = [r for r in rows if r['snapshot_id'] == row['id']]
-        source['statistics'] = question_statistics(source, unit_rows, len(present))
+        source['statistics'] = question_statistics(source, unit_rows, len(present), source['choice_rate_policy'])
         source['classes'] = [{'id': cls['id'], 'name': cls['name'], 'statistics': question_statistics(source,
             [r for r in unit_rows if r['student_id'] in {p['student_id'] for p in present if p['class_id'] == cls['id']}],
-            sum(p['class_id'] == cls['id'] for p in present))} for cls in classes]
+            sum(p['class_id'] == cls['id'] for p in present), source['choice_rate_policy'])} for cls in classes]
         source['error_evidence'] = evidence.get(row['id'], [])
         source['student_reports'] = reports.get(row['id'], [])
         sources.append(source)

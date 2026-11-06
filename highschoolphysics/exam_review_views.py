@@ -43,7 +43,9 @@ def _statistics(source):
     classes = ''.join('<tr><td>%s</td><td>%s / %s</td><td>%s</td><td>%s / %s</td></tr>' %
                       (esc(x['name']), x['statistics']['correct_count'], x['statistics']['confirmed_count'],
                        percent(x['statistics']['correct_rate']), x['statistics']['pending_count'], x['statistics']['missing_count']) for x in source['classes'])
-    return '''<section class="review-facts"><h4>本次考试作答统计</h4>
+    policy_note = ('<p>多选得分率：全对1、漏选无错选0.5、错选和空白0；半对 %s 人。正确人数指全对人数。</p>' % stats.get('partial_count', 0)
+                   if stats.get('choice_score_rate') is not None else '')
+    return policy_note + '''<section class="review-facts"><h4>本次考试作答统计</h4>
         <p><strong>正确率 %s</strong> · 正确 %s / 已确认 %s（含空白 %s）</p>
         <p>实到 %s · 待复核 %s · 缺失 %s。选项统计分母 %s，已确认但选项未知 %s。</p>
         <ul class="review-option-stats">%s</ul><p>%s</p>
