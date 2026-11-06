@@ -4765,7 +4765,11 @@ class PhysicsHandler(BaseHTTPRequestHandler):
             viewed=conn.execute("""select 1 from learning_views v join question_version_snapshots s on s.question_id=v.question_id
                 join assessment_sessions a on a.id=s.assessment_id where v.student_id=? and s.id=? and a.grading_status='published'""",
                 (user['id'],snapshot_id)).fetchone()
-            if not viewed:
+            published_result=conn.execute("""select 1 from assessment_sessions a
+                join assessment_participants p on p.assessment_id=a.id
+                where a.id=? and a.grading_status='published' and p.student_id=? and p.status='present'""",
+                (asset['assessment_id'],user['id'])).fetchone()
+            if not viewed and not published_result:
                 raise PermissionDenied('请先查看本题答案与解析')
         whole_group = (query.get("group") or [""])[0].lower() in ("1", "true", "yes")
         allowed_asset_ids = visible_question_asset_ids(

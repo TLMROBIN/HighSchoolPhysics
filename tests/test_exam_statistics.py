@@ -101,6 +101,18 @@ class ExamStatisticsTests(unittest.TestCase):
         self.assertFalse(re.search(r'<details class="assessment-question-details"[^>]*\bopen\b', html))
         self.assertNotIn('李华', nav)
 
+    def test_student_can_read_solution_only_after_results_are_published(self):
+        from highschoolphysics.errors import PermissionDenied
+        aid = self.make_exam()
+        with self.assertRaises(PermissionDenied):
+            learning_views.exams(self.repo, self.student, aid)
+        self.c.execute("update assessment_sessions set grading_status='published' where id=?", (aid,))
+        html = learning_views.exams(self.repo, self.student, aid)
+        self.assertIn('<details open><summary>本小问标准答案与解析</summary>', html)
+        self.assertIn('标准答案：B', html)
+        self.assertIn('正确答案与解析', html)
+        self.assertNotIn('赵同学', html)
+
     def test_student_results_distinguish_imported_score_pending_and_missing(self):
         aid = self.make_exam()
         self.c.execute("update assessment_sessions set grading_status='published' where id=?", (aid,))

@@ -1671,20 +1671,33 @@ class DocumentHTTPTests(unittest.TestCase):
         self.assertEqual(status, 403)
         conn = connect(self.server.db_path)
         try:
+            revision = conn.execute("select r.id,r.document_json from question_content_revisions r join snapshot_content_bindings b on b.revision_id=r.id where b.snapshot_id=?", (snapshot['id'],)).fetchone()
+            document = json.loads(revision['document_json'])
+            document.update(answer_md='标准答案测试 A', analysis_md='解析测试：由牛顿第二定律可得。')
+            conn.execute('update question_content_revisions set document_json=? where id=?', (json.dumps(document), revision['id']))
+            from highschoolphysics import learning
+            learning.migrate(conn)
             conn.execute("update assessment_sessions set grading_status='published',status='published' where id=?", (assessment["id"],))
             conn.commit()
         finally:
             conn.close()
+        status, _, student_page = self.server.request(
+            "GET", "/exams?id=%s" % assessment["id"], headers={"Cookie": student_cookie}
+        )
+        self.assertEqual(status, 200)
+        self.assertIn('参考答案与解析', student_page.decode('utf-8'))
+        self.assertIn('解析测试：由牛顿第二定律可得。', student_page.decode('utf-8'))
+        self.assertIn('<details open><summary>本小问标准答案与解析</summary>', student_page.decode('utf-8'))
         status, headers, content_image = self.server.request("GET", asset_path, headers={"Cookie": student_cookie})
         self.assertEqual(status, 200)
         self.assertIn("image/png", headers["Content-Type"])
         self.assertTrue(content_image.startswith(b"\x89PNG"))
         status, _, body = self.server.request("GET", asset_path + "&solution=1", headers={"Cookie": student_cookie})
-        self.assertEqual(status, 403)
-        self.assertNotIn(b"image/png", body)
+        self.assertEqual(status, 200)
+        self.assertTrue(body.startswith(b"\x89PNG"))
 
         _, other_student_cookie, _ = self.server.login("stu_2001", "student123")
-        status, _, body = self.server.request("GET", asset_path, headers={"Cookie": other_student_cookie})
+        status, _, body = self.server.request("GET", asset_path + "&solution=1", headers={"Cookie": other_student_cookie})
         self.assertEqual(status, 403)
         self.assertNotIn(b"image/png", body)
 

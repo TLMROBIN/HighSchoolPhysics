@@ -973,7 +973,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                     if r['outcome']=='pending': result+=' · 待确认'
                 headings.append('<th scope="col"><a href="#exam-question-%s" data-exam-question aria-controls="student-exam-group-%s" aria-expanded="false">%s</a></th>' % (q['position'],first['position'],esc(label)))
                 results.append('<td data-outcome="%s">%s</td>' % (esc(state),esc(result)))
-        body.append('<nav class="student-exam-nav" aria-label="本次考试题号与结果"><p>本次考试结果 · 点击题号查看题目与首次作答</p><div class="student-exam-nav-scroll"><table><thead><tr><th scope="row">题号</th>%s</tr></thead><tbody><tr><th scope="row">结果</th>%s</tr></tbody></table></div></nav><p class="student-exam-empty" role="status">请选择上方题号查看详情。</p>' % (''.join(headings),''.join(results)))
+        body.append('<nav class="student-exam-nav" aria-label="本次考试题号与结果"><p>本次考试结果 · 点击题号查看题目、正确答案与解析及首次作答</p><div class="student-exam-nav-scroll"><table><thead><tr><th scope="row">题号</th>%s</tr></thead><tbody><tr><th scope="row">结果</th>%s</tr></tbody></table></div></nav><p class="student-exam-empty" role="status">请选择上方题号查看详情。</p>' % (''.join(headings),''.join(results)))
     included={p['student_id'] for p in present}
     for group_index, question_group in enumerate(question_groups):
         first=question_group[0]
@@ -984,7 +984,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
         body.append('<article class="assessment-question-group"%s><details class="assessment-question-details"%s><summary><h3>测评题目 %02d · 原卷题号 第%s题 · %s个小问</h3><span>%s</span></summary>%s'%(
             '' if staff else ' id="student-exam-group-%s" hidden' % first['position'],
             " open" if staff and group_index == 0 else "", group_index + 1, esc(question_number), len(question_group),
-            '展开题干与作答分布' if staff else '题目与首次作答', group_preview
+            '展开题干与作答分布' if staff else '题目、正确答案与解析及首次作答', group_preview
         ))
         for q in question_group:
             content=snapshot_content(c,q['id'],user['school_id'])
@@ -993,10 +993,11 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
             rows=[r for r in rs if r['snapshot_id']==q['id'] and r['student_id'] in included]
             body.append('<section class="assessment-subquestion" id="exam-question-%s" tabindex="-1"><h4>%s · 作答序号 %s</h4>%s%s%s'%(
                 q['position'],esc(part_title),q['position'],badge(statistics(c, [q['question_id']])[q['question_id']])+fill_question_context(q),tags(q),
-                '<details><summary>本小问标准答案与解析</summary>%s</details>' % (
+                '<details%s><summary>本小问标准答案与解析</summary>%s</details>' % (
+                    '' if staff else ' open',
                     render_snapshot_solution(c,q['id'],user['school_id'],base_path)
                     or '<p>标准答案：%s</p>' % esc(reference_answer(loads(q['grading_rule_json'],{})) or '尚未导入，暂不能自动核对')
-                ) if staff else ''
+                )
             ))
             rendered_rows={}
             for r in rows:
