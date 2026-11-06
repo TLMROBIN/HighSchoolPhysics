@@ -818,8 +818,24 @@ class Pipeline:
         paper_document = paper_payload.get('document')
         source_document_sha256 = paper_payload.get('source_document_sha256')
         if source_document_sha256 is None and isinstance(paper_document, dict):
-            # Compatibility for receipts created before the controlled visual patch path.
-            source_document_sha256 = canonical_sha256(paper_document)
+            receipt_patches = paper.get('patches', [])
+            if receipt_patches:
+                # Older controlled receipts stored the corrected candidate in the action
+                # but did not separately persist the pre-review candidate fingerprint.
+                # The receipt itself was hash-checked before this patch was saved; confirm
+                # its exact patched values are still present before accepting that binding.
+                for patch in receipt_patches:
+                    if not isinstance(patch, dict):
+                        return None
+                    target = (paper_document if patch.get('target') == 'parent' else
+                              next((child for child in paper_document.get('children', [])
+                                    if child.get('key') == patch.get('target')), None))
+                    if target is None or target.get(patch.get('field')) != patch.get('value'):
+                        return None
+                source_document_sha256 = paper.get('document_sha256')
+            else:
+                # Compatibility for receipts created before the controlled visual patch path.
+                source_document_sha256 = canonical_sha256(paper_document)
         if (not isinstance(paper_document, dict)
                 or paper.get('document_sha256') != source_document_sha256
                 or paper.get('review_revision') != paper_payload.get('expected_revision')
