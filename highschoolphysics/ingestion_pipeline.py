@@ -787,6 +787,68 @@ class Pipeline:
         self.save()
         return receipt
 
+    def accepted_agent_visual_receipt(self, item):
+        """Return already-accepted source-bound human evidence for this exact candidate."""
+        item_id = item['id']
+        paper = self.state.get('agent_visual_paper_receipts', {}).get(item_id)
+        answers = self.state.get('agent_visual_answer_receipts', {}).get(item_id)
+        if not paper or not answers:
+            return None
+        if (paper.get('paper_sha256') != self.state['paper']['files']['paper']['sha256']
+                or answers.get('paper_sha256') != self.state['paper']['files']['paper']['sha256']
+                or answers.get('answers_sha256') != self.state['paper']['files']['answers']['sha256']):
+            return None
+
+        # The paper receipt binds the original candidate saved by the controlled review
+        # operation. Answer review may subsequently change answer fields, so verify the
+        # paper-only fingerprint against the current item instead of requiring the old
+        # full-document hash to remain unchanged.
+        paper_action = self.state.get('actions', {}).get('paper-'+item_id, {})
+        paper_payload = paper_action.get('payload', {})
+        paper_document = paper_payload.get('document')
+        if (not isinstance(paper_document, dict)
+                or paper.get('document_sha256') != canonical_sha256(paper_document)
+                or paper.get('review_revision') != paper_payload.get('expected_revision')
+                or paper_content_sha256(paper_document) != paper_content_sha256(item['document'])):
+            return None
+
+        # The answer receipt is accepted only through agent-answer-review. Confirm its
+        # audited patches are the answer fields currently saved by that operation.
+        answer_action = self.state.get('actions', {}).get('answers-'+item_id, {})
+        answer_payload = answer_action.get('payload', {})
+        patched_document = answer_payload.get('document')
+        if (not isinstance(patched_document, dict)
+                or answer_action.get('result', {}).get('review_revision') != item['review_revision']
+                or canonical_sha256(patched_document) != canonical_sha256(item['document'])
+                or self.state.get('reviewed_answers', {}).get(item_id) != canonical_sha256(item['document'])):
+            return None
+        patch_values = {(p.get('target'), p.get('field')): p.get('value')
+                        for p in answers.get('patches', []) if isinstance(p, dict)}
+        for field in ('answer_md', 'analysis_md'):
+            if ('parent', field) in patch_values and patched_document.get(field) != patch_values[('parent', field)]:
+                return None
+
+        # Recheck preview fingerprints against the stored source PDFs before using the
+        # saved visual review as watchdog context.
+        for role, receipt in (('paper', paper), ('answers', answers)):
+            task_id = self.state.get(role+'_task')
+            task = ingestion.get_task(self.conn, self.actor, task_id)
+            conversion = self.conn.execute('select layout_key from document_conversions where id=?',
+                                            (task['conversion_id'],)).fetchone()
+            preview = self.store.read(str(Path(conversion['layout_key']).parent/'preview.pdf'),
+                                      max_bytes=100*1024*1024)
+            if receipt.get('preview_sha256') != hashlib.sha256(preview).hexdigest():
+                return None
+
+        return {
+            'reviewer': answers.get('reviewer') or paper.get('reviewer'),
+            'note': '原卷视觉核验：'+paper.get('note', '')+'；答案视觉核验：'+answers.get('note', ''),
+            'paper_sha256': self.state['paper']['files']['paper']['sha256'],
+            'answers_sha256': self.state['paper']['files']['answers']['sha256'],
+            'document_sha256': canonical_sha256(item['document']),
+            'kind': 'accepted_agent_visual_receipts',
+        }
+
     def watchdog_one(self, tags=False):
         items = self.validate_inventory()
         if 'sample' not in self.state:
@@ -812,7 +874,7 @@ class Pipeline:
                             'answers_sha256': self.state['paper']['files']['answers']['sha256'],
                             'document_sha256': canonical_sha256(item['document'])}
                 if not receipt or any(receipt.get(k) != v for k,v in expected.items()):
-                    receipt = self.visual_receipt(item)
+                    receipt = self.accepted_agent_visual_receipt(item) or self.visual_receipt(item)
                 # This is external evidence, not an image supplied to the text model.
                 # The independent text audit must still identify contradictions itself.
                 packet['external_visual_evidence'] = {
