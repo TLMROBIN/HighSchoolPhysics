@@ -79,6 +79,15 @@ def digest_file(path):
     return h.hexdigest()
 
 
+def paper_content_sha256(document):
+    """Fingerprint only question content; answer attachment must not invalidate paper evidence."""
+    content = {key: document.get(key) for key in ('number', 'kind', 'stem_md', 'options', 'asset_refs')}
+    content['children'] = [{key: child.get(key) for key in ('key', 'label', 'kind', 'stem_md', 'options')}
+                           for child in document.get('children', [])]
+    content.pop('asset_refs', None)
+    return canonical_sha256(content)
+
+
 def source_numbers(path):
     """Independent raw OOXML preflight; never invent invisible auto-numbering."""
     if Path(path).suffix.lower() != '.docx':
@@ -540,12 +549,17 @@ class Pipeline:
                     item = consumers[0]
                     receipt = conversion_receipts.get(item['id'], {})
                     expected_ids = receipt.get('issue_ids', [])
+                    paper_action = self.state.get('actions', {}).get('paper-'+item['id'], {})
+                    reviewed_document = paper_action.get('result', {}).get('document')
+                    reviewed_revision = paper_action.get('result', {}).get('review_revision')
                     valid_receipt = (
                         issue_id in expected_ids
                         and receipt.get('paper_sha256') == self.state['paper']['files']['paper']['sha256']
                         and receipt.get('preview_sha256') == conversion_preview
-                        and receipt.get('document_sha256') == canonical_sha256(item['document'])
-                        and receipt.get('review_revision') == item['review_revision']
+                        and isinstance(reviewed_document, dict)
+                        and receipt.get('document_sha256') == canonical_sha256(reviewed_document)
+                        and receipt.get('review_revision') == reviewed_revision
+                        and paper_content_sha256(reviewed_document) == paper_content_sha256(item['document'])
                     )
                     if valid_receipt:
                         continue
