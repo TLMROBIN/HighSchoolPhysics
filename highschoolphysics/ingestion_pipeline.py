@@ -1055,7 +1055,12 @@ class Pipeline:
                     if any(t['id'] in proposal[family] for proposal in packet['tag_proposals'].values())]
                     for family, values in catalog.items()}
             # Producer opinions are deliberately absent. Raw source, current result only.
-            verdict = self.call_model(cache_name, packet, cache_name+'-'+item['id'])
+            review_key = cache_name+'-'+item['id']
+            if not tags and item['id'] in self.state.get('child_omissions', {}):
+                # Preserve the prior blocked audit and make a new stateless request
+                # scoped to the now-explicit partial-import policy/evidence.
+                review_key += '-partial-'+canonical_sha256(self.state['child_omissions'][item['id']])[:12]
+            verdict = self.call_model(cache_name, packet, review_key)
             required = ['tags'] if tags else ['number','stem','options','formulas','children','answer']
             if verdict.get('verdict') != 'pass':
                 raise Halt('watchdog_quality_failure: '+str(verdict.get('reason', 'missing verdict')))
