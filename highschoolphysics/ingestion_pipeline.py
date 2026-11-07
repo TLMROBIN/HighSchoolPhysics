@@ -80,9 +80,13 @@ def digest_file(path):
 
 
 def paper_content_sha256(document):
-    """Fingerprint only question content; answer attachment must not invalidate paper evidence."""
+    """Fingerprint paper-bound content, excluding child kind fixed by a source-bound answer review."""
     content = {key: document.get(key) for key in ('number', 'kind', 'stem_md', 'options', 'asset_refs')}
-    content['children'] = [{key: child.get(key) for key in ('key', 'label', 'kind', 'stem_md', 'options')}
+    # A visually verified answer receipt may correct a child's response kind (for
+    # example, a mixed choice-and-fill child). The answer receipt binds that change
+    # to the original paper and answers; it must not invalidate the paper's separate
+    # formula-conversion receipt.
+    content['children'] = [{key: child.get(key) for key in ('key', 'label', 'stem_md', 'options')}
                            for child in document.get('children', [])]
     content.pop('asset_refs', None)
     return canonical_sha256(content)
