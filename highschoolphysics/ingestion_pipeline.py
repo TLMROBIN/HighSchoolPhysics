@@ -371,10 +371,10 @@ class Pipeline:
         if include_answers:
             result['answer_original_ooxml'] = raw_question_xml(self.state['paper']['files']['answers']['path'], item['document']['number'])
             groups = ingestion._answer_groups(self.conn, self.actor, self.state['answers_task'], self.state['db'])
-            group = groups.get(item['document']['number'], [])
-            if len(group) != 1:
+            group = ingestion._select_answer_candidate(groups.get(item['document']['number'], []), item['document'])
+            if group is None:
                 raise Halt('answer_source_not_unique')
-            result['answer_source'] = group[0]
+            result['answer_source'] = group
         return result
 
     def upload(self, role):
