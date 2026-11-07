@@ -44,6 +44,8 @@
 
 仅在已实际看清并核对全部对应告警时，使用 `agent-paper-review --run <任务目录> --receipt <回执JSON>` 保存核验；回执需包含 item_id、reviewer、note、page、page_image_sha256、paper_sha256、preview_sha256、document_sha256、review_revision 和该题全部已核实的 resolved_issue_ids。若视觉核验发现转换漏掉了公式两侧的题干文字，可在回执 `patches` 中对 `parent.stem_md` 提交忠实转录的修正；只能改题干或选项，必须保留每个原公式/插图 asset 引用且不能改变题目结构。备注要逐字写明公式前后核实到的连接文本及对应数值，便于独立 watchdog 对照当前题文、原始转换块与观察记录。原卷预览中无法自动转换的 MathType 公式可逐式人工核对后，在 `resolved_conversion_issue_ids` 中列出本题 source block 对应的转换清单 issue ID；流水线只接受 `embedded_formula_unconverted` / `formula_unconverted`，并将回执锁定到原卷、预览、题文哈希和保存后的 review revision。公式图片仍作为题目内容保留，视觉回执只解除该条受控转换阻断，不得据此忽略其他阻断。先暂停该 run 的 runner timer，记录原因并执行 resume，再提交回执，最后恢复 timer。不得用该回执替代答案审核、标签抽查或入库后的 watchdog 视觉抽查。无法看清、跨页未检查、题图不一致或公式无法转换时，保持暂停并修复。
 
+若视觉核验确认解析器把原卷选项合并或拆错，人工回执也可修复该题或小问的选项数组；新选项键必须从 A 连续排列、内容逐项忠实对应原卷。此例外只对绑定原卷与页面图哈希的 `agent-paper-review` 生效；自动模型审核仍须保持现有选项键和数量，且任何回执都不能增加、删除或重排题目/小问，不能移除或移动公式、插图资源。
+
 ## 缺题时的处理
 
 用户已授权允许部分题目缺失。来源不完整或无法唯一核对的整题，可由 Agent 在原卷复核或尚未执行答案关联的匹配阶段通过 `defer-item --run <任务目录> --item-id <候选ID> --reason <具体原因>` 暂缓；保留原始题文、来源、哈希和审计，不删除或编造。其余已核验题目按原有答案、视觉、标签和 watchdog 门禁继续，正式保存的试卷标题和验收报告标明部分导入与待补题号。题号重复、答案歧义或其他题的图片公式未核实依然阻断对应流程。暂缓整题不等于已经完成其余小问的导入。

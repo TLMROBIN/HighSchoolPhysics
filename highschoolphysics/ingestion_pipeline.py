@@ -166,7 +166,7 @@ def inventory(roots):
     return {'version': VERSION, 'papers': result, 'ignored': ignored}
 
 
-def apply_patches(document, result, stage):
+def apply_patches(document, result, stage, allow_option_structure_change=False):
     """Validate model output before touching the DB. Structure and evidence are immutable."""
     if result.get('verdict') != 'pass' or not isinstance(result.get('reason'), str) or len(result['reason'].strip()) < 8:
         raise Halt('review_blocked: '+str(result.get('reason', 'invalid review verdict')))
@@ -187,7 +187,18 @@ def apply_patches(document, result, stage):
             raise Halt('unknown_patch_target')
         value = patch['value']
         if patch['field'] == 'options':
-            if not isinstance(value, list) or [x.get('key') for x in value if isinstance(x, dict)] != [x['key'] for x in target.get('options', [])] or len(value) != len(target.get('options', [])):
+            if not isinstance(value, list):
+                raise Halt('invalid_options')
+            if allow_option_structure_change:
+                keys = [x.get('key') for x in value if isinstance(x, dict)]
+                expected_keys = list('ABCDEFGH')[:len(value)]
+                if (len(value) < 2 or len(keys) != len(value) or keys != expected_keys
+                        or any(not isinstance(x.get('markdown'), str) or not x['markdown'].strip()
+                               for x in value)):
+                    raise Halt('invalid_source_verified_option_structure')
+            elif ([x.get('key') for x in value if isinstance(x, dict)] !=
+                  [x['key'] for x in target.get('options', [])] or
+                  len(value) != len(target.get('options', []))):
                 raise Halt('option_structure_changed')
         elif not isinstance(value, str) or len(value) > 100000:
             raise Halt('invalid_patch_text')
@@ -694,7 +705,10 @@ class Pipeline:
             'patches': receipt.get('patches', []),
             'resolved_issue_ids': ids,
         }
-        reviewed_document = apply_patches(item['document'], paper_result, 'paper')
+        # Only a source-bound visual receipt may repair a malformed option list.
+        # It still cannot add/remove/reorder question children or alter asset refs.
+        reviewed_document = apply_patches(item['document'], paper_result, 'paper',
+                                          allow_option_structure_change=True)
         payload = {'request_key': self.key(name), 'expected_revision': item['review_revision'],
                    'source_document_sha256': canonical_sha256(item['document']),
                    'document': reviewed_document, 'resolved_issue_ids': ids,
