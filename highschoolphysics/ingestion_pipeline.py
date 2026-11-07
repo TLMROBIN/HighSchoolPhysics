@@ -190,7 +190,7 @@ def inventory(roots):
 
 
 def apply_patches(document, result, stage, allow_option_structure_change=False,
-                  allow_source_verified_kind_change=False):
+                  allow_source_verified_kind_change=False, omitted_child_keys=None):
     """Validate model output before touching the DB. Structure and evidence are immutable."""
     if result.get('verdict') != 'pass' or not isinstance(result.get('reason'), str) or len(result['reason'].strip()) < 8:
         raise Halt('review_blocked: '+str(result.get('reason', 'invalid review verdict')))
@@ -202,6 +202,16 @@ def apply_patches(document, result, stage, allow_option_structure_change=False,
     if not isinstance(patches, list) or len(patches) > 40:
         raise Halt('invalid_patch_list')
     out = copy.deepcopy(document)
+    omitted_child_keys = list(omitted_child_keys or [])
+    if omitted_child_keys:
+        if stage != 'paper' or len(out.get('children', [])) < 2:
+            raise Halt('child_omission_requires_multi_part_paper_review')
+        keys = [child.get('key') for child in out['children']]
+        if (len(set(omitted_child_keys)) != len(omitted_child_keys)
+                or any(key not in keys for key in omitted_child_keys)
+                or len(omitted_child_keys) >= len(keys)):
+            raise Halt('invalid_omitted_child_keys')
+        out['children'] = [child for child in out['children'] if child['key'] not in omitted_child_keys]
     allowed = {'stem_md', 'options'} if stage == 'paper' else {'answer_md', 'analysis_md'}
     if allow_source_verified_kind_change:
         allowed.add('kind')
@@ -367,6 +377,9 @@ class Pipeline:
                   'issues': [{'id': canonical_sha256(i)[:20], 'issue': i} for i in item['document']['issues']],
                   'conversion_issues': [issue for issue in manifest.get('issues', []) if issue.get('field') in ids or issue.get('field') in (None, 'source', 'document')],
                   'visual_evidence_available': False}
+        omission = self.state.get('child_omissions', {}).get(item['id'])
+        if omission:
+            result['source_verified_child_omissions'] = omission
         result['original_ooxml'] = raw_question_xml(self.state['paper']['files']['paper']['path'], item['document']['number'])
         if include_answers:
             result['answer_original_ooxml'] = raw_question_xml(self.state['paper']['files']['answers']['path'], item['document']['number'])
@@ -565,6 +578,28 @@ class Pipeline:
             row = self.conn.execute("select disposition,document_json from parsed_question_items where id=? and parse_task_id=? and school_id=?",(item_id,self.state['paper_task'],self.actor['school_id'])).fetchone()
             if row is None or row['disposition'] != 'deferred' or canonical_sha256(json.loads(row['document_json'])) != entry['document_sha256']:
                 raise Halt('deferred_item_changed')
+        omissions = self.state.get('child_omissions', {})
+        by_id = {item['id']: item for item in items}
+        for item_id, entry in omissions.items():
+            item = by_id.get(item_id)
+            receipt = self.state.get('agent_visual_paper_receipts', {}).get(item_id, {})
+            action = self.state.get('actions', {}).get('paper-'+item_id, {})
+            action_payload = action.get('payload', {})
+            original = action_payload.get('source_document')
+            paper_task = ingestion.get_task(self.conn, self.actor, self.state['paper_task'])
+            conversion = self.conn.execute('select layout_key from document_conversions where id=?', (paper_task['conversion_id'],)).fetchone()
+            preview = self.store.read(str(Path(conversion['layout_key']).parent/'preview.pdf'), max_bytes=100*1024*1024)
+            if (not item or not isinstance(original, dict)
+                    or entry.get('paper_sha256') != self.state['paper']['files']['paper']['sha256']
+                    or entry.get('source_document_sha256') != canonical_sha256(original)
+                    or entry.get('receipt_sha256') != canonical_sha256(receipt)
+                    or receipt.get('paper_sha256') != entry.get('paper_sha256')
+                    or receipt.get('preview_sha256') != hashlib.sha256(preview).hexdigest()
+                    or receipt.get('document_sha256') != entry.get('source_document_sha256')
+                    or receipt.get('review_revision') != action_payload.get('expected_revision')
+                    or entry.get('omitted_children') != [c for c in original.get('children', []) if c.get('key') in entry.get('keys', [])]
+                    or [c.get('key') for c in item['document'].get('children', [])] != [c.get('key') for c in original.get('children', []) if c.get('key') not in entry.get('keys', [])]):
+                raise Halt('source_verified_child_omission_changed')
         deferred_numbers = {entry['number'] for entry in deferred.values()}
         expected_numbers = [n for n in self.state['paper']['expected_numbers'] if n not in deferred_numbers]
         if not numbers or numbers != expected_numbers or len(numbers) != len(set(numbers)):
@@ -683,6 +718,26 @@ class Pipeline:
                 raise Halt('visual_receipt_changed')
             saved = self.operation(name, existing['payload'], lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
             self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
+            if receipt.get('omitted_children'):
+                source_document = existing['payload'].get('source_document')
+                if not isinstance(source_document, dict):
+                    raise Halt('child_omission_source_document_missing')
+                records = []
+                for omitted in receipt['omitted_children']:
+                    child = next((c for c in source_document.get('children', []) if c.get('key') == omitted.get('key')), None)
+                    if child is None:
+                        raise Halt('child_omission_source_child_missing')
+                    records.append({'key': child['key'], 'reason': omitted['reason'], 'source_child': copy.deepcopy(child)})
+                self.state.setdefault('child_omissions', {})[item['id']] = {
+                    'keys': [entry['key'] for entry in records],
+                    'omitted_children': [entry['source_child'] for entry in records],
+                    'reasons': [{'key': entry['key'], 'reason': entry['reason']} for entry in records],
+                    'paper_sha256': receipt['paper_sha256'],
+                    'source_document_sha256': canonical_sha256(source_document),
+                    'receipt_sha256': canonical_sha256(receipt), 'at': time.time()}
+                self.state['paper']['partial'] = True
+                self.state['paper']['partial_reason'] = '部分小问待补：第%s题%s' % (
+                    item['document']['number'], '、'.join(entry['source_child'].get('label', entry['key']) for entry in records))
             conversion_ids = receipt.get('resolved_conversion_issue_ids', [])
             if conversion_ids:
                 self.state.setdefault('conversion_issue_resolutions', {})[item['id']] = {
@@ -735,17 +790,44 @@ class Pipeline:
             'patches': receipt.get('patches', []),
             'resolved_issue_ids': ids,
         }
-        # Only a source-bound visual receipt may repair a malformed option list.
-        # It still cannot add/remove/reorder question children or alter asset refs.
+        # Only a source-bound visual receipt may repair malformed options or omit
+        # a source-incomplete child with preserved evidence; it cannot reorder children.
+        omitted_children = receipt.get('omitted_children', [])
+        if not isinstance(omitted_children, list):
+            raise Halt('invalid_omitted_children_receipt')
+        omission_keys = []
+        omission_records = []
+        for omission in omitted_children:
+            if (not isinstance(omission, dict) or set(omission) != {'key', 'reason'}
+                    or not isinstance(omission.get('key'), str)
+                    or not isinstance(omission.get('reason'), str) or len(omission['reason'].strip()) < 30):
+                raise Halt('invalid_omitted_children_receipt')
+            child = next((c for c in item['document'].get('children', []) if c.get('key') == omission['key']), None)
+            if child is None or child.get('answer_md', '').strip() or child.get('options'):
+                raise Halt('child_omission_has_existing_answer_or_options')
+            omission_keys.append(omission['key'])
+            omission_records.append({'key': omission['key'], 'reason': omission['reason'], 'source_child': copy.deepcopy(child)})
         reviewed_document = apply_patches(item['document'], paper_result, 'paper',
-                                          allow_option_structure_change=True)
+                                          allow_option_structure_change=True,
+                                          omitted_child_keys=omission_keys)
         payload = {'request_key': self.key(name), 'expected_revision': item['review_revision'],
                    'source_document_sha256': canonical_sha256(item['document']),
+                   'source_document': copy.deepcopy(item['document']),
                    'document': reviewed_document, 'resolved_issue_ids': ids,
                    'resolution_note': '外部视觉核验：'+receipt['note'][:900]}
         self.state.setdefault('agent_visual_paper_receipts', {})[item['id']] = receipt
         self.save()
         saved = self.operation(name, payload, lambda value: ingestion.save_candidate(self.conn,self.actor,item['id'],value))
+        if omission_records:
+            self.state.setdefault('child_omissions', {})[item['id']] = {
+                'keys': omission_keys, 'omitted_children': [entry['source_child'] for entry in omission_records],
+                'reasons': [{'key': entry['key'], 'reason': entry['reason']} for entry in omission_records],
+                'paper_sha256': expected['paper_sha256'],
+                'source_document_sha256': canonical_sha256(item['document']),
+                'receipt_sha256': canonical_sha256(receipt), 'at': time.time()}
+            self.state['paper']['partial'] = True
+            self.state.setdefault('paper', {})['partial_reason'] = '部分小问待补：第%s题%s' % (
+                item['document']['number'], '、'.join(entry['source_child'].get('label', entry['key']) for entry in omission_records))
         self.state.setdefault('reviewed_paper', {})[item['id']] = canonical_sha256(saved['document'])
         if conversion_ids:
             self.state.setdefault('conversion_issue_resolutions', {})[item['id']] = {
@@ -1075,8 +1157,12 @@ class Pipeline:
                 for family in ('knowledge','ability','literacy'):
                     if sorted(t['tag_id'] for t in actual if t['tag_type'] == family) != sorted(proposal[family]):
                         raise Halt('final_tag_readback_mismatch')
+            by_id = {item['id']: item for item in items}
             self.state['report'] = {'main_questions': len(items), 'answer_units': sum(len(i['published_question_ids']) for i in items),
                 'sample': self.state['sample'], 'partial': self.state['paper'].get('partial', False),
+                'omitted_subquestions': [{'number': by_id[item_id]['document']['number'], **entry}
+                    for item_id, omission in self.state.get('child_omissions', {}).items()
+                    for entry in omission.get('reasons', [])],
                 'scope': 'question_bank_only', 'deferred_items': [{'number':v['number'],'reason':v['reason']} for v in self.state.get('deferred_items',{}).values()], 'visual_receipts': len(self.state.get('visual_receipts', {})),
                 'watchdog_independence': 'separate_stateless_request; same provider unless explicitly configured'}
             atomic_json(self.directory/'report.json', self.state['report'])
