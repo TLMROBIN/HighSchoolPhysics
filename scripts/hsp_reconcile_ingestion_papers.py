@@ -175,6 +175,50 @@ def plan_one(root: Path, db_path: Path, conn, repo: PhysicsRepository, entry: di
     }
 
 
+def audit_superseded_runs(root: Path, conn, entries: list[dict]) -> list[dict]:
+    """Keep stopped retries visible while proving their question scope was replaced."""
+    audited = []
+    seen = set()
+    for entry in entries:
+        name = entry.get("run")
+        if not isinstance(name, str) or name in seen:
+            raise ReconcileError("invalid_superseded_run_name")
+        seen.add(name)
+        path = root / name / "state.json"
+        if not path.is_file():
+            raise ReconcileError(f"superseded_run_state_missing:{name}")
+        old = json.loads(path.read_text(encoding="utf-8"))
+        if old.get("stage") == "complete":
+            raise ReconcileError(f"cannot_supersede_completed_run:{name}")
+        numbers = [str(value) for value in entry.get("question_numbers", [])]
+        replacements = entry.get("replacement_runs", [])
+        if not numbers or not replacements:
+            raise ReconcileError(f"superseded_run_scope_missing:{name}")
+        old_files = old.get("paper", {}).get("files", {})
+        replacement_items = {}
+        for replacement_name in replacements:
+            replacement_path = root / replacement_name / "state.json"
+            if not replacement_path.is_file():
+                raise ReconcileError(f"replacement_run_state_missing:{replacement_name}")
+            replacement = read_state(root, replacement_name)
+            files = replacement.get("paper", {}).get("files", {})
+            for role in ("paper", "answers"):
+                if old_files.get(role, {}).get("sha256") != files.get(role, {}).get("sha256"):
+                    raise ReconcileError(f"superseded_source_hash_mismatch:{name}:{replacement_name}:{role}")
+            replacement_items.update(published_items(conn, replacement, replacement_name))
+        missing = [number for number in numbers if number not in replacement_items]
+        if missing:
+            raise ReconcileError(f"superseded_question_not_replaced:{name}:{missing}")
+        stop_path = path.parent / "STOP.json"
+        stop_reason = json.loads(stop_path.read_text(encoding="utf-8")).get("reason") if stop_path.exists() else ""
+        audited.append({
+            "run": name, "stage": old.get("stage"), "stop_reason": stop_reason,
+            "question_numbers": numbers, "replacement_runs": replacements,
+            "source_sha256": {role: old_files.get(role, {}).get("sha256") for role in ("paper", "answers")},
+        })
+    return audited
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", required=True, help="Explicit base and supplement run map")
@@ -191,6 +235,7 @@ def main() -> int:
     try:
         repo = PhysicsRepository(conn)
         plan = [plan_one(root, db_path, conn, repo, entry) for entry in manifest["papers"]]
+        superseded = audit_superseded_runs(root, conn, manifest.get("superseded_runs", []))
         if len({entry["title"] for entry in plan}) != len(plan):
             raise ReconcileError("duplicate_reconciled_titles")
         if args.create:
@@ -211,6 +256,7 @@ def main() -> int:
             "scope": "2026 source exam question-bank papers",
             "papers": [{k: v for k, v in entry.items() if k not in ("actor_id", "db")}
                        for entry in plan],
+            "superseded_runs": superseded,
         }
         output = Path(args.report)
         output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -220,6 +266,7 @@ def main() -> int:
                           "main_questions": sum(x["main_question_count"] for x in plan),
                           "answer_units": sum(x["answer_unit_count"] for x in plan),
                           "omitted_subquestions": sum(len(x["omitted_subquestions"]) for x in plan),
+                          "superseded_runs": len(superseded),
                           "report": str(output)}, ensure_ascii=False))
     finally:
         conn.close()
