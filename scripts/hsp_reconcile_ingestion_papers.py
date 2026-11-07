@@ -14,6 +14,9 @@ from pathlib import Path
 import re
 import sys
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from highschoolphysics import question_bank
 from highschoolphysics.db import connect
 from highschoolphysics.document_models import canonical_sha256
