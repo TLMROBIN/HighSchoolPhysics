@@ -52,7 +52,9 @@
 
 ## Agent 直接视觉核验答案
 
-解析文件存在公式图或 OCR 隐患时，Agent 对照解析文件的完整页图、题号和原题，确认答案及解析后，可用 `agent-answer-review --run <任务目录> --receipt <回执JSON>` 保存。回执除 item_id、reviewer、note、page、page_image_sha256、preview_sha256、document_sha256、review_revision、resolved_issue_ids 外，还需 paper_sha256、answers_sha256 及仅能修改答案/解析字段的 patches；跨页记录 additional_pages。只允许对答案文件中唯一匹配的题号进行复核，图片引用不得被补丁移除或改动。修改经已有候选版本锁与审计路径保存；后续仍需独立 watchdog。
+解析文件存在公式图或 OCR 隐患时，Agent 对照解析文件的完整页图、题号和原题，确认答案及解析后，可用 `agent-answer-review --run <任务目录> --receipt <回执JSON>` 保存。回执除 item_id、reviewer、note、page、page_image_sha256、preview_sha256、document_sha256、review_revision、resolved_issue_ids 外，还需 paper_sha256、answers_sha256 及答案/解析字段 patches；跨页记录 additional_pages。只允许对答案文件中唯一匹配的题号进行复核，图片引用不得被补丁移除或改动。修改经已有候选版本锁与审计路径保存；后续仍需独立 watchdog。
+
+答案回执还可在原卷和答案页均已绑定并视觉核验时，纠正单个小问被解析成错误作答格式的问题（例如原题接受多个等效文字答案，却被误标成只能有一个键值的单选题）。仅允许对子小问的 `kind` 使用已核对的标准类型；不允许改父题类型、增删小问、改题干或选项。题型修改必须同时有逐页视觉证据和答案字段补丁，并在备注中解释原文格式及修正理由；自动模型审核仍不能改题型。
 
 ## 视觉证据与文字 watchdog 的衔接
 

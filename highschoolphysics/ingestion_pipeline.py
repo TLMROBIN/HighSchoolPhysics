@@ -166,7 +166,8 @@ def inventory(roots):
     return {'version': VERSION, 'papers': result, 'ignored': ignored}
 
 
-def apply_patches(document, result, stage, allow_option_structure_change=False):
+def apply_patches(document, result, stage, allow_option_structure_change=False,
+                  allow_source_verified_kind_change=False):
     """Validate model output before touching the DB. Structure and evidence are immutable."""
     if result.get('verdict') != 'pass' or not isinstance(result.get('reason'), str) or len(result['reason'].strip()) < 8:
         raise Halt('review_blocked: '+str(result.get('reason', 'invalid review verdict')))
@@ -179,6 +180,8 @@ def apply_patches(document, result, stage, allow_option_structure_change=False):
         raise Halt('invalid_patch_list')
     out = copy.deepcopy(document)
     allowed = {'stem_md', 'options'} if stage == 'paper' else {'answer_md', 'analysis_md'}
+    if allow_source_verified_kind_change:
+        allowed.add('kind')
     for patch in patches:
         if not isinstance(patch, dict) or set(patch) != {'target', 'field', 'value'} or patch['field'] not in allowed:
             raise Halt('patch_outside_stage')
@@ -186,7 +189,11 @@ def apply_patches(document, result, stage, allow_option_structure_change=False):
         if target is None:
             raise Halt('unknown_patch_target')
         value = patch['value']
-        if patch['field'] == 'options':
+        if patch['field'] == 'kind':
+            if (not allow_source_verified_kind_change or patch['target'] == 'parent'
+                    or value not in {'single_choice', 'multiple_choice', 'fill', 'short_answer', 'structured', 'experiment'}):
+                raise Halt('kind_change_requires_source_verified_child_receipt')
+        elif patch['field'] == 'options':
             if not isinstance(value, list):
                 raise Halt('invalid_options')
             if allow_option_structure_change:
@@ -769,7 +776,8 @@ class Pipeline:
         if sorted(receipt.get('resolved_issue_ids',[]))!=sorted(ids):
             raise Halt('visual_issue_evidence_incomplete')
         result={'verdict':'pass','reason':receipt['note'],'checks':{'answer':True},'patches':receipt.get('patches',[])}
-        document=apply_patches(item['document'],result,'answers')
+        document=apply_patches(item['document'],result,'answers',
+                               allow_source_verified_kind_change=True)
         payload={'request_key':self.key(name),'expected_revision':item['review_revision'],'document':document,
                  'resolved_issue_ids':ids,'resolution_note':'外部视觉核验答案：'+receipt['note'][:850]}
         self.state.setdefault('agent_visual_answer_receipts',{})[item['id']]=receipt;self.save()
