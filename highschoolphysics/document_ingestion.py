@@ -814,6 +814,24 @@ def _answer_groups(conn, actor, answer_task_id, db_path=None, document_root=None
     return groups
 
 
+def _select_answer_candidate(entries, document):
+    """Resolve duplicate answer numbers only when one entry repeats the full stem.
+
+    Some answer files contain a stale question number on a preceding solution. A
+    full, exact stem echo in exactly one candidate provides a source-grounded
+    disambiguator; otherwise the duplicate remains a hard review issue.
+    """
+    if len(entries) == 1:
+        return entries[0]
+    stem = document.get("stem_md", "")
+    normalized_stem = re.sub(r"\s+", "", stem)
+    if not normalized_stem:
+        return None
+    matched = [entry for entry in entries
+               if normalized_stem in re.sub(r"\s+", "", entry.get("markdown", ""))]
+    return matched[0] if len(matched) == 1 else None
+
+
 def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_root=None, base_path=""):
     """Preview exact question-number matches, then attach selected answers for review."""
     _require_teacher(actor)
@@ -854,6 +872,10 @@ def attach_answers(conn, actor, paper_task_id, payload, db_path=None, document_r
     issues = []
     for number, answer_entries in sorted(groups.items(), key=lambda pair: int(pair[0])):
         targets = by_number.get(number, [])
+        if len(targets) == 1 and len(answer_entries) != 1:
+            selected = _select_answer_candidate(answer_entries, loads(targets[0]["document_json"], {}))
+            if selected is not None:
+                answer_entries = [selected]
         if len(answer_entries) != 1:
             issues.append({"answer_number": number, "code": "duplicate_answer_number", "count": len(answer_entries)})
             continue

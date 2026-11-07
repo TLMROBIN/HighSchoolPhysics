@@ -792,7 +792,7 @@ class Pipeline:
             raise Halt('visual_receipt_hash_or_revision_mismatch')
         # Answer association must still be unique; a receipt cannot override an ambiguous match.
         groups=ingestion._answer_groups(self.conn,self.actor,self.state['answers_task'],self.state['db'])
-        if len(groups.get(item['document']['number'],[]))!=1:
+        if ingestion._select_answer_candidate(groups.get(item['document']['number'],[]), item['document']) is None:
             raise Halt('answer_source_not_unique')
         issues=[i for i in item['document']['issues'] if i.get('severity') in ('blocking','review') and i.get('state')!='resolved']
         ids=[canonical_sha256(i)[:20] for i in issues]
