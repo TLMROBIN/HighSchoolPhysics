@@ -4,7 +4,7 @@ from urllib import request, error
 
 from .llm import LLMProviderError, LLM_TIMEOUT_SECONDS, _chat_completions_endpoint, _response_json
 
-PROMPT_VERSION = 'paper-ingestion-review-v4'
+PROMPT_VERSION = 'paper-ingestion-review-v5'
 MAX_OUTPUT = 6000
 
 
@@ -41,6 +41,17 @@ def review(repo, actor, purpose, packet, provider_id=None):
         '不能看到图的文字模型不得声称做过视觉核验，figures应为false；仅缺视觉能力而无其他缺陷时，'
         '可对本阶段文字核对给pass，流程另有不可跳过的视觉门禁。'
     )
+    if purpose == 'watchdog_content':
+        system += (
+            '本次stage严格为watchdog_content（内容质量抽查）：只核对题号、题干、选项、公式、图、'
+            '小问、答案与解析是否忠实对应原卷和答案来源。禁止检查标签，也不要要求tag_proposals或tag_catalog；'
+            '它们在本阶段不会提供，缺少它们不是问题。tags检查项不适用。'
+        )
+    elif purpose == 'watchdog_tags':
+        system += (
+            '本次stage严格为watchdog_tags（标签质量抽查）：只核对tag_proposals中实际选中的标签ID与题目设问是否相关，'
+            '用tag_catalog中的名称和路径解释。不要重新要求原卷、公式或答案的视觉门禁；这些已由独立前置阶段完成。'
+        )
     packet = dict(packet)
     image_urls = packet.pop('source_page_images', [])
     text = json.dumps({'stage': purpose, **packet}, ensure_ascii=False)
