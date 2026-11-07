@@ -107,7 +107,7 @@ python3 -m highschoolphysics.ingestion_pipeline visual-receipt \
 
 标签 watchdog 发现明确错配时，不得直接编辑 run 的 `state.json` 或覆盖模型候选。先核对题目与学校启用的知识点目录，再通过版本锁定的纠错回执更新待采纳提案；该操作保留模型原始候选、失败 watchdog 结果和前后标签，并强制重新运行独立标签 watchdog。只有 watchdog 通过后，流水线才能采纳。
 
-回执包含 `question_id`、`expected_version`、`expected_revision`、`expected_proposal_sha256`、`knowledge`、`ability`、`literacy`、`reviewer` 和具体 `note`。知识点必须属于当前学校启用目录；当前入口只允许修正知识标签，不允许顺带改动能力和素养标签。
+回执包含 `question_id`、`expected_version`、`expected_revision`、`expected_proposal_sha256`、`knowledge`、`ability`、`literacy`、`reviewer` 和具体 `note`。知识点与能力标签必须属于当前学校启用目录；该入口允许在版本锁和审计记录下修正知识、能力标签，素养标签保持原候选不变。空能力标签可用于来源无法支持某项明确能力标签的小问；知识标签至少保留一个与小问所属情境相符的启用节点。
 
 ```bash
 python3 -m highschoolphysics.ingestion_pipeline agent-tag-review \

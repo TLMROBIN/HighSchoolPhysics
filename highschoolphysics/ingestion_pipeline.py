@@ -506,7 +506,7 @@ class Pipeline:
                 raise Halt('invalid_tag_selection:'+family)
             self.repo._assert_active_tags(self.actor['school_id'], family, ids)
             selected[family] = list(ids)
-        if any(selected[family] != before[family] for family in ('ability', 'literacy')):
+        if selected['literacy'] != before['literacy']:
             raise Halt('agent_tag_review_scope_exceeded')
         if not selected['knowledge']:
             raise Halt('knowledge_tags_required')
