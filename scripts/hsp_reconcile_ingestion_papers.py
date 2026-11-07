@@ -74,6 +74,11 @@ def published_items(conn, state: dict, run_name: str) -> dict[str, dict]:
             raise ReconcileError(f"unresolved_content_issue:{run_name}:{number}")
         omissions = [entry for entry in state.get("report", {}).get("omitted_subquestions", [])
                      if str(entry.get("number")) == number]
+        omitted_audit = state.get("child_omissions", {}).get(item["item_id"], {})
+        for omission in omissions:
+            source_child = next((child for child in omitted_audit.get("omitted_children", [])
+                                 if child.get("key") == omission.get("key")), {})
+            omission["label"] = source_child.get("label", omission.get("key", "小问"))
         for qid in qids:
             current = question_bank.content(conn, qid, state["school_id"])
             if not current or canonical_sha256(current["document"]) != canonical_sha256(document):
@@ -91,7 +96,7 @@ def published_items(conn, state: dict, run_name: str) -> dict[str, dict]:
 def paper_title(source_title: str, omissions: list[dict]) -> str:
     title = re.sub(r"（部分导入[^）]*）$", "", source_title).strip()
     if omissions:
-        missing = "、".join(f"第{o.get('number')}题{o.get('key')}待补" for o in omissions)
+        missing = "、".join(f"第{o.get('number')}题{o.get('label', o.get('key', '小问'))}待补" for o in omissions)
         return f"{title}（全题号汇总；{missing}）"
     return title + "（全题号汇总）"
 
@@ -142,16 +147,21 @@ def plan_one(root: Path, db_path: Path, conn, repo: PhysicsRepository, entry: di
     if not isinstance(title, str) or not title.strip() or len(title) > 240:
         raise ReconcileError(f"invalid_completed_paper_title:{base_name}")
 
-    existing = conn.execute("select id from papers where school_id=? and title=? order by id",
-                            (base["school_id"], title)).fetchall()
+    base_title = re.sub(r"（部分导入[^）]*）$", "", base["paper"]["title"]).strip()
+    title_prefix = base_title + "（全题号汇总"
+    existing = conn.execute("select id,title from papers where school_id=? and (title=? or title like ?) order by id",
+                            (base["school_id"], title, title_prefix + "%")).fetchall()
     matches = []
+    rename_from = None
     for row in existing:
         actual = [value[0] for value in conn.execute(
             "select question_id from paper_questions where paper_id=? order by position", (row["id"],))]
         if actual == qids:
             matches.append(row["id"])
-        else:
-            raise ReconcileError(f"completed_title_exists_with_different_contents:{title}:{row['id']}")
+            if row["title"] != title:
+                rename_from = row["title"]
+        elif row["title"].startswith(title_prefix):
+            raise ReconcileError(f"completed_title_exists_with_different_contents:{row['title']}:{row['id']}")
     if len(matches) > 1:
         raise ReconcileError(f"duplicate_completed_paper_records:{title}")
     return {
@@ -161,7 +171,7 @@ def plan_one(root: Path, db_path: Path, conn, repo: PhysicsRepository, entry: di
         "answer_unit_count": len(qids), "omitted_subquestions": omissions,
         "existing_paper_id": matches[0] if matches else None,
         "school_id": base["school_id"], "actor_id": base["actor_id"],
-        "db": str(db_path),
+        "db": str(db_path), "rename_from": rename_from,
     }
 
 
@@ -186,6 +196,10 @@ def main() -> int:
         if args.create:
             for entry in plan:
                 if entry["existing_paper_id"]:
+                    if entry.get("rename_from"):
+                        repo.rename_paper(entry["actor_id"], entry["existing_paper_id"],
+                                          entry["title"], entry["rename_from"])
+                        entry["renamed_from"] = entry.pop("rename_from")
                     continue
                 assembled = repo.assemble_paper(entry["actor_id"], entry["title"],
                     "外部AI Agent按原卷SHA及已验收导入批次汇总",

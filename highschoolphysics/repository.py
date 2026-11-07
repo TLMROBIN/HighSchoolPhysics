@@ -456,6 +456,31 @@ class PhysicsRepository:
             "questions": assembled,
         }
 
+    def rename_paper(self, actor_id, paper_id, title, expected_title):
+        """Rename a teacher-visible paper with an optimistic title check and audit."""
+        actor = self._require_question_bank_actor(actor_id)
+        if not isinstance(title, str) or not title.strip() or len(title) > 240:
+            raise InvalidRequest("Paper title must be 1-240 characters")
+        row = self.conn.execute(
+            "select * from papers where id=? and school_id=?",
+            (paper_id, actor["school_id"]),
+        ).fetchone()
+        if row is None:
+            raise ResourceNotFound("Paper not found")
+        if row["title"] != expected_title:
+            raise StateConflict("Paper title changed; reload before renaming")
+        question_count = self.conn.execute(
+            "select count(*) from paper_questions where paper_id=?", (paper_id,)
+        ).fetchone()[0]
+        self.conn.execute("update papers set title=? where id=?", (title.strip(), paper_id))
+        self.audit(actor_id, "paper_title_updated", "paper", paper_id,
+                   {"old_title": expected_title, "new_title": title.strip(),
+                    "question_count": question_count})
+        self.conn.commit()
+        return row_to_dict(self.conn.execute(
+            "select * from papers where id=?", (paper_id,)
+        ).fetchone())
+
     def create_assessment_from_paper(
         self,
         actor_id,
