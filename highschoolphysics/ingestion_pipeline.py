@@ -112,28 +112,47 @@ def source_numbers(path):
 
 
 def raw_question_xml(path, number):
-    """Independent source text/math structure, not the parser's rewritten Markdown."""
+    """Independent source text/math structure, not the parser's rewritten Markdown.
+
+    Exam instructions often contain numbered paragraphs (for example, "2. 考生回答选择题").
+    Select the longest consecutive top-level question-number run first so those preamble numbers
+    cannot shadow the actual question with the same number.
+    """
     if Path(path).suffix.lower() != '.docx':
         return None
     with zipfile.ZipFile(path) as archive:
         root = ET.fromstring(archive.read('word/document.xml'))
     body = root.find(W+'body')
-    selected = []
-    active = False
-    for node in body:
+    numbered = []
+    for index, node in enumerate(body):
         text = ''.join(t.text or '' for t in node.iter(W+'t'))
         match = re.match(r'^\s*(\d{1,3})[.．、](?!\d)', text)
         if match:
-            if active:
-                break
-            active = match[1] == number
-        if active:
-            # Keep original math, text, scripts and image relation identifiers;
-            # drop Word styling/positioning noise, never truncate mathematical data.
-            selected.append({'text': text,
-                'math_xml': [ET.tostring(n, encoding='unicode') for n in node.iter('{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath')],
-                'scripts': [ET.tostring(n, encoding='unicode') for n in node.iter(W+'vertAlign')],
-                'embedded_objects': sum(1 for n in node.iter(W+'object'))})
+            numbered.append((index, match[1]))
+    runs = []
+    current = []
+    for entry in numbered:
+        if current and int(entry[1]) != int(current[-1][1]) + 1:
+            runs.append(current)
+            current = []
+        current.append(entry)
+    if current:
+        runs.append(current)
+    question_run = max(runs, key=lambda run: (len(run), run[0][0]), default=[])
+    target_index = next((i for i, (_, n) in enumerate(question_run) if n == str(number)), None)
+    if target_index is None:
+        return None
+    start = question_run[target_index][0]
+    end = question_run[target_index + 1][0] if target_index + 1 < len(question_run) else len(body)
+    selected = []
+    for node in list(body)[start:end]:
+        text = ''.join(t.text or '' for t in node.iter(W+'t'))
+        # Keep original math, text, scripts and image relation identifiers;
+        # drop Word styling/positioning noise, never truncate mathematical data.
+        selected.append({'text': text,
+            'math_xml': [ET.tostring(n, encoding='unicode') for n in node.iter('{http://schemas.openxmlformats.org/officeDocument/2006/math}oMath')],
+            'scripts': [ET.tostring(n, encoding='unicode') for n in node.iter(W+'vertAlign')],
+            'embedded_objects': sum(1 for n in node.iter(W+'object'))})
     return selected or None
 
 
