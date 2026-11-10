@@ -657,7 +657,7 @@ def teacher(repo,user,params,document_import_enabled=False):
         body.append('<tr><td>%s / %s</td><td>%s</td><td>%s</td><td>%s</td></tr>'%(esc(scope_label(a)),esc(a['title']),sum(p['available'] for p in ps),sum(p['pending'] for p in ps),sum(p['count']>=3 for p in ps)))
     body.append('</table></div></details>')
     body.append('<details class="teacher-settings-details"><summary>每日练习设置</summary>')
-    body.append('<h3>每组练习题数</h3>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="5"></label><button>保存设置</button>')+'</details>')
+    body.append('<h3>学生每日任务题数</h3><p>学生首页"今日任务"每天安排的错题数，未设置时为 3 道；学生完成后可自行"再来一组"。</p>'+form('settings','<label>班级'+select('class_id',classes)+'</label><label>题数<input name="daily_limit" type="number" min="1" max="20" value="3"></label><button>保存设置</button>')+'</details>')
     return ''.join(body)+'</section>'+footer()
 
 def _exam_non_submission_records(c, assessment_id, participants, editable=True):

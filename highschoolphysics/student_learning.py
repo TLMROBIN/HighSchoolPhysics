@@ -50,6 +50,8 @@ def migrate(c):
     cols = {r['name'] for r in c.execute('pragma table_info(redo_attempts)')}
     if 'self_reported' not in cols:
         c.execute('alter table redo_attempts add column self_reported integer not null default 0')
+    from .daily import migrate as migrate_daily
+    migrate_daily(c)
     c.commit()
 
 
@@ -140,6 +142,10 @@ def api(repo, user, action, p, base_path=''):
 def _api(repo, user, action, p, base_path=''):
     require_student(user)
     c, uid = repo.conn, user['id']
+    if action in ('daily-similar', 'daily-more'):
+        from .daily import api as daily_api
+        groups = group_wrongs(repo, user)
+        return daily_api(repo, user, action, p, groups, due_groups(c, uid, groups))
     if action == 'wrong-causes':
         from .wrong_causes import save
         return save(repo, user, p)
@@ -672,16 +678,21 @@ def bank(repo,user,params,base_path):
     out.append('</nav>');return library_layout(sidebar,''.join(out))
 
 
+def due_groups(c, uid, all_wrongs):
+    types, levels = preferences(c, uid)
+    return [g for g in all_wrongs if any(w['progress']['available'] and (not types or w.get('filter_kind',w['kind']) in types) and (not levels or w['level'] in levels) for w in g['members'])]
+
+
 def page(repo,user,params,base_path=''):
     require_student(user);c=repo.conn;uid=user['id']
     if (params.get('student_id') or [uid])[0] != uid:
         raise PermissionDenied('只能查看自己的学习证据')
     all_wrongs=group_wrongs(repo,user);types,levels=preferences(c,uid)
-    due=[g for g in all_wrongs if any(w['progress']['available'] and (not types or w.get('filter_kind',w['kind']) in types) and (not levels or w['level'] in levels) for w in g['members'])]
+    due=due_groups(c,uid,all_wrongs)
     value=lambda k:(params.get(k) or [''])[0]
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
-    module=value('module') or 'wrong'
+    module=value('module') or 'today'
     map_home = module in ('starmap', 'graph') and not wid and not value('trial')
     out=['<section class="panel learning student-workspace%s"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>' % (' student-map-workspace' if map_home else '')]
     from .learning_views import form,hidden
@@ -690,19 +701,25 @@ def page(repo,user,params,base_path=''):
     out.append(form('student-preferences',settings)+'</details>')
     review_link = '<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>' % len(due)
     out.append(review_link + '</header>' if map_home else '</header>' + review_link)
-    modules=(('wrong','错题本'),('starmap','知识星图'),('history','历史测试'),('bank','题库'))
+    modules=(('today','今日任务'),('wrong','错题本'),('starmap','知识星图'),('history','历史测试'),('bank','题库'))
     nav_module = 'starmap' if module == 'graph' else module
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==nav_module else '',v) for k,v in modules)+'</nav>')
+    back_today = value('back') == 'today'
     if value('trial'):
-        t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=bank'))
+        t=owned_trial(c,user,value('trial'));out.append(practice(repo,user,t,base_path,'app?module=today' if back_today else 'app?module=bank'))
     elif wid:
         w=next((g for g in all_wrongs if any(member['id']==wid for member in g['members'])),None)
         if not w:raise PermissionDenied('错题不存在或尚未发布')
         # Carry the remaining queue through sequential requests; after saving only the next question appears.
-        remaining=(params.get('queue') or [''])[0].split(',') if value('queue') else [item['id'] for item in due]
+        remaining=(params.get('queue') or [''])[0].split(',') if value('queue') or back_today else [item['id'] for item in due]
         remaining=[rid for rid in remaining if rid and rid!=w['id'] and any(item['id']==rid for item in due)]
-        next_url='app?practice='+quote(remaining[0])+'&queue='+quote(','.join(remaining[1:])) if remaining else 'app?module=history&completed=1'
+        suffix='&back=today' if back_today else ''
+        done_url='app?module=today&completed=1' if back_today else 'app?module=history&completed=1'
+        next_url='app?practice='+quote(remaining[0])+'&queue='+quote(','.join(remaining[1:]))+suffix if remaining else done_url
         out.append(group_practice(repo,user,w,base_path,next_url))
+    elif module=='today':
+        from .daily import render as daily_render
+        out.append(daily_render(repo,user,all_wrongs,due,params))
     elif module=='wrong':
         out.append('<h2>错题本</h2>')
         if value('mastered'):out.append('<p role="status">已移出错题本，不再提示复习。</p>')
@@ -725,6 +742,6 @@ def page(repo,user,params,base_path=''):
     elif module!='home':raise InvalidRequest('学习模块不存在')
     if value('review') and not wid:out.append('<p>当前关注范围内暂无待复习题目，可进入题库试做。</p>')
     out.append('<link rel="stylesheet" href="assets/diagnosis.css?v=20261008-adaptive-v1"><script src="assets/diagnosis.js?v=20261011-map-v2" defer></script>')
-    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261008-wrong-causes-v1"><script src="assets/student-learning.js?v=20261008-wrong-causes-v1" defer></script>')
+    out.append('</section><link rel="stylesheet" href="assets/student-learning.css?v=20261109-daily-v1"><script src="assets/student-learning.js?v=20261109-daily-v1" defer></script>')
     from .learning_views import footer
     return ''.join(out)+footer()

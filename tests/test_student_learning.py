@@ -31,7 +31,8 @@ class StudentLearningTests(unittest.TestCase):
         for label in ('待复习','错题本','知识星图','历史测试','题库','关注设置'):self.assertIn(label,page)
         self.assertIn('app?module=starmap',page)
         self.assertNotIn('我的学习地图',page)
-        self.assertIn('student-wrong',page)
+        self.assertIn('daily-tasks',page)
+        self.assertIn('student-wrong',learning_views.student(self.repo,self.user,{'module':['wrong']}))
         originals=[tuple(r) for r in self.c.execute('select * from student_responses')]
         student_learning.api(self.repo,self.user,'student-preferences',dict(types=['experiment'],levels=['挑战']))
         page=learning_views.student(self.repo,self.user,{})

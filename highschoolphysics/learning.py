@@ -114,13 +114,16 @@ def progress(conn, wrong, today=None):
     events=[(r[0],'wrong','original') for r in originals]
     attempts=conn.execute('select a.* from redo_attempts a join wrong_questions w on w.id=a.wrong_question_id join student_responses r on r.id=w.response_id join question_version_snapshots s on s.id=r.snapshot_id where a.student_id=? and w.question_id=? and s.question_version=? order by a.submitted_at,a.id',(wrong['student_id'],wrong['question_id'],version)).fetchall()
     events += [(a['submitted_at'],a['outcome'],a['purpose']) for a in attempts if a['purpose']=='verify']
+    # A similar bank question chosen from the daily task may stand in for a later verification.
+    from .daily import similar_events
+    events += [(s[0],s[1],'similar') for s in similar_events(conn,wrong['student_id'],wrong['question_id'])]
     count=0; due=today; last='需再练'
     for date,result,purpose in sorted(events,key=lambda event: instant(event[0])):
         d=day(date)
         if result=='pending': continue
         last=LABELS[result]
         if result in ('wrong','blank'): count=0; due=d+timedelta(days=1)
-        elif count<3 and d>=due:
+        elif count<3 and d>=due and (purpose!='similar' or count>=1):
             count+=1; due=d+timedelta(days=(3 if count==1 else 7))
     pending=any(a['outcome']=='pending' and c_active(conn,a['wrong_question_id']) for a in attempts)
     if not originals:
@@ -261,7 +264,7 @@ def api(repo,user,action,p,base_path=""):
     if action.startswith('diagnosis-'):
         from .diagnosis import api as diagnosis_api
         return diagnosis_api(repo,user,action,p)
-    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit','wrong-mastered','wrong-causes'):
+    if action in ('student-preferences','bank-start','bank-solution','bank-submit','bank-add-wrong','personal-solution','personal-submit','group-solution','group-submit','wrong-mastered','wrong-causes','daily-similar','daily-more'):
         from .student_learning import api as student_api
         return student_api(repo,user,action,p,base_path)
     if action=='answers':

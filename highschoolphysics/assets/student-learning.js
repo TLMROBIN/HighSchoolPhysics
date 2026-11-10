@@ -34,7 +34,7 @@
   compactFilters.addEventListener('change',()=>{if(compactFilters.matches)close();else sync();});sync();
  });
  document.querySelectorAll('.student-workspace .learning-form').forEach(f=>{
-  const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences','wrong-mastered'].includes(action))return;
+  const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences','wrong-mastered','daily-similar','daily-more'].includes(action))return;
   const requestKey=key();f.addEventListener('submit',async e=>{
    e.preventDefault();e.stopImmediatePropagation();if(action==='wrong-mastered'&&!confirm('确认已掌握这道题？确认后整道题将移出错题本，不再提示复习。首次作答和重做记录会保留。'))return;const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit],button:not([type])');button.disabled=true;status.textContent='正在保存…';
    try{const d=await request(action,{...payload(f),request_key:requestKey,...(action==='wrong-mastered'?{confirmed:true}:{})});location.assign(d.url||'app');}
@@ -54,7 +54,7 @@
     const d=await request(f.dataset.action,p);sessionStorage.removeItem(draft);status.textContent=labels[d.outcome]||'已保存';if(d.parts)status.textContent+=' · '+d.parts.map(part=>part.label+'：'+labels[part.outcome]).join('；');
     if(p.self_outcome)status.textContent+=' · 学生自评';
     f.querySelectorAll('input,select,button').forEach(input=>input.disabled=true);
-    const article=f.closest('.student-practice'),next=article.querySelector('.practice-next');next.hidden=false;next.textContent=f.dataset.action==='bank-submit'?'返回题库':(f.dataset.next.includes('completed=1')?'完成本轮复习':'下一题');
+    const article=f.closest('.student-practice'),next=article.querySelector('.practice-next');next.hidden=false;next.textContent=f.dataset.next.includes('module=today')?(f.dataset.next.includes('completed=1')||f.dataset.action==='bank-submit'?'返回今日任务':'下一题'):f.dataset.action==='bank-submit'?'返回题库':(f.dataset.next.includes('completed=1')?'完成本轮复习':'下一题');
     if(f.dataset.action==='bank-submit'&&['wrong','blank'].includes(d.outcome)){
      const box=document.createElement('div'),text=document.createElement('p'),add=document.createElement('button'),skip=document.createElement('a'),feedback=document.createElement('p');
      box.className='student-add-wrong';text.textContent='是否将这道题加入错题本？';add.textContent='加入错题本';add.type='button';skip.href='app?module=bank';skip.textContent='暂不加入';feedback.setAttribute('role','status');box.append(text,add,skip,feedback);status.after(box);
