@@ -4811,8 +4811,13 @@ class PhysicsRepository:
             row["capability_id"]: row
             for row in self.latest_runtime_capability_checks(actor_id)
         }
+        # Light mode only locates packages on disk instead of importing them;
+        # full imports (paddleocr etc.) take seconds and made every first
+        # /admin page load after a restart stall. The explicit "运行检测"
+        # action still runs the full import check and persists its results,
+        # which are overlaid onto this list below.
         runtime_checks = []
-        for check in check_runtime_capabilities():
+        for check in check_runtime_capabilities(light=True):
             persisted = latest.get(check["capability_id"])
             resolved = persisted or check
             if check["capability_id"] == "mineru-api":

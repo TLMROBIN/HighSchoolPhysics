@@ -14,9 +14,34 @@ PID_FILE="${PID_FILE:-data/server.pid}"
 APP_SERVICE="${APP_SERVICE:-highschoolphysics-app.service}"
 DOCUMENT_WORKER_SERVICE="${DOCUMENT_WORKER_SERVICE:-highschoolphysics-document-worker.service}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8765/}"
+LOG_MAX_BYTES="${LOG_MAX_BYTES:-209715200}"
+LOG_KEEP_BYTES="${LOG_KEEP_BYTES:-52428800}"
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S%z')" "$1"
+}
+
+rotate_append_log() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local size
+  size="$(stat -c %s "$file" 2>/dev/null || printf '0')"
+  [[ "$size" -gt "$LOG_MAX_BYTES" ]] || return 0
+  # systemd keeps these logs open with O_APPEND; truncating in place keeps
+  # the fd valid, whereas mv would strand new writes on the old inode.
+  local tmp="${file}.rotate-tmp"
+  if tail -c "$LOG_KEEP_BYTES" "$file" > "$tmp" && cat "$tmp" > "$file"; then
+    rm -f "$tmp"
+    log "rotated ${file} (${size} bytes -> kept last ${LOG_KEEP_BYTES} bytes)"
+  else
+    rm -f "$tmp"
+    log "WARN: failed to rotate ${file}"
+  fi
+}
+
+rotate_service_logs() {
+  rotate_append_log "data/server-systemd.log"
+  rotate_append_log "data/server-systemd.err.log"
 }
 
 fail() {
@@ -133,6 +158,7 @@ PY
 main() {
   cd "$PROJECT_DIR"
   mkdir -p data
+  rotate_service_logs
 
   local before after
   before="$(git rev-parse HEAD)"

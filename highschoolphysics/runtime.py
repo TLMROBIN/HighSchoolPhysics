@@ -1,6 +1,6 @@
 """Runtime capability checks for production dependencies."""
 
-from importlib import import_module, metadata
+from importlib import import_module, metadata, util as importlib_util
 import json
 import os
 from pathlib import Path
@@ -185,7 +185,27 @@ def _mineru_local_configuration(definition):
     }
 
 
-def check_single_capability(definition):
+def _module_locatable(module_name):
+    """Return True when a module can be found without importing it.
+
+    Only the top-level package is resolved so dotted names such as
+    ``cryptography.fernet`` never execute the parent package either.
+    """
+    top_level = module_name.split(".", 1)[0]
+    try:
+        return importlib_util.find_spec(top_level) is not None
+    except Exception:
+        return False
+
+
+def check_single_capability(definition, light=False):
+    """Check one capability.
+
+    With ``light=True`` the module is only located on disk (find_spec)
+    instead of being imported. Heavy dependencies such as paddleocr take
+    seconds to import, so page rendering must use the light mode; the
+    full import check stays available for explicit, user-triggered runs.
+    """
     capability_id = definition["id"]
     label = definition.get("label", capability_id)
     python_min = definition.get("python_min")
@@ -210,9 +230,15 @@ def check_single_capability(definition):
     package_name = definition.get("package") or module_name
     version = _package_version(package_name)
     if module_name:
-        try:
-            import_module(module_name)
-        except Exception:
+        if light:
+            available = _module_locatable(module_name)
+        else:
+            try:
+                import_module(module_name)
+                available = True
+            except Exception:
+                available = False
+        if not available:
             return {
                 "capability_id": capability_id,
                 "label": label,
@@ -270,10 +296,17 @@ def check_single_capability(definition):
         "capability_id": capability_id,
         "label": label,
         "status": "ready",
-        "detail": "%s dependency is importable" % label,
+        "detail": (
+            "%s dependency is installed" % label
+            if light
+            else "%s dependency is importable" % label
+        ),
         "version": version,
     }
 
 
-def check_runtime_capabilities(definitions=CAPABILITY_DEFINITIONS):
-    return [check_single_capability(definition) for definition in definitions]
+def check_runtime_capabilities(definitions=CAPABILITY_DEFINITIONS, light=False):
+    return [
+        check_single_capability(definition, light=light)
+        for definition in definitions
+    ]

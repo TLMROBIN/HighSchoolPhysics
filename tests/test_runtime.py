@@ -105,6 +105,55 @@ class RuntimeCapabilityTests(unittest.TestCase):
                 self.assertEqual(configured["status"], "configured")
                 self.assertIn("does not prove OCR quality", configured["detail"])
 
+    def test_light_mode_locates_module_without_importing_it(self):
+        definition = {
+            "id": "light-json",
+            "label": "Light JSON",
+            "module": "json",
+        }
+        with patch(
+            "highschoolphysics.runtime.import_module",
+            side_effect=AssertionError("light mode must not import modules"),
+        ):
+            result = check_single_capability(definition, light=True)
+        self.assertEqual(result["status"], "ready")
+        self.assertIn("is installed", result["detail"])
+
+    def test_light_mode_reports_missing_module(self):
+        result = check_single_capability(
+            {
+                "id": "light-missing",
+                "label": "Light Missing",
+                "module": "definitely_missing_hsp_module",
+            },
+            light=True,
+        )
+        self.assertEqual(result["status"], "missing_dependency")
+
+    def test_light_mode_does_not_import_dotted_parent_package(self):
+        definition = {
+            "id": "light-dotted",
+            "label": "Light Dotted",
+            "module": "json.decoder",
+        }
+        with patch(
+            "highschoolphysics.runtime.import_module",
+            side_effect=AssertionError("light mode must not import modules"),
+        ):
+            result = check_single_capability(definition, light=True)
+        self.assertEqual(result["status"], "ready")
+
+    def test_light_summary_is_stable_and_contains_all_capabilities(self):
+        with patch(
+            "highschoolphysics.runtime.import_module",
+            side_effect=AssertionError("light mode must not import modules"),
+        ):
+            result = check_runtime_capabilities(light=True)
+        self.assertEqual(
+            [item["capability_id"] for item in result],
+            list(CAPABILITY_IDS),
+        )
+
     def test_python_minimum_is_reported_as_degraded(self):
         result = check_single_capability(
             {

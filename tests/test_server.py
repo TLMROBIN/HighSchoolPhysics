@@ -704,6 +704,20 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn('data-admin-form="runtime-check"', html)
         self.assertIn("runtime-health-grid", html)
 
+    def test_admin_dashboard_readiness_check_does_not_import_modules(self):
+        # Heavy dependencies (paddleocr, playwright, ...) take seconds to
+        # import; the /admin page must only locate them on disk. The full
+        # import check is reserved for the explicit runtime-check action.
+        admin = self.auth.login("admin", "admin123", "unit-test").user
+        with patch(
+            "highschoolphysics.runtime.import_module",
+            side_effect=AssertionError("admin dashboard must not import modules"),
+        ):
+            dashboard = self.repo.admin_dashboard(admin["id"])
+        checks = dashboard["production_readiness"]["runtime_checks"]
+        self.assertEqual(len(checks), 7)
+        self.assertTrue(all("status" in check for check in checks))
+
     def test_admin_app_exposes_provider_operations_panel(self):
         admin = self.auth.login("admin", "admin123", "unit-test").user
         self.repo.save_provider_config(
