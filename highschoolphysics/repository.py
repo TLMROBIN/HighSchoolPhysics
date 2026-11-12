@@ -5632,6 +5632,61 @@ class PhysicsRepository:
             publish=publish,
         )
 
+    def admin_user_management_page(
+        self,
+        actor_id,
+        query="",
+        role="",
+        status="",
+        page=1,
+        page_size=12,
+    ):
+        actor = self._actor(actor_id)
+        if actor["role"] != "admin":
+            raise PermissionDenied("Admin role required")
+        rows = self.admin_user_management_rows()
+        query = (query or "").strip().lower()
+        if query:
+            rows = [
+                row
+                for row in rows
+                if query
+                in " ".join(
+                    [
+                        row.get("username") or "",
+                        row.get("display_name") or "",
+                        row.get("role") or "",
+                        row.get("grade") or "",
+                        row.get("class_name") or "",
+                        row.get("status") or "",
+                    ]
+                ).lower()
+            ]
+        if role:
+            rows = [row for row in rows if (row.get("role") or "") == role]
+        if status:
+            rows = [row for row in rows if (row.get("status") or "") == status]
+        total = len(rows)
+        try:
+            page_size = int(page_size)
+        except (TypeError, ValueError):
+            page_size = 12
+        page_size = max(1, min(page_size, 100))
+        total_pages = max(1, -(-total // page_size))
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            page = 1
+        page = min(max(1, page), total_pages)
+        start = (page - 1) * page_size
+        return {
+            "rows": rows[start : start + page_size],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
     def admin_user_management_rows(self):
         rows = self.conn.execute(
             """

@@ -2222,30 +2222,9 @@ def render_teacher_app(user, dashboard):
     return render_layout("教师端 - 高中物理闭环系统", user, body, "teacher")
 
 
-def render_admin_app(user, dashboard):
-    taxonomy_summary = dashboard["taxonomy_summary"]
-    taxonomy_sources = dashboard["taxonomy_sources"]
-    _mastery_trend, _mastery_grade_columns = _render_admin_mastery_analytics(
-        dashboard.get("mastery_analytics", {"grades": [], "trends": []})
-    )
-    taxonomy_nodes = dashboard["knowledge_nodes"]
-    taxonomy_node_by_id = {item["id"]: item for item in taxonomy_nodes}
-    source_title_by_key = {
-        item["source_key"]: item["title"] for item in taxonomy_sources
-    }
-
-    def module_id_for(node):
-        current = node
-        visited = set()
-        while current and current.get("parent_id"):
-            if current["id"] in visited:
-                return ""
-            visited.add(current["id"])
-            current = taxonomy_node_by_id.get(current["parent_id"])
-        return current["id"] if current and current.get("level") == 1 else ""
-
+def _render_admin_class_group_checkboxes(class_groups):
     class_group_items = []
-    for class_group in dashboard.get("class_groups", []):
+    for class_group in class_groups:
         if class_group.get("status") and class_group["status"] != "active":
             continue
         class_group_items.append(
@@ -2269,66 +2248,70 @@ def render_admin_app(user, dashboard):
                 escape(class_group.get("school_year") or ""),
             )
         )
-    class_group_checkbox_list = "".join(class_group_items) or (
+    return "".join(class_group_items) or (
         "<li class=\"assign-classes-empty\">暂无班级可分配。</li>"
     )
 
-    def _render_user_row_actions(item):
-        if item.get("role") != "teacher":
-            return (
-                "<td class=\"admin-user-actions\">"
-                "<span class=\"admin-user-actions-empty\">—</span>"
-                "</td>"
-            )
-        teacher_id = escape(item["id"])
-        class_ids = [
-            cid for cid in (item.get("class_ids") or "").split(",") if cid
-        ]
+
+def _render_admin_user_row_actions(item, class_group_checkbox_list):
+    if item.get("role") != "teacher":
         return (
             "<td class=\"admin-user-actions\">"
-            "<button type=\"button\" class=\"secondary\" "
-            "data-action=\"open-assign-classes\" data-teacher-id=\"%s\" "
-            "aria-expanded=\"false\" aria-controls=\"assign-classes-panel-%s\">"
-            "分配班级"
-            "</button>"
-            "<div class=\"assign-classes-panel\" "
-            "data-assign-classes-panel data-teacher-id=\"%s\" hidden "
-            "id=\"assign-classes-panel-%s\">"
-            "<form class=\"assign-classes-form\" "
-            "data-admin-form=\"assign-classes\" "
-            "data-endpoint=\"/api/admin/teacher/%s/assign-classes\">"
-            "<div class=\"assign-classes-header\">"
-            "<strong>%s 当前任课</strong>"
-            "<span>%d 个班级 · 勾选以更新</span>"
-            "</div>"
-            "<ul class=\"assign-classes-options\" "
-            "data-assign-classes-options data-initial-ids=\"%s\">"
-            "%s"
-            "</ul>"
-            "<div class=\"assign-classes-actions\">"
-            "<button type=\"submit\">保存分配</button>"
-            "<button type=\"button\" class=\"secondary\" "
-            "data-action=\"close-assign-classes\" data-teacher-id=\"%s\">"
-            "取消"
-            "</button>"
-            "</div>"
-            "</form>"
-            "</div>"
+            "<span class=\"admin-user-actions-empty\">—</span>"
             "</td>"
-        ) % (
-            teacher_id,
-            teacher_id,
-            teacher_id,
-            teacher_id,
-            teacher_id,
-            escape(item.get("display_name") or item.get("username") or ""),
-            len(class_ids),
-            escape(" ".join(class_ids)),
-            class_group_checkbox_list,
-            teacher_id,
         )
+    teacher_id = escape(item["id"])
+    class_ids = [
+        cid for cid in (item.get("class_ids") or "").split(",") if cid
+    ]
+    return (
+        "<td class=\"admin-user-actions\">"
+        "<button type=\"button\" class=\"secondary\" "
+        "data-action=\"open-assign-classes\" data-teacher-id=\"%s\" "
+        "aria-expanded=\"false\" aria-controls=\"assign-classes-panel-%s\">"
+        "分配班级"
+        "</button>"
+        "<div class=\"assign-classes-panel\" "
+        "data-assign-classes-panel data-teacher-id=\"%s\" hidden "
+        "id=\"assign-classes-panel-%s\">"
+        "<form class=\"assign-classes-form\" "
+        "data-admin-form=\"assign-classes\" "
+        "data-endpoint=\"/api/admin/teacher/%s/assign-classes\">"
+        "<div class=\"assign-classes-header\">"
+        "<strong>%s 当前任课</strong>"
+        "<span>%d 个班级 · 勾选以更新</span>"
+        "</div>"
+        "<ul class=\"assign-classes-options\" "
+        "data-assign-classes-options data-initial-ids=\"%s\">"
+        "%s"
+        "</ul>"
+        "<div class=\"assign-classes-actions\">"
+        "<button type=\"submit\">保存分配</button>"
+        "<button type=\"button\" class=\"secondary\" "
+        "data-action=\"close-assign-classes\" data-teacher-id=\"%s\">"
+        "取消"
+        "</button>"
+        "</div>"
+        "</form>"
+        "</div>"
+        "</td>"
+    ) % (
+        teacher_id,
+        teacher_id,
+        teacher_id,
+        teacher_id,
+        teacher_id,
+        escape(item.get("display_name") or item.get("username") or ""),
+        len(class_ids),
+        escape(" ".join(class_ids)),
+        class_group_checkbox_list,
+        teacher_id,
+    )
 
-    user_rows = "".join(
+
+def render_admin_user_rows(items, class_groups):
+    class_group_checkbox_list = _render_admin_class_group_checkboxes(class_groups)
+    rows = "".join(
         (
             "<tr data-admin-user-row data-role='%s' data-status='%s' "
             "data-search-text='%s' data-class-ids='%s'>"
@@ -2357,9 +2340,51 @@ def render_admin_app(user, dashboard):
             escape(item.get("grade", "")),
             escape(item.get("class_name", "")),
             escape(item.get("status", "")),
-            _render_user_row_actions(item),
+            _render_admin_user_row_actions(item, class_group_checkbox_list),
         )
-        for item in dashboard["user_management"]
+        for item in items
+    )
+    return rows or (
+        "<tr class=\"admin-user-empty-row\">"
+        "<td colspan=\"7\">没有匹配的账号。</td>"
+        "</tr>"
+    )
+
+
+def render_admin_app(user, dashboard):
+    taxonomy_summary = dashboard["taxonomy_summary"]
+    taxonomy_sources = dashboard["taxonomy_sources"]
+    _mastery_trend, _mastery_grade_columns = _render_admin_mastery_analytics(
+        dashboard.get("mastery_analytics", {"grades": [], "trends": []})
+    )
+    taxonomy_nodes = dashboard["knowledge_nodes"]
+    taxonomy_node_by_id = {item["id"]: item for item in taxonomy_nodes}
+    source_title_by_key = {
+        item["source_key"]: item["title"] for item in taxonomy_sources
+    }
+
+    def module_id_for(node):
+        current = node
+        visited = set()
+        while current and current.get("parent_id"):
+            if current["id"] in visited:
+                return ""
+            visited.add(current["id"])
+            current = taxonomy_node_by_id.get(current["parent_id"])
+        return current["id"] if current and current.get("level") == 1 else ""
+
+    user_page_size = 12
+    all_user_items = dashboard["user_management"]
+    user_total = len(all_user_items)
+    user_total_pages = max(1, -(-user_total // user_page_size))
+    user_page_end = min(user_page_size, user_total)
+    # Only the first page is rendered into the initial HTML; the account
+    # table used to embed every user (hundreds of KB), which made /admin
+    # slow to transfer and parse. Other pages are fetched on demand via
+    # /api/admin/users.
+    user_rows = render_admin_user_rows(
+        all_user_items[:user_page_size],
+        dashboard.get("class_groups", []),
     )
     active_ontology = dashboard["active_ontology_version"] or {
         "id": "",
@@ -2748,12 +2773,12 @@ def render_admin_app(user, dashboard):
           <span class="admin-user-page-size" data-admin-user-page-size="12">每页 12 条</span>
         </div>
         <div class="compact-table-scroll">
-          <table class="admin-user-table"><thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>年级</th><th>班级</th><th>状态</th><th>操作</th></tr></thead><tbody>{user_rows}</tbody></table>
+          <table class="admin-user-table"><thead><tr><th>账号</th><th>姓名</th><th>角色</th><th>年级</th><th>班级</th><th>状态</th><th>操作</th></tr></thead><tbody data-admin-user-tbody data-admin-user-total="{user_total}">{user_rows}</tbody></table>
         </div>
         <div class="admin-user-pagination" data-admin-user-pagination>
-          <button class="secondary" type="button" data-admin-user-prev>上一页</button>
-          <span data-admin-user-page-info>第 1 页</span>
-          <button class="secondary" type="button" data-admin-user-next>下一页</button>
+          <button class="secondary" type="button" data-admin-user-prev disabled>上一页</button>
+          <span data-admin-user-page-info>第 1/{user_total_pages} 页 · {user_page_start}-{user_page_end} / {user_total}</span>
+          <button class="secondary" type="button" data-admin-user-next {user_next_disabled}>下一页</button>
         </div>
         </section>
       <section class="panel sso-settings-panel admin-panel-fit">
@@ -2999,6 +3024,11 @@ def render_admin_app(user, dashboard):
   </section>
 </section>""".format(
         user_rows=user_rows,
+        user_total=user_total,
+        user_total_pages=user_total_pages,
+        user_page_start=1 if user_total else 0,
+        user_page_end=user_page_end,
+        user_next_disabled="disabled" if user_total_pages <= 1 else "",
         knowledge_total=taxonomy_summary["knowledge"]["total"],
         volume_total=level_counts[1],
         chapter_total=level_counts[2],
@@ -3276,6 +3306,29 @@ class PhysicsHandler(BaseHTTPRequestHandler):
                         self._send_html(teacher_page)
                 else:
                     self._send_error(HTTPStatus.FORBIDDEN, "教师或管理员账号才能进入教师工作台。", user=user)
+            elif path == "/api/admin/users":
+                if not user or user["role"] != "admin":
+                    self._send_json(
+                        {"error": "unauthorized"}, status=HTTPStatus.FORBIDDEN
+                    )
+                else:
+                    repo = PhysicsRepository(conn)
+                    params = parse_qs(parsed.query)
+                    page_data = repo.admin_user_management_page(
+                        user["id"],
+                        query=(params.get("q") or [""])[0],
+                        role=(params.get("role") or [""])[0],
+                        status=(params.get("status") or [""])[0],
+                        page=(params.get("page") or ["1"])[0],
+                        page_size=(params.get("page_size") or ["12"])[0],
+                    )
+                    rows_html = render_admin_user_rows(
+                        page_data.pop("rows"),
+                        repo.class_groups(user["id"]),
+                    )
+                    self._send_json(
+                        {"ok": True, "result": {**page_data, "html": rows_html}}
+                    )
             elif path == "/admin":
                 if not user:
                     self._redirect("/login")

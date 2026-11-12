@@ -1,3 +1,4 @@
+import json
 import re
 import tempfile
 import unittest
@@ -645,6 +646,83 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("function updateAdminUserTable", script)
         self.assertIn("adminUserPage", script)
 
+    def _seed_bulk_students(self, count=20):
+        for index in range(count):
+            self.conn.execute(
+                """insert into users(
+                     id, school_id, username, display_name, role, class_id,
+                     student_no, enrollment_year, status, password_hash,
+                     must_change_password
+                   ) values(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "user-bulk-%02d" % index,
+                    "school-demo",
+                    "bulk%02d" % index,
+                    "批量学生%02d" % index,
+                    "student",
+                    None,
+                    None,
+                    None,
+                    "active",
+                    "unused-hash",
+                    0,
+                ),
+            )
+        self.conn.commit()
+
+    def test_admin_app_renders_only_first_page_of_user_table(self):
+        self._seed_bulk_students(20)
+        admin = self.auth.login("admin", "admin123", "unit-test").user
+        dashboard = self.repo.admin_dashboard()
+        expected_total = len(dashboard["user_management"])
+        self.assertGreater(expected_total, 12)
+
+        html = render_admin_app(admin, dashboard)
+
+        self.assertEqual(html.count("<tr data-admin-user-row "), 12)
+        self.assertIn('data-admin-user-total="%d"' % expected_total, html)
+        self.assertIn("第 1/", html)
+        self.assertIn("/ %d</span>" % expected_total, html)
+
+    def test_admin_user_management_page_filters_and_clamps(self):
+        self._seed_bulk_students(20)
+        admin = self.auth.login("admin", "admin123", "unit-test").user
+
+        students = self.repo.admin_user_management_page(
+            admin["id"], role="student", page=1, page_size=12
+        )
+        self.assertEqual(len(students["rows"]), 12)
+        self.assertTrue(
+            all(row["role"] == "student" for row in students["rows"])
+        )
+        self.assertEqual(
+            students["total_pages"], -(-students["total"] // 12)
+        )
+
+        searched = self.repo.admin_user_management_page(
+            admin["id"], query="bulk07"
+        )
+        self.assertEqual(searched["total"], 1)
+        self.assertEqual(searched["rows"][0]["username"], "bulk07")
+
+        filtered = self.repo.admin_user_management_page(
+            admin["id"], status="disabled"
+        )
+        self.assertEqual(filtered["total"], 0)
+        self.assertEqual(filtered["rows"], [])
+
+        clamped = self.repo.admin_user_management_page(
+            admin["id"], page=999, page_size=12
+        )
+        self.assertEqual(clamped["page"], clamped["total_pages"])
+        self.assertTrue(clamped["rows"])
+
+        garbage = self.repo.admin_user_management_page(
+            admin["id"], page="abc", page_size="xyz"
+        )
+        self.assertEqual(garbage["page"], 1)
+        self.assertEqual(garbage["page_size"], 12)
+
     def test_admin_density_styles_constrain_wide_operational_panels(self):
         styles = Path("highschoolphysics/assets/app.css").read_text()
 
@@ -850,6 +928,68 @@ class ServerRenderingTests(unittest.TestCase):
         self.assertIn("&lt;课程标准&gt;", html)
         self.assertNotIn("<课程标准>", html)
         self.assertNotIn("/private/source.pdf", teacher_html)
+
+
+class AdminUsersApiHttpTests(unittest.TestCase):
+    def setUp(self):
+        from tests.http_support import LivePhysicsServer
+
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.server = LivePhysicsServer(Path(self.tmpdir.name) / "http.sqlite3")
+        self.server.__enter__()
+        _, cookie, _ = self.server.login("admin", "admin123")
+        self.assertTrue(cookie.startswith("hsp_session="))
+        self.cookie = cookie
+
+    def tearDown(self):
+        self.server.__exit__(None, None, None)
+        self.tmpdir.cleanup()
+
+    def test_users_api_returns_rendered_page(self):
+        status, _, payload = self.server.request(
+            "GET",
+            "/api/admin/users?page=1&page_size=3",
+            headers={"Cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(payload.decode("utf-8"))["result"]
+        self.assertEqual(result["page"], 1)
+        self.assertEqual(result["page_size"], 3)
+        self.assertGreater(result["total"], 0)
+        self.assertEqual(result["html"].count("<tr data-admin-user-row "), 3)
+
+    def test_users_api_filters_by_role_and_query(self):
+        status, _, payload = self.server.request(
+            "GET",
+            "/api/admin/users?role=admin",
+            headers={"Cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(payload.decode("utf-8"))["result"]
+        self.assertGreaterEqual(result["total"], 1)
+        self.assertIn("admin", result["html"])
+        self.assertNotIn("student</td>", result["html"])
+
+        status, _, payload = self.server.request(
+            "GET",
+            "/api/admin/users?q=no-such-user-hsp",
+            headers={"Cookie": self.cookie},
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(payload.decode("utf-8"))["result"]
+        self.assertEqual(result["total"], 0)
+        self.assertIn("没有匹配的账号", result["html"])
+
+    def test_users_api_requires_admin(self):
+        status, _, _ = self.server.request("GET", "/api/admin/users")
+        self.assertEqual(status, 403)
+
+        _, student_cookie, _ = self.server.login("stu_1001", "student123")
+        self.assertTrue(student_cookie.startswith("hsp_session="))
+        status, _, _ = self.server.request(
+            "GET", "/api/admin/users", headers={"Cookie": student_cookie}
+        )
+        self.assertEqual(status, 403)
 
 
 if __name__ == "__main__":

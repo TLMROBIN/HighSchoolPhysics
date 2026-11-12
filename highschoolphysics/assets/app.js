@@ -518,41 +518,58 @@ function filterQuestionBank() {
 }
 
 let adminUserPage = 1;
+let adminUserSearchTimer = null;
+let adminUserRequestSeq = 0;
 
-function updateAdminUserTable(resetPage) {
-  const rows = Array.from(document.querySelectorAll("[data-admin-user-row]"));
+async function updateAdminUserTable(resetPage) {
+  const tbody = document.querySelector("[data-admin-user-tbody]");
   const pageSizeSource = document.querySelector("[data-admin-user-page-size]");
-  if (!rows.length || !pageSizeSource) {
+  if (!tbody || !pageSizeSource) {
     return;
   }
   const search = document.querySelector("[data-admin-user-search]");
   const roleFilter = document.querySelector("[data-admin-user-role-filter]");
   const statusFilter = document.querySelector("[data-admin-user-status-filter]");
-  const query = search ? search.value.trim().toLocaleLowerCase() : "";
-  const role = roleFilter ? roleFilter.value : "";
-  const status = statusFilter ? statusFilter.value : "";
   const pageSize = Number.parseInt(pageSizeSource.dataset.adminUserPageSize, 10) || 12;
-  const matches = rows.filter((row) => {
-    const matchesQuery = !query || (row.dataset.searchText || "").toLocaleLowerCase().includes(query);
-    const matchesRole = !role || row.dataset.role === role;
-    const matchesStatus = !status || row.dataset.status === status;
-    return matchesQuery && matchesRole && matchesStatus;
-  });
-  const totalPages = Math.max(1, Math.ceil(matches.length / pageSize));
   if (resetPage) {
     adminUserPage = 1;
   }
-  adminUserPage = Math.min(Math.max(adminUserPage, 1), totalPages);
-  const firstIndex = (adminUserPage - 1) * pageSize;
-  const visibleRows = new Set(matches.slice(firstIndex, firstIndex + pageSize));
-  rows.forEach((row) => {
-    row.hidden = !visibleRows.has(row);
+  const params = new URLSearchParams({
+    q: search ? search.value.trim() : "",
+    role: roleFilter ? roleFilter.value : "",
+    status: statusFilter ? statusFilter.value : "",
+    page: String(adminUserPage),
+    page_size: String(pageSize),
   });
+  const requestSeq = ++adminUserRequestSeq;
+  let result;
+  try {
+    const response = await fetch(`api/admin/users?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.error) {
+      throw new Error(payload.message || payload.error || "request_failed");
+    }
+    result = payload.result || {};
+  } catch (error) {
+    if (requestSeq === adminUserRequestSeq) {
+      setStatus(`账号列表加载失败：${error.message}`, "error");
+    }
+    return;
+  }
+  if (requestSeq !== adminUserRequestSeq) {
+    return;
+  }
+  tbody.innerHTML = result.html || "";
+  const total = result.total || 0;
+  const totalPages = result.total_pages || 1;
+  adminUserPage = result.page || 1;
+  const visibleStart = total ? (adminUserPage - 1) * pageSize + 1 : 0;
+  const visibleEnd = Math.min(adminUserPage * pageSize, total);
   const pageInfo = document.querySelector("[data-admin-user-page-info]");
   if (pageInfo) {
-    const visibleStart = matches.length ? firstIndex + 1 : 0;
-    const visibleEnd = Math.min(firstIndex + pageSize, matches.length);
-    pageInfo.textContent = `第 ${adminUserPage}/${totalPages} 页 · ${visibleStart}-${visibleEnd} / ${matches.length}`;
+    pageInfo.textContent = `第 ${adminUserPage}/${totalPages} 页 · ${visibleStart}-${visibleEnd} / ${total}`;
   }
   const prev = document.querySelector("[data-admin-user-prev]");
   const next = document.querySelector("[data-admin-user-next]");
@@ -908,7 +925,10 @@ document.addEventListener("input", (event) => {
     filterAdminTaxonomy();
   }
   if (event.target.matches("[data-admin-user-search]")) {
-    updateAdminUserTable(true);
+    window.clearTimeout(adminUserSearchTimer);
+    adminUserSearchTimer = window.setTimeout(() => {
+      updateAdminUserTable(true);
+    }, 300);
   }
   if (event.target.closest("[data-question-bank-filter]")) {
     filterQuestionBank();
@@ -1485,7 +1505,6 @@ document.addEventListener("DOMContentLoaded", () => {
   if (graph && graph.dataset.graphDefaultFocus) {
     selectKnowledgeNode(graph.dataset.graphDefaultFocus);
   }
-  updateAdminUserTable(false);
   if (document.querySelector("[data-admin-tab]")) {
     activateAdminTab(initAdminTabFromHash());
     window.addEventListener("hashchange", () => {
