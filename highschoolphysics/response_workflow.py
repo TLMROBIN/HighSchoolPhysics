@@ -21,6 +21,7 @@ from .repository import dumps, loads
 
 
 OUTCOMES = {"correct", "wrong", "blank", "pending"}
+UNREADABLE_ANSWER = "未作答或难以识别"
 CSV_OUTCOMES = {"正确": "correct", "错误": "wrong", "空白": "blank", "待确认": "pending", "": None}
 
 
@@ -298,9 +299,14 @@ def _prepare(repo, user, p, trusted_scan=False):
         confirmed_blank = row.get('answer_blank') is True
         if confirmed_blank and (answer.strip() or score != 0 or maximum is None):
             raise InvalidRequest('明确空白记录需提供空答案、0分和满分')
+        kind = (content or {}).get('document',{}).get('kind') or rule.get('type')
+        if (supplied == 'pending' and score is None and not answer.strip()
+                and rule.get('type') not in ('single_choice', 'multiple_choice')
+                and (kind in ('experiment', 'solution', 'structured', 'short_answer')
+                     or rule.get('bank_type') in ('experiment', 'solution'))):
+            answer = UNREADABLE_ANSWER
         score_only=score is not None and not answer.strip() and not confirmed_blank
         score_with_answer=score is not None and maximum is not None and bool(answer.strip())
-        kind = (content or {}).get('document',{}).get('kind') or rule.get('type')
         if score_only and rule.get('bank_type') not in ('experiment','solution') and kind not in ('experiment','structured','short_answer'):
             # Some imported experimental subquestions retain a fill rule.
             bank_kind=conn.execute('select bank_type from questions where id=?',(s['question_id'],)).fetchone() if not rule.get('bank_type') or rule.get('bank_type')=='unknown' else [rule['bank_type']]
@@ -984,6 +990,8 @@ def review_or_correct(repo,user,p,correction=False, _batch=False):
             raise InvalidRequest("此入口仅支持作答或结果更正；身份和标准答案修订需另行核对")
         if (correction and not reason) or len(reason)>2000 or not key or len(key)>100 or not isinstance(answer,str) or outcome not in ("correct","wrong","blank"):
             raise InvalidRequest("请填写答案、已确认结果及提交标识；发布后更正需填写依据")
+        if outcome == 'blank' and answer.strip() == UNREADABLE_ANSWER:
+            answer = ''
         score_evidence=conn.execute('select imported_score from response_evidence where response_id=? and imported_score is not null limit 1',(r['id'],)).fetchone()
         score_only=bool(score_evidence and not (r['initial_answer'] or '').strip())
         if score_only and not answer.strip() and outcome=='blank':

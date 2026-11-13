@@ -216,6 +216,28 @@ class ResponseWorkflowTests(unittest.TestCase):
         self.assertEqual(self.c.execute('select count(*) from response_decisions').fetchone()[0],decision_count)
         self.assertEqual(self.c.execute("select count(*) from student_responses where assessment_id=? and outcome='correct'",(self.a,)).fetchone()[0],2)
 
+    def test_pending_subjective_answer_can_be_confirmed_as_wrong_or_blank(self):
+        self.c.execute("update assessment_participants set status='present' where assessment_id=? and student_id='stu-1002'", (self.a,))
+        rule = dict(type='short_answer', bank_type='solution', answer='正确解答')
+        self.c.execute('update question_version_snapshots set grading_rule_json=? where assessment_id=?',
+                       (json.dumps(rule), self.a))
+        self.c.commit()
+        payload = dict(assessment_id=self.a, request_key='unreadable-import', source_type='external',
+                       source_name='答题卡', source_reason='手写答案待核对',
+                       records=[dict(student_id=student, number=1, answer='', supplied_outcome='pending')
+                                for student in ('stu-1001', 'stu-1002')])
+        preview, _ = self.save(payload)
+        self.assertEqual([(r['raw_answer'], r['outcome'], r['score']) for r in preview['records']],
+                         [(workflow.UNREADABLE_ANSWER, 'pending', None)] * 2)
+        rows = self.c.execute('select * from student_responses where assessment_id=? order by student_id', (self.a,)).fetchall()
+        batch = dict(assessment_id=self.a, request_key='unreadable-review',
+                     records=[dict(response_id=r['id'], expected_decision_id=r['effective_decision_id'],
+                                   answer=r['final_answer'], outcome=outcome)
+                              for r, outcome in zip(rows, ('wrong', 'blank'))])
+        self.assertEqual(learning.api(self.repo, self.admin, 'response-review-batch', batch)['count'], 2)
+        saved = self.c.execute('select final_answer,outcome from student_responses where assessment_id=? order by student_id', (self.a,))
+        self.assertEqual([tuple(r) for r in saved], [(workflow.UNREADABLE_ANSWER, 'wrong'), ('', 'blank')])
+
     def test_import_preview_required_and_immutable_evidence(self):
         p=self.payload()
         with self.assertRaises(StateConflict):learning.api(self.repo,self.admin,'answers',dict(p,confirm=True))
