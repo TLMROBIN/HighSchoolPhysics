@@ -63,6 +63,7 @@ def badge(stats, label=''):
         escape(label + ' · ' if label else ''), level, detail)
 
 
-def badges(conn, units):
-    stats = statistics(conn, [qid for qid, _ in units])
+def badges(conn, units, *, stats=None):
+    if stats is None:
+        stats = statistics(conn, [qid for qid, _ in units])
     return '<div class="question-difficulty-list">' + ''.join(badge(stats[qid], label) for qid, label in units) + '</div>'

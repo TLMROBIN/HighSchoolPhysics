@@ -1,6 +1,7 @@
 import json
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 from highschoolphysics import daily, learning, learning_views, student_learning
 from highschoolphysics.db import connect, initialize_database, seed_demo_data
@@ -59,6 +60,19 @@ class DailyTaskTests(unittest.TestCase):
         self.assertEqual(1, self.c.execute('select count(*) from student_daily_plans where student_id=?', (self.user['id'],)).fetchone()[0])
         # Plans never touch first-attempt evidence.
         self.assertEqual(0, self.c.execute('select count(*) from redo_attempts').fetchone()[0])
+
+    def test_home_only_calculates_difficulty_for_a_level_preference(self):
+        calculate = student_learning.statistics
+        with patch.object(student_learning, 'statistics', wraps=calculate) as difficulty:
+            page = learning_views.student(self.repo, self.user, {})
+            difficulty.assert_not_called()
+        self.assertIn('待复习 <strong>1</strong>', page)
+
+        student_learning.api(self.repo, self.user, 'student-preferences', {'levels': ['未分级']})
+        with patch.object(student_learning, 'statistics', wraps=calculate) as difficulty:
+            page = learning_views.student(self.repo, self.user, {})
+            difficulty.assert_called_once()
+        self.assertIn('待复习 <strong>0</strong>', page)
 
     def test_daily_size_uses_class_setting_and_defaults_to_three(self):
         self.assertEqual(3, daily.size(self.c, self.user))

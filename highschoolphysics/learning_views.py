@@ -281,7 +281,7 @@ def tags(s):
     labels = {'knowledge': '知识点', 'ability': '能力', 'literacy': '素养'}
     return '<p>'+''.join('<span class="pill">%s：%s</span> '%(labels[t['tag_type']],esc(t['name'])) for t in loads(s['tag_snapshot_json'],[]) if t['tag_type'] in labels)+'</p>'
 def images(c,q): return ''.join(image_html(r[0]) for r in c.execute('select id from exam_assets where question_id=?',(q,)))
-def question_fragment(c, snapshot_row, user, base_path="", include_solution=False, include_options=True, whole_group=False):
+def question_fragment(c, snapshot_row, user, base_path="", include_solution=False, include_options=True, whole_group=False, *, difficulty_stats=None):
     rendered = render_snapshot_content(
         c,
         snapshot_row["id"],
@@ -303,7 +303,7 @@ def question_fragment(c, snapshot_row, user, base_path="", include_solution=Fals
                 (binding['revision_id'], snapshot_row['assessment_id'])).fetchall()
             labels = {child['key']: child.get('label', child['key']) for child in binding['document'].get('children', [])}
             units = [(r['question_id'], labels.get(r['child_key'], '')) for r in related] or units
-    difficulty = badges(c, units)
+    difficulty = badges(c, units, stats=difficulty_stats)
     if rendered is not None:
         return difficulty + rendered
     options=loads(snapshot_row['options_json'],{})
@@ -887,8 +887,17 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
             groups_by_key[group_key]=[]
             question_groups.append(groups_by_key[group_key])
         groups_by_key[group_key].append(question)
-    participants=c.execute('select p.*,u.display_name,u.class_id,c.name class_name from assessment_participants p join users u on u.id=p.student_id left join class_groups c on c.id=u.class_id where assessment_id=? order by c.name,u.display_name',(aid,)).fetchall()
-    rs=[dict(r) for r in c.execute('select r.*,u.display_name,c.name class_name from student_responses r join users u on u.id=r.student_id left join class_groups c on c.id=u.class_id where assessment_id=? order by c.name,u.display_name',(aid,)) if staff or r['student_id']==user['id']]
+    participant_filter = '' if staff else ' and p.student_id=?'
+    response_filter = '' if staff else ' and r.student_id=?'
+    exam_args = (aid,) if staff else (aid, user['id'])
+    participants = c.execute('''select p.*,u.display_name,u.class_id,c.name class_name
+        from assessment_participants p join users u on u.id=p.student_id
+        left join class_groups c on c.id=u.class_id
+        where p.assessment_id=?''' + participant_filter + ' order by c.name,u.display_name', exam_args).fetchall()
+    rs = [dict(r) for r in c.execute('''select r.*,u.display_name,c.name class_name
+        from student_responses r join users u on u.id=r.student_id
+        left join class_groups c on c.id=u.class_id
+        where r.assessment_id=?''' + response_filter + ' order by c.name,u.display_name', exam_args)]
     if staff and a['grading_status']!='published':
         body.append('<p>考试范围：%s · 默认范围内全部学生参加考试（%s 人）。</p>' % (esc(scope_label(a)),sum(p['status']=='present' for p in participants)))
         body.append('<h3>作答情况导入</h3><div class="response-import-entries"><section class="response-import-entry"><h4>表格文件导入</h4><p>支持 CSV / XLSX。列名：学生姓名、题号、学生答案、得分；可增加满分、班级、结果。实验题和解答题可以只填得分。仅得分记录如需判定对错，请同时填写满分；没有满分时保留得分并待复核。重名学生请填写班级或学号。</p>')
@@ -975,12 +984,13 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
                 results.append('<td data-outcome="%s">%s</td>' % (esc(state),esc(result)))
         body.append('<nav class="student-exam-nav" aria-label="本次考试题号与结果"><p>本次考试结果 · 点击题号查看题目、正确答案与解析及首次作答</p><div class="student-exam-nav-scroll"><table><thead><tr><th scope="row">题号</th>%s</tr></thead><tbody><tr><th scope="row">结果</th>%s</tr></tbody></table></div></nav><p class="student-exam-empty" role="status">请选择上方题号查看详情。</p>' % (''.join(headings),''.join(results)))
     included={p['student_id'] for p in present}
+    difficulty_stats = statistics(c, [q['question_id'] for q in qs])
     for group_index, question_group in enumerate(question_groups):
         first=question_group[0]
         first_content=snapshot_content(c,first['id'],user['school_id'])
         document=first_content['document'] if first_content else {}
         question_number=(document or {}).get('number') or first['original_question_number'] or first['position']
-        group_preview=question_fragment(c,first,user,base_path,whole_group=True)
+        group_preview=question_fragment(c,first,user,base_path,whole_group=True,difficulty_stats=difficulty_stats)
         body.append('<article class="assessment-question-group"%s><details class="assessment-question-details"%s><summary><h3>测评题目 %02d · 原卷题号 第%s题 · %s个小问</h3><span>%s</span></summary>%s'%(
             '' if staff else ' id="student-exam-group-%s" hidden' % first['position'],
             " open" if staff and group_index == 0 else "", group_index + 1, esc(question_number), len(question_group),
@@ -992,7 +1002,7 @@ def exams(repo,user,aid=None,base_path="",class_ids=None):
             part_title=('小问 '+child_label) if child_label else ('整题作答' if len(question_group)==1 else '作答单元 '+str(q['position']))
             rows=[r for r in rs if r['snapshot_id']==q['id'] and r['student_id'] in included]
             body.append('<section class="assessment-subquestion" id="exam-question-%s" tabindex="-1"><h4>%s · 作答序号 %s</h4>%s%s%s'%(
-                q['position'],esc(part_title),q['position'],badge(statistics(c, [q['question_id']])[q['question_id']])+fill_question_context(q),tags(q),
+                q['position'],esc(part_title),q['position'],badge(difficulty_stats[q['question_id']])+fill_question_context(q),tags(q),
                 '<details%s><summary>本小问标准答案与解析</summary>%s</details>' % (
                     '' if staff else ' open',
                     render_snapshot_solution(c,q['id'],user['school_id'],base_path)

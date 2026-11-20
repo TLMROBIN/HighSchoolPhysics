@@ -323,7 +323,7 @@ def personal_progress(c, w):
                 available=not pending and count<3 and due<=today)
 
 
-def wrongs(repo,user):
+def wrongs(repo, user, *, include_difficulty=True):
     c=repo.conn
     rows=[dict(r) for r in c.execute('''select w.* from wrong_questions w join assessment_sessions a on a.id=w.assessment_id
         where w.student_id=? and w.is_active=1 and a.grading_status='published' order by w.created_at desc,w.id''',(user['id'],))]
@@ -342,7 +342,7 @@ def wrongs(repo,user):
         if w['id'] in mastered or w['question_id'] in unique: continue
         w.update(personal=True,kind=w['question_type'],tag_list=loads(w['tags_json'],[]),stem=loads(w['document_json'],{})['stem_md'])
         w['progress']=personal_progress(c,w);unique[w['question_id']]=w
-    stats=statistics(c,list(unique))
+    stats = statistics(c, list(unique)) if include_difficulty else {}
     # Only bank_type is needed here; get_question would repeat the already
     # batched difficulty calculation once per wrong question.
     bank_kinds={}
@@ -352,16 +352,17 @@ def wrongs(repo,user):
         bank_kinds.update(c.execute('select id,bank_type from questions where id in (%s)' %
             ','.join('?' for _ in batch),batch).fetchall())
     for w in unique.values():
-        w['level']=stats[w['question_id']]['label']
+        if include_difficulty:
+            w['level'] = stats[w['question_id']]['label']
         bank_kind=bank_kinds.get(w['question_id'],'unknown')
         w['filter_kind']='structured' if bank_kind=='solution' else bank_kind if bank_kind!='unknown' else w['kind']
     return list(unique.values())
 
 
-def group_wrongs(repo,user):
+def group_wrongs(repo, user, *, include_difficulty=True):
     """Merge display/review by the frozen parent revision, never by a paper number."""
     groups={}
-    for w in wrongs(repo,user):
+    for w in wrongs(repo, user, include_difficulty=include_difficulty):
         content=None if w['personal'] else snapshot_content(repo.conn,w['snapshot']['id'],user['school_id'])
         revision=w.get('revision_id') if w['personal'] else (content or {}).get('revision_id')
         document=loads(w['document_json'],{}) if w['personal'] else (content or {}).get('document',{})
@@ -687,12 +688,16 @@ def page(repo,user,params,base_path=''):
     require_student(user);c=repo.conn;uid=user['id']
     if (params.get('student_id') or [uid])[0] != uid:
         raise PermissionDenied('只能查看自己的学习证据')
-    all_wrongs=group_wrongs(repo,user);types,levels=preferences(c,uid)
-    due=due_groups(c,uid,all_wrongs)
     value=lambda k:(params.get(k) or [''])[0]
+    module=value('module') or 'today'
+    types,levels=preferences(c,uid)
+    # The queue only uses live difficulty when a student filters by level.
+    all_wrongs = group_wrongs(
+        repo, user, include_difficulty=bool(levels or (module == 'wrong' and value('level')))
+    )
+    due=due_groups(c,uid,all_wrongs)
     wid=value('practice')
     if value('review') and not wid and due:wid=due[0]['id']
-    module=value('module') or 'today'
     map_home = module in ('starmap', 'graph') and not wid and not value('trial')
     out=['<section class="panel learning student-workspace%s"><header class="student-workspace-heading"><h1>我的学习</h1><details class="student-settings"><summary>关注设置</summary>' % (' student-map-workspace' if map_home else '')]
     from .learning_views import form,hidden
