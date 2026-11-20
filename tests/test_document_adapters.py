@@ -16,6 +16,7 @@ from PIL import Image
 
 from highschoolphysics.document_adapters import AdapterError, convert_document
 from highschoolphysics.document_adapters.docx_native import _math_value, _math_text_run, convert_docx, _reconcile_markitdown_blocks
+from highschoolphysics.document_adapters.docx_native import _paragraph_numbering
 from highschoolphysics.document_adapters.mtef_worker import _normalise_formula, _restore_unlisted_cjk
 from highschoolphysics.document_adapters.mineru_pdf import _run, convert_pdf
 from highschoolphysics.document_store import DocumentStore
@@ -105,6 +106,16 @@ def make_wps_shape_docx(path):
 
 
 class DocumentAdapterTests(unittest.TestCase):
+    def test_docx_disabled_numbering_preserves_typed_question_number(self):
+        paragraph = ET.fromstring(
+            f'<w:p xmlns:w="{W}"><w:pPr><w:numPr><w:ilvl w:val="0"/>'
+            '<w:numId w:val="0"/></w:numPr></w:pPr><w:r><w:t>7.</w:t></w:r></w:p>'
+        )
+        counters = {}
+
+        self.assertEqual(_paragraph_numbering(paragraph, {}, counters), "")
+        self.assertEqual(counters, {})
+
     def test_markitdown_numbered_option_chunk_does_not_create_extra_questions(self):
         native = [dict(id='stem', markdown='10．请选择正确说法。', source_locator={}, issues=[])]
         native += [dict(id=key, markdown=key+'．'+value, source_locator={}, issues=[])

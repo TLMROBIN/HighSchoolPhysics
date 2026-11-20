@@ -462,6 +462,9 @@ def _paragraph_numbering(paragraph, numbering, counters):
     if num_id_node is None:
         return ""
     num_id = _attribute(num_id_node, "val")
+    # OOXML reserves numId 0 for removing paragraph numbering.
+    if num_id == "0":
+        return ""
     level = int(_attribute(level_node, "val") or 0) if level_node is not None else 0
     num_format, template = numbering.get(num_id, {}).get(level, ("decimal", "%1."))
     state = counters.setdefault(num_id, {})
