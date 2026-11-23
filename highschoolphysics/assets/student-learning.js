@@ -3,6 +3,31 @@
  const request=async(action,p)=>{const r=await fetch('api/learning/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});const d=await r.json();if(!r.ok||d.ok===false)throw Error(d.error?.message||d.message||'保存失败，请重试');return d.result||d;};
  const key=()=>globalThis.crypto?.randomUUID?.()||'request-'+Date.now()+'-'+Math.random().toString(36).slice(2);
  const payload=f=>{const p={};for(const[k,v]of new FormData(f)){if(k in p)p[k]=[].concat(p[k],v);else p[k]=v;}return p;};
+ const wrongFilters=document.querySelector('[data-remember-wrong-filters]');
+ if(wrongFilters){
+  const storageKey='hsp-wrong-filters:'+location.pathname+':'+wrongFilters.dataset.rememberWrongFilters;
+  const url=new URL(location.href);
+  const fields=['search','knowledge','ability','literacy','cause','type','level'];
+  const selected=new URLSearchParams();
+  for(const field of fields){
+   const value=url.searchParams.get(field);
+   if(value)selected.set(field,value);
+  }
+  try{
+   if(url.searchParams.has('filters')||fields.some(field=>url.searchParams.has(field))){
+    const encoded=selected.toString();
+    if(encoded)localStorage.setItem(storageKey,encoded);
+    else localStorage.removeItem(storageKey);
+   }else{
+    const saved=new URLSearchParams(localStorage.getItem(storageKey));
+    for(const field of fields){
+     const value=saved.get(field);
+     if(value)url.searchParams.set(field,value);
+    }
+    if(url.href!==location.href)location.replace(url.href);
+   }
+  }catch{}
+ }
  const labels={correct:'本次正确',wrong:'本次做错了',blank:'空白',pending:'答案尚待确认'};
  document.querySelectorAll('[data-wrong-causes]').forEach(panel=>{
   const buttons=[...panel.querySelectorAll('[data-cause]')],status=panel.querySelector('[role=status]');let busy=false;
@@ -37,7 +62,15 @@
   const action=f.dataset.action;if(!['bank-start','bank-add-wrong','student-preferences','wrong-mastered','daily-similar','daily-more'].includes(action))return;
   const requestKey=key();f.addEventListener('submit',async e=>{
    e.preventDefault();e.stopImmediatePropagation();if(action==='wrong-mastered'&&!confirm('确认已掌握这道题？确认后整道题将移出错题本，不再提示复习。首次作答和重做记录会保留。'))return;const status=f.querySelector('[role=status]'),button=f.querySelector('button[type=submit],button:not([type])');button.disabled=true;status.textContent='正在保存…';
-   try{const d=await request(action,{...payload(f),request_key:requestKey,...(action==='wrong-mastered'?{confirmed:true}:{})});location.assign(d.url||'app');}
+   try{
+    const d=await request(action,{...payload(f),request_key:requestKey,...(action==='wrong-mastered'?{confirmed:true}:{})});
+    if(action==='wrong-mastered'&&wrongFilters){
+     const url=new URL(location.href);
+     url.searchParams.set('mastered','1');
+     if(url.href===location.href)location.reload();
+     else location.replace(url.href);
+    }else location.assign(d.url||'app');
+   }
    catch(err){status.textContent=err.message;button.disabled=false;}
   });
  });
