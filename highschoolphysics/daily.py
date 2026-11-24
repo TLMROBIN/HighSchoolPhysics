@@ -256,11 +256,15 @@ def render(repo, user, all_groups, due, params):
     fresh = sum(1 for n in counts if n == 0)
     days = streak(c, uid)
     out = ['<section class="daily-tasks" aria-labelledby="daily-title">']
-    out.append('<header class="daily-head"><div><h2 id="daily-title">今日任务</h2><p class="daily-sub">每天只做几道，做完就是进步。</p></div>')
-    out.append('<div class="daily-progress" role="group" aria-label="今日进度"><strong>%s / %s</strong><span>已完成</span>'
-               '<meter min="0" max="%s" value="%s">%s / %s</meter></div></header>' % (done, len(items), max(len(items), 1), done, done, len(items)))
-    out.append('<ul class="daily-stats"><li><strong>%s</strong><span>连续练习天数</span></li><li><strong>%s</strong><span>已巩固</span></li>'
-               '<li><strong>%s</strong><span>复测中</span></li><li><strong>%s</strong><span>待首次订正</span></li></ul>' % (days, consolidated, reviewing, fresh))
+    subtitle = ('今天安排 %s 题' % len(items)) if items else '今天没有到期的错题'
+    out.append('<header class="daily-head"><div><h2 id="daily-title">今日任务</h2><p class="daily-sub">%s</p></div>' % subtitle)
+    if items:
+        out.append('<div class="daily-progress" role="group" aria-label="今日进度"><strong>%s / %s</strong><span>已完成</span>'
+                   '<meter min="0" max="%s" value="%s">%s / %s</meter></div>' % (done, len(items), len(items), done, done, len(items)))
+    out.append('</header>')
+    if items:
+        out.append('<ul class="daily-stats"><li><strong>%s</strong><span>连续练习天数</span></li><li><strong>%s</strong><span>已巩固</span></li>'
+                   '<li><strong>%s</strong><span>复测中</span></li><li><strong>%s</strong><span>待首次订正</span></li></ul>' % (days, consolidated, reviewing, fresh))
     if value('completed'):
         out.append('<p class="daily-status" role="status">本轮练习已提交。</p>')
     if value('empty'):
@@ -271,12 +275,12 @@ def render(repo, user, all_groups, due, params):
         out.append('<a class="daily-start-all" href="app?practice=%s&amp;queue=%s&amp;back=today">%s</a>' % (
             quote(pending[0]['id']), quote(','.join(rest)), '开始今日任务' if not done else '继续今日任务'))
     elif items:
-        out.append('<div class="daily-done"><p><strong>今天的任务完成了！</strong>坚持隔天复测，错题才会真正消掉。</p>')
+        out.append('<div class="daily-done"><p><strong>今天的任务已完成</strong>下次复测会按间隔安排。</p>')
         if any(g['id'] not in ids for g in due):
             out.append(form('daily-more', '<button type="submit">再来 %s 题</button>' % size(c, user)))
         out.append('</div>')
     else:
-        out.append('<p class="daily-empty">今天没有到期的错题。可以去<a href="app?module=bank">题库</a>试做新题，或在<a href="app?module=starmap">知识星图</a>里看看薄弱星区。</p>')
+        out.append('<p class="daily-empty">可以去<a href="app?module=bank">题库</a>试做新题，或在<a href="app?module=starmap">知识星图</a>里看看薄弱星区。</p>')
     out.append('<ol class="daily-list">')
     for g, ok in items:
         top = max((w['progress']['count'] for w in g['members']), default=0)

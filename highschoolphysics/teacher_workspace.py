@@ -20,6 +20,6 @@ def navigation(active=''):
 
 def overview():
     return '<div class="teacher-module-grid">%s</div>' % ''.join(
-        '<a class="teacher-module-card" href="%s"><h2>%s</h2><p>%s</p><span>进入模块 →</span></a>'
+        '<a class="teacher-module-card" href="%s"><h2>%s</h2><p>%s</p><span aria-hidden="true">→</span></a>'
         % (url, escape(label), escape(description)) for _, url, label, description in MODULES
     )

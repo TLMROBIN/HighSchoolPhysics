@@ -36,7 +36,7 @@ class StudentLearningTests(unittest.TestCase):
         originals=[tuple(r) for r in self.c.execute('select * from student_responses')]
         student_learning.api(self.repo,self.user,'student-preferences',dict(types=['experiment'],levels=['挑战']))
         page=learning_views.student(self.repo,self.user,{})
-        self.assertIn('待复习 <strong>0</strong>',page)
+        self.assertIn('今天安排 1 题',page)
         self.assertEqual(originals,[tuple(r) for r in self.c.execute('select * from student_responses')])
         self.assertIn('student-wrong',learning_views.student(self.repo,self.user,{'module':['wrong']}))
         with self.assertRaises(InvalidRequest):student_learning.api(self.repo,self.user,'student-preferences',dict(types=['fake']))
@@ -55,7 +55,7 @@ class StudentLearningTests(unittest.TestCase):
                     (self.user['id'],wrong['id'],learning.now()))
         self.c.commit()
         refreshed=learning_views.student(self.repo,self.user,{})
-        self.assertIn('待复习 <strong>0</strong>',refreshed)
+        self.assertIn('今天没有到期的错题',refreshed)
 
     def test_response_indexes_survive_existing_database_initialization(self):
         for name in ('idx_responses_student_question','idx_responses_question'):

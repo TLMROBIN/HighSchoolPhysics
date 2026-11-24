@@ -1,15 +1,15 @@
 .student-workspace { max-width: 1100px; margin-inline: auto; }
 .student-workspace-heading { display:flex; justify-content:space-between; align-items:start; gap:24px; }
-.student-workspace-heading h1 { margin:0 0 24px; }
+.student-workspace-heading h1 { margin:0 0 24px; font-weight:500; }
 .student-workspace .student-settings { max-width:520px; }
-.student-workspace .student-settings summary,.student-workspace summary { cursor:pointer; min-height:44px; padding:10px 0; }
-.student-workspace .student-settings fieldset { margin:14px 0; }
-.student-workspace .student-settings fieldset label { display:inline-flex; align-items:center; gap:6px; margin:6px 12px 6px 0; }
+.student-workspace .student-settings summary,.student-workspace summary { cursor:pointer; min-height:44px; padding:8px 0; }
+.student-workspace .student-settings fieldset { margin:16px 0; }
+.student-workspace .student-settings fieldset label { display:inline-flex; align-items:center; gap:8px; margin:8px 12px 8px 0; }
 .student-workspace input[type=checkbox],.student-workspace input[type=radio] { width:18px; height:18px; min-height:0; margin:0; flex:0 0 18px; accent-color:#08766f; }
-.student-review-count { display:flex; align-items:center; justify-content:center; gap:8px; padding:18px; background:#dff3ef; color:#08766f; font-size:18px; text-decoration:none; border-radius:8px; }
+.student-review-count { display:flex; align-items:center; justify-content:center; gap:8px; padding:16px 20px; background:#dff3ef; color:#08766f; font-size:18px; text-decoration:none; border-radius:8px; }
 .student-review-count strong { font-variant-numeric:tabular-nums; }
 .student-workspace .student-module-nav { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:24px 0 32px; border-bottom:1px solid #d8dee8; }
-.student-workspace .student-module-nav a { display:flex; align-items:center; justify-content:center; min-height:64px; font-weight:600; text-decoration:none; color:#41556f; }
+.student-workspace .student-module-nav a { display:flex; align-items:center; justify-content:center; min-height:64px; font-weight:500; text-decoration:none; color:#41556f; }
 .student-workspace .student-module-nav a[aria-current] { color:#08766f; border-bottom:3px solid #08766f; }
 .student-workspace .student-module-nav a:hover,.student-workspace .student-option:hover { background:#f4f7f9; }
 .student-workspace :is(a,button,input,select,summary):focus-visible { outline:3px solid #08766f; outline-offset:3px; }
@@ -134,22 +134,23 @@
 /* Daily tasks */
 .daily-tasks { display:grid; gap:20px; }
 .daily-head { display:flex; justify-content:space-between; align-items:end; gap:24px; flex-wrap:wrap; }
-.daily-head h2 { margin:0; }
-.daily-sub { margin:6px 0 0; color:#5b6b80; }
-.daily-progress { display:grid; grid-template-columns:auto auto; align-items:baseline; gap:4px 10px; min-width:220px; }
-.daily-progress strong { font-size:28px; color:#08766f; font-variant-numeric:tabular-nums; }
+.daily-head h2 { margin:0; font-weight:500; }
+.daily-sub { margin:8px 0 0; color:#5b6b80; }
+.daily-progress { display:grid; grid-template-columns:auto auto; align-items:baseline; gap:4px 12px; min-width:220px; }
+.daily-progress strong { font-size:28px; font-weight:500; color:#08766f; font-variant-numeric:tabular-nums; }
 .daily-progress span { color:#5b6b80; }
 .daily-progress meter { grid-column:1/-1; width:100%; height:12px; }
 .daily-stats { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
-.daily-stats li { display:flex; flex-direction:column; gap:4px; padding:14px 16px; border:1px solid #d8dee8; border-radius:8px; background:#fbfcfd; }
-.daily-stats strong { font-size:24px; font-variant-numeric:tabular-nums; color:#1f2d3d; }
+.daily-stats li { display:flex; flex-direction:column; gap:4px; padding:16px; border:1px solid #d8dee8; border-radius:8px; background:#fbfcfd; }
+.daily-stats strong { font-size:24px; font-weight:500; font-variant-numeric:tabular-nums; color:#1f2d3d; }
 .daily-stats span { color:#5b6b80; font-size:14px; }
-.daily-start-all { display:flex; align-items:center; justify-content:center; min-height:56px; border-radius:8px; background:#08766f; color:#fff; font-size:18px; font-weight:600; text-decoration:none; }
+.daily-start-all { display:flex; align-items:center; justify-content:center; min-height:56px; border-radius:8px; background:#08766f; color:#fff; font-size:18px; font-weight:500; text-decoration:none; }
 .daily-start-all:hover { background:#065f59; }
-.daily-status { margin:0; padding:10px 14px; border-radius:6px; background:#dff3ef; color:#08766f; }
-.daily-done { padding:16px 18px; border-radius:8px; background:#dff3ef; color:#0b4f4a; }
-.daily-done p { margin:0 0 10px; }
+.daily-status { margin:0; padding:12px 16px; border-radius:6px; background:#dff3ef; color:#08766f; }
+.daily-done { padding:16px 20px; border-radius:8px; background:#dff3ef; color:#0b4f4a; }
+.daily-done p { margin:0 0 12px; }
 .daily-empty { margin:0; color:#41556f; }
+.daily-empty a { color:#08766f; text-decoration:underline; text-underline-offset:3px; }
 .daily-list { list-style:none; margin:0; padding:0; display:grid; gap:12px; }
 .daily-item { display:flex; justify-content:space-between; align-items:center; gap:18px; padding:16px 18px; border:1px solid #d8dee8; border-left:4px solid #e0a43a; border-radius:8px; }
 .daily-item.is-done { border-left-color:#08766f; background:#f6fbfa; }
@@ -166,8 +167,8 @@
 .daily-rules { color:#41556f; }
 .daily-rules ul { margin:8px 0 0; padding-left:20px; line-height:1.7; }
 @media (max-width:720px) {
- .student-workspace .student-module-nav { grid-template-columns:repeat(5,minmax(0,1fr)); }
- .student-workspace .student-module-nav a { font-size:14px; }
+ .student-workspace .student-module-nav { display:flex; gap:4px; overflow-x:auto; scrollbar-width:thin; }
+ .student-workspace .student-module-nav a { flex:0 0 auto; min-width:88px; padding-inline:12px; font-size:14px; }
  .daily-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
  .daily-item { flex-direction:column; align-items:stretch; }
  .daily-actions { min-width:0; }

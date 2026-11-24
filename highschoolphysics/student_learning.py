@@ -707,7 +707,7 @@ def page(repo,user,params,base_path=''):
     settings+='<fieldset><legend>关注难度</legend>'+''.join('<label><input type="checkbox" name="levels" value="%s"%s>%s</label>'%(l,' checked' if l in levels else '',l) for l in LEVELS)+'</fieldset><p>未选择表示关注全部；只影响待复习队列，错题仍完整保留。</p><button>保存设置</button>'
     out.append(form('student-preferences',settings)+'</details>')
     review_link = '<a class="student-review-count" href="app?review=1">待复习 <strong>%s</strong> 题</a>' % len(due)
-    out.append(review_link + '</header>' if map_home else '</header>' + review_link)
+    out.append(review_link + '</header>' if map_home else '</header>' + (review_link if module != 'today' else ''))
     modules=(('today','今日任务'),('wrong','错题本'),('starmap','知识星图'),('history','历史测试'),('bank','题库'))
     nav_module = 'starmap' if module == 'graph' else module
     out.append('<nav class="student-module-nav" aria-label="学习模块">'+''.join('<a href="app?module=%s"%s>%s</a>'%(k,' aria-current="page"' if k==nav_module else '',v) for k,v in modules)+'</nav>')

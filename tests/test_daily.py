@@ -66,13 +66,21 @@ class DailyTaskTests(unittest.TestCase):
         with patch.object(student_learning, 'statistics', wraps=calculate) as difficulty:
             page = learning_views.student(self.repo, self.user, {})
             difficulty.assert_not_called()
-        self.assertIn('待复习 <strong>1</strong>', page)
+        self.assertIn('<strong>0 / 1</strong>', page)
+        self.assertNotIn('student-review-count', page)
 
         student_learning.api(self.repo, self.user, 'student-preferences', {'levels': ['未分级']})
         with patch.object(student_learning, 'statistics', wraps=calculate) as difficulty:
             page = learning_views.student(self.repo, self.user, {})
             difficulty.assert_called_once()
-        self.assertIn('待复习 <strong>0</strong>', page)
+        self.assertNotIn('student-review-count', page)
+
+    def test_empty_home_omits_zero_progress_and_stats(self):
+        page = daily.render(self.repo, self.user, [], [], {})
+        self.assertIn('今天没有到期的错题', page)
+        self.assertNotIn('daily-progress', page)
+        self.assertNotIn('daily-stats', page)
+        self.assertNotIn('0 / 0', page)
 
     def test_daily_size_uses_class_setting_and_defaults_to_three(self):
         self.assertEqual(3, daily.size(self.c, self.user))
@@ -143,7 +151,7 @@ class DailyTaskTests(unittest.TestCase):
         learning.api(self.repo, self.other, 'solution', dict(wrong_id=self.wid))
         learning.submit(self.repo, self.other['id'], dict(wrong_id=self.wid, unified='1', self_outcome='correct', request_key='today-redo'))
         page = learning_views.student(self.repo, self.other, {})
-        self.assertIn('今天的任务完成了', page)
+        self.assertIn('今天的任务已完成', page)
         self.assertIn('今日已完成', page)
         self.assertEqual('app?module=today&empty=1', student_learning.api(self.repo, self.other, 'daily-more', dict(request_key='more2'))['url'])
 

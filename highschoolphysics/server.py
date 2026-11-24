@@ -2604,7 +2604,7 @@ def render_admin_app(user, dashboard):
           <strong>{label}</strong>
           <span>{status_label}</span>
           <small>{version}</small>
-          <p>{detail}</p>
+          <details class="runtime-health-detail"><summary>技术详情</summary><p>{detail}</p></details>
           <small>{checked_at}</small>
         </article>
         """.format(
@@ -2696,7 +2696,7 @@ def render_admin_app(user, dashboard):
 
     body = """
 <section class="admin-app admin-app-compact">
-  <div id="action-status" class="action-status" aria-live="polite">等待操作</div>
+  <div id="action-status" class="action-status" aria-live="polite" hidden>等待操作</div>
   <nav class="admin-tab-nav" role="tablist" aria-label="管理员分区">
     <button type="button" role="tab" class="is-active" data-admin-tab="overview" aria-selected="true">概览</button>
     <button type="button" role="tab" data-admin-tab="accounts" aria-selected="false">账号</button>
